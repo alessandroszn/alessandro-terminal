@@ -1,9 +1,15 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
+//   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
 //   GET /api/health
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04)
 //   GET /api/history?symbol=AAPL&range=6M   (T03, provenance + stale serving in T04)
 // The Twelve Data API key lives ONLY here (secret TWELVEDATA_KEY), never in the client,
 // never in URLs returned to the client, never logged.
+
+import { handleYields } from "./yields.mjs";
+import { handleCalendar } from "./calendar.mjs";
+import { handleNews } from "./news.mjs";
+import { handleBriefing } from "./briefing.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -15,7 +21,7 @@ const PROVIDER_TIMEOUT_MS = 8000;
 //   PARTIAL  real but incomplete (e.g. venue-subset volume, not consolidated)
 //   STALE    real but past its freshness window (served because the provider failed)
 //   N/A      not available from the current data source — never estimated, never invented
-// (SIMULATED and DERIVED are assigned by the client: the API never returns simulated data.)
+// (DERIVED and LOADING are assigned by the client. Nothing in this API is invented or estimated.)
 export const STATUS = { LIVE: "LIVE", PARTIAL: "PARTIAL", STALE: "STALE", NA: "N/A" };
 
 // Twelve Data real-time US equities come from venues that cover ~5% of US volume;
@@ -406,6 +412,10 @@ export default {
     if (url.pathname === "/api/health") return json({ ok: true, ts: Date.now() }, H);
     if (url.pathname === "/api/quote") return handleQuote(url, env, ctx, H);
     if (url.pathname === "/api/history") return handleHistory(url, env, ctx, H);
+    if (url.pathname === "/api/yields") return handleYields(url, env, ctx, H, json);
+    if (url.pathname === "/api/calendar") return handleCalendar(url, env, ctx, H, json);
+    if (url.pathname === "/api/news") return handleNews(url, env, ctx, H, json);
+    if (url.pathname === "/api/briefing") return handleBriefing(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };

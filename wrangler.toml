@@ -1,7 +1,9 @@
 name = "alessandro-terminal"
 main = "src/worker.mjs"
 compatibility_date = "2026-01-01"
-workers_dev = true
+# private terminal (T05): no workers.dev / preview URLs that would bypass Cloudflare Access
+workers_dev = false
+preview_urls = false
 # keep variables/secrets set in the dashboard: a deploy must never drop TWELVEDATA_KEY
 keep_vars = true
 
@@ -16,8 +18,12 @@ routes = [
 [assets]
 directory = "./public"
 
+# briefing model (Cloudflare Workers AI, free allocation)
+[ai]
+binding = "AI"
+
 [vars]
-ALLOWED_ORIGIN = "*"
+ALLOWED_ORIGIN = "https://alessandrozanichelli.com"
 
 # TWELVEDATA_KEY is a SECRET (Cloudflare dashboard → Worker → Settings →
 # Variables and Secrets, type "Secret"), never committed to this repo.

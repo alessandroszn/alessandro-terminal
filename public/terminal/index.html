@@ -101,7 +101,17 @@
   /* ---- lists (watchlist) ---- */
   .idx-row,.wl-row{display:grid;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--line)}
   .idx-row{grid-template-columns:1fr auto auto;cursor:default}
-  .wl-row{grid-template-columns:100px 1fr auto auto}
+  .wl-row,.list-head.wl{grid-template-columns:minmax(120px,1.3fr) 48px auto auto 46px 16px}
+  .wl-row .sym small{display:block;color:var(--dim);font-weight:400;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wl-t{color:var(--dim);font-size:10px;text-align:right;white-space:nowrap}
+  .wl-x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:11px;padding:0}
+  .wl-x:hover{color:var(--down)}
+  .wl-add{display:flex;gap:6px;align-items:center;padding:8px 8px 4px}
+  .wl-in{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line-2);color:var(--fg);border-radius:3px;padding:5px 7px;font:inherit;font-size:12px;text-transform:uppercase}
+  .wl-btn{background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:5px 10px;font:inherit;font-size:10.5px;cursor:pointer}
+  .wl-btn:hover{color:var(--fg);border-color:var(--amber)}
+  .wl-n{color:var(--dim);font-size:10px;white-space:nowrap}
+  .wl-msg{padding:0 8px 6px;color:var(--muted);font-size:10.5px;min-height:14px}
   .wl-row:hover{background:#151922}
   .idx-row .n{color:var(--muted);font-size:11.5px}
   .wl-row .sym{font-weight:600;font-size:11.5px}
@@ -118,6 +128,20 @@
   .heat-cell:hover{outline:1px solid var(--amber)}
   .heat-cell .hs{font-weight:700;font-size:12px}
   .heat-cell .hc{font-size:11px;opacity:.92}
+
+  /* ---- markets / yields / calendar / news / briefing (T05) ---- */
+  table.mkt tr.grp td{color:var(--amber);font-size:9.5px;letter-spacing:.12em;text-align:left;padding-top:12px;border-bottom:1px solid var(--line-2)}
+  .yc{margin-bottom:18px}
+  .yc-h{font-size:10.5px;letter-spacing:.12em;color:var(--fg);margin-bottom:4px}
+  .src-line a,.news-item a.h,.scr-count a{color:var(--fg)}
+  .news-item{display:grid;grid-template-columns:78px 1fr auto;gap:10px;align-items:baseline;padding:6px 2px;border-bottom:1px solid var(--line)}
+  .news-item .src{color:var(--amber);font-size:9.5px;letter-spacing:.06em;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  .news-item .h{font-size:12px;text-decoration:none}
+  .news-item .h:hover{text-decoration:underline}
+  .news-item .tm{color:var(--dim);font-size:10px;white-space:nowrap}
+  table.cal tr.past td{opacity:.55}
+  .brief{font-size:12.5px;line-height:1.55;color:var(--fg);margin:10px 0}
+  .brief-in{white-space:pre-wrap;font-size:10px;color:var(--muted);max-height:220px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:3px}
 
   /* ---- movers ---- */
   .mov-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
@@ -301,7 +325,13 @@
     <div class="help-row"><code>NVDA GP</code><span>Ticker + function in one line</span></div>
     <div class="help-grp">FUNCTIONS</div>
     <div class="help-row"><code>GP</code><span>Price graph &amp; security overview</span></div>
-    <div class="help-row"><code>WL</code><span>Watchlist</span></div>
+    <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
+    <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
+    <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
+    <div class="help-row"><code>YLD</code><span>Government yields: U.S. Treasury, ECB euro area</span></div>
+    <div class="help-row"><code>CAL</code><span>Economic calendar: official BLS / BEA schedules</span></div>
+    <div class="help-row"><code>N</code><span>News: GDELT headlines + SEC filings for the watchlist</span></div>
+    <div class="help-row"><code>BRF</code><span>Briefing: AI summary of the real data above, with sources</span></div>
     <div class="help-row"><code>MOV</code><span>Movers: gainers, losers, most active</span></div>
     <div class="help-row"><code>SCR</code><span>Equity screener with filters</span></div>
     <div class="help-row"><code>COMP</code><span>Compare instruments, rebased or % change</span></div>
@@ -332,28 +362,39 @@
   const C={};
   function readColors(){const cs=getComputedStyle(document.documentElement);['fg','muted','dim','amber','up','down','grid','line','panel'].forEach(k=>C[k]=cs.getPropertyValue('--'+k).trim());}
 
-  /* ---------- universe: ONLY instruments served by the live provider ----------
-     Policy (T04): only real data in the UI. Every market value comes from
-     /api/* (the Worker, which calls the provider); a value without a real source is N/A.
-     The only static data is the GICS sector of each symbol, used to group the heatmap.       */
+  /* ---------- instruments: ONLY those served by the live provider ----------
+     Policy: only real data in the UI. Every market value comes from /api/* (the Worker, which
+     calls the provider); a value without a real source is N/A. Static data: the GICS sector of a
+     few symbols (heatmap grouping) and the lists of instruments requested from the provider.      */
   const P=window.Provenance,S=P.S;
   const CONFIG={
     proxyBase:"https://alessandrozanichelli.com", // the browser calls ONLY this site's /api/*; the provider key stays in the Worker
-    quoteRefreshOpenMs:300000,      // 5 min while the US market is open (free plan: 8 credits/min, 800/day)
+    quoteRefreshOpenMs:600000,      // 10 min while the US market is open (free plan: 8 credits/min, 800/day)
     quoteRefreshClosedMs:1800000,   // 30 min while it is closed
-    seriesMinGapMs:9000,            // min gap between history calls (rate limit)
-    liveSymbols:["NVDA","AAPL","MSFT","AMZN","GOOGL","JPM"]
+    creditsPerMin:8,                // provider limit, enforced here so the terminal never trips it itself
+    maxWatchlist:12
   };
+  const DEFAULT_WATCHLIST=["NVDA","AAPL","MSFT","AMZN","GOOGL","JPM"];
+  // Markets board: instruments verified live on the current plan (test 2026-10-06).
+  // Indices and commodities are not available on it: shown as N/A, never substituted.
+  const MARKET_GROUPS=[["FX",["EUR/USD","GBP/USD","USD/JPY"]],["CRYPTO",["BTC/USD","ETH/USD"]],["METALS",["XAU/USD"]]];
+  const MARKET_SYMS=MARKET_GROUPS.flatMap(g=>g[1]);
   // static reference: GICS sector classification (not market data)
-  const SECT={IT:"INFORMATION TECHNOLOGY",CD:"CONSUMER DISCRETIONARY",CS:"COMMUNICATION SERVICES",FIN:"FINANCIALS"};
+  const SECT={IT:"INFORMATION TECHNOLOGY",CD:"CONSUMER DISCRETIONARY",CS:"COMMUNICATION SERVICES",FIN:"FINANCIALS",OTHER:"OTHER · NO SECTOR SOURCE"};
   const SECTOR_OF={NVDA:"IT",AAPL:"IT",MSFT:"IT",AMZN:"CD",GOOGL:"CS",JPM:"FIN"};
   const MARKET_KEYS=['px','prev','chg','open','dayHigh','dayLow','vol','lo52','hi52'];
-  function isLiveSym(sym){return CONFIG.liveSymbols.includes(sym);}
-  const UNI=CONFIG.liveSymbols.map(sym=>{const t={sym,name:null,ex:null,sect:SECTOR_OF[sym]||null,q:null,qErr:null,daily:[],dailyDates:null,intra:[]};MARKET_KEYS.forEach(k=>t[k]=null);return t;});
-  const BY={};UNI.forEach(t=>BY[t.sym]=t);
+  const SYMBOL_OK=/^[A-Z0-9][A-Z0-9.\-:\/]{0,19}$/;
+  function loadWatchlist(){try{const a=JSON.parse(localStorage.getItem('at-watchlist')||'null');if(Array.isArray(a)&&a.length)return [...new Set(a.filter(x=>typeof x==='string'&&SYMBOL_OK.test(x)))].slice(0,CONFIG.maxWatchlist);}catch(e){}return DEFAULT_WATCHLIST.slice();}
+  function saveWatchlist(){try{localStorage.setItem('at-watchlist',JSON.stringify(WATCH));}catch(e){}}
+  let WATCH=loadWatchlist();
+  const BY={};
+  function inst(sym){if(!BY[sym]){const t={sym,name:null,ex:null,sect:SECTOR_OF[sym]||'OTHER',q:null,qErr:null,daily:[],dailyDates:null,intra:[]};MARKET_KEYS.forEach(k=>t[k]=null);BY[sym]=t;}return BY[sym];}
+  let UNI=[];  // the watchlist: universe of WL, MOV, HEAT, SCR, COMP, CORR, tape
+  function rebuildUni(){UNI=WATCH.map(inst);MARKET_SYMS.forEach(inst);}
+  rebuildUni();
+  function isLiveSym(sym){return !!BY[sym];}
 
   /* ---------- state ---------- */
-  const CORRSET=CONFIG.liveSymbols.slice();
   const CMPCOL=["#f5a623","#4cc9f0","#2ec28a","#f0555b","#b084f5","#56a3ff","#f78fb3","#4dd0c0"];
   const THEMES={amber:{accent:"#f5a623",up:"#2ec28a",down:"#f0555b"},ice:{accent:"#4cc9f0",up:"#34d399",down:"#fb7185"},matrix:{accent:"#49e07a",up:"#49e07a",down:"#f0555b"},mono:{accent:"#cfd4db",up:"#9fe7c4",down:"#f3a0a4"}};
 
@@ -372,6 +413,12 @@
         if(!r.ok||!j||!Array.isArray(j.points)||j.points.length<2)throw new Error((j&&j.error)||('http '+r.status));return j;}
     }
   };
+  // client-side credit budget: never more than CONFIG.creditsPerMin provider credits in any 61 s window
+  const Budget={log:[],
+    wait(n){const now=Date.now();this.log=this.log.filter(x=>now-x.t<61000);const used=this.log.reduce((a,x)=>a+x.n,0);
+      if(used+n<=CONFIG.creditsPerMin){this.log.push({t:now,n});return 0;}
+      let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of this.log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
+    async take(n){for(;;){const w=this.wait(n);if(!w)return;await new Promise(r=>setTimeout(r,w+50));}}};
   function histMeta(h){return{status:h.status||'LIVE',fetchedAt:h.fetchedAt||h.asOf||null,staleAt:h.staleAt||null,lastBarPartial:!!h.lastBarPartial,adjust:h.adjust,count:h.count,interval:h.interval,staleReason:h.staleReason||null};}
   const RETRY_MS=60000, INTRADAY_REFRESH_MS=600000;
   const DATA={lastPull:null,provider:null,_q:Promise.resolve(),_gap:0,_timer:null,
@@ -379,19 +426,26 @@
       this.refresh();
       document.addEventListener('visibilitychange',()=>{if(!document.hidden&&(!this.lastPull||Date.now()-this.lastPull>=this.interval()))this.refresh();});
       setInterval(()=>this.sweep(),30000);
-      // history for the other live symbols after the first minute (free plan: ~8 credits/min; the quote batch used 6)
-      setTimeout(()=>CONFIG.liveSymbols.forEach(s=>this.ensureSeries(s)),60000);},
+      // watchlist history after the first minute (the credit budget spaces the calls)
+      setTimeout(()=>WATCH.forEach(s=>this.ensureSeries(s)),60000);},
     interval(){const qs=UNI.filter(t=>t.q);const closed=qs.length&&qs.every(t=>t.q.marketOpen===false);return closed?CONFIG.quoteRefreshClosedMs:CONFIG.quoteRefreshOpenMs;},
     schedule(){clearTimeout(this._timer);this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
+    // symbols on screen: watchlist, the markets board when open, open security windows
+    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&(w.type==='MKT'||w.type==='BRF')))MARKET_SYMS.forEach(x=>s.add(x));wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
+    // quotes in chunks of ≤7 symbols, each waiting for room in the per-minute credit budget
+    async fetchNow(syms){syms=syms.filter(x=>BY[x]&&!BY[x]._pending);syms.forEach(x=>BY[x]._pending=true);
+      try{for(let i=0;i<syms.length;i+=7){const chunk=syms.slice(i,i+7);await Budget.take(chunk.length);
+        try{const j=await this.provider.quotes(chunk);this.lastPull=Date.now();applyQuotes(j,chunk);}
+        catch(e){console.warn('[data] quote request failed:',e&&e.message);quoteFailure('network',chunk);}}}
+      finally{syms.forEach(x=>{if(BY[x])BY[x]._pending=false;});}},
     async refresh(){if(this._busy)return;this._busy=true;
-      try{const j=await this.provider.quotes(CONFIG.liveSymbols);this.lastPull=Date.now();applyQuotes(j);}
-      catch(e){console.warn('[data] quote refresh failed:',e&&e.message);quoteFailure('network');}
-      finally{this._busy=false;this.schedule();}},
-    // statuses change with time (LIVE -> STALE -> N/A): repaint when they do
-    sweep(){let changed=false;UNI.forEach(t=>{let st=instStatus(t);
+      try{await this.fetchNow(this.needed());}finally{this._busy=false;this.schedule();}},
+    // statuses change with time (LIVE -> STALE -> N/A): repaint when they do; reload open sections when due
+    sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
       if(st===S.NA&&t.q){clearMarket(t);t.qErr=t.qErr||'expired';st=instStatus(t);}
-      if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();},
-    _enqueue(fn){this._q=this._q.then(()=>{const wait=Math.max(0,this._gap-Date.now());this._gap=Date.now()+wait+CONFIG.seriesMinGapMs;return new Promise(r=>setTimeout(r,wait)).then(fn);});},
+      if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);});},
+    _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
       this._enqueue(async()=>{try{const h=await this.provider.history(sym,'1Y');t.daily=h.points.map(p=>p.c);t.dailyDates=h.points.map(p=>p.t);t._histMeta=histMeta(h);t._real=true;t._histErr=null;}
@@ -404,8 +458,8 @@
         finally{t._loadingIntra=false;this._repaintFor(sym);}});}
   };
   function clearMarket(t){t.q=null;MARKET_KEYS.forEach(k=>t[k]=null);}
-  function applyQuotes(j){const quotes=j.quotes||{},errors=j.errors||{};
-    for(const s of CONFIG.liveSymbols){const t=BY[s];if(!t)continue;const q=quotes[s];
+  function applyQuotes(j,syms){const quotes=j.quotes||{},errors=j.errors||{};
+    for(const s of syms){const t=BY[s];if(!t)continue;const q=quotes[s];
       if(q){const v=k=>P.fieldValue(q,k);t.q=q;t.qErr=null;
         t.px=v('price');t.prev=v('prevClose');t.chg=v('changePct');t.open=v('open');t.dayHigh=v('high');t.dayLow=v('low');t.vol=v('volume');t.lo52=v('fiftyTwoWeekLow');t.hi52=v('fiftyTwoWeekHigh');
         if(t.px==null)clearMarket(t);if(q.name)t.name=q.name;if(q.exchange)t.ex=q.exchange;}
@@ -414,7 +468,20 @@
   // refresh failed: keep the last REAL quote but mark it STALE; with no real quote the symbol is N/A
   function markFailed(t,err){t.qErr=err;if(err==='symbol_not_found'||err==='invalid_symbol'||!t.q){clearMarket(t);return;}
     if(t.q.status!==S.STALE)t.q=Object.assign({},t.q,{status:S.STALE,staleReason:err});}
-  function quoteFailure(err){CONFIG.liveSymbols.forEach(s=>BY[s]&&markFailed(BY[s],err));repaintAll();}
+  function quoteFailure(err,syms){syms.forEach(s=>BY[s]&&markFailed(BY[s],err));repaintAll();}
+
+  // ---- sections fed by other approved real sources, through the Worker (T05) ----
+  const EXT={yields:{},calendar:{},news:{},briefing:{}};
+  const EXT_TTL={yields:1800000,calendar:3600000,news:600000,briefing:3600000};
+  const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news',BRF:'briefing'};
+  async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
+    let path='/api/'+name;
+    if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')).join(','));
+    if(name==='briefing')path+='?symbols='+encodeURIComponent(WATCH.concat(MARKET_SYMS).join(','))+(force?'&refresh=1':'');
+    try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
+      if(!j)throw new Error('http '+r.status);e.data=j;e.err=null;}
+    catch(x){e.err='network';console.warn('[data]',name,'failed:',x&&x.message);}
+    finally{e.loading=false;e.at=Date.now();wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type]===name)liveRepaint(w);});updateGlobal();}}
   function instStatus(t){return P.instrumentStatus(t.q,{error:t.qErr});}
   function fStatus(t,key){return P.fieldStatus(t.q,key,instStatus(t));}
   function histStatus(t,intraday){return P.historyStatus(intraday?t._intraMeta:t._histMeta,{error:intraday?t._intraErr:t._histErr});}
@@ -430,6 +497,20 @@
   function esc(x){return String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
   function fmtTime(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleTimeString('en-GB'):'—';}
   function fmtDT(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
+
+  // FX / crypto / metals are quoted as plain rates with enough decimals; equities in USD
+  function pxText(t,v){if(v===undefined)v=t.px;if(!fin(v))return'—';if(t.sym.includes('/')){const d=v<10?5:v<1000?3:2;return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}return money(v);}
+  function fmtHM(iso){const d=new Date(iso);if(!isFinite(d))return'—';const today=new Date().toDateString()===d.toDateString();return today?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+  async function addToWatchlist(raw,win){const sym=String(raw||'').trim().toUpperCase();const say=m=>{win.state.msg=m;liveRepaint(win);};
+    if(!sym)return;if(!SYMBOL_OK.test(sym))return say(`"${sym}" is not a valid symbol`);
+    if(WATCH.includes(sym))return say(`${sym} is already in the watchlist`);
+    if(WATCH.length>=CONFIG.maxWatchlist)return say(`Limit ${CONFIG.maxWatchlist} symbols (free plan: 8 credits/min, 800/day)`);
+    say(`Checking ${sym} with the provider…`);
+    try{await Budget.take(1);const j=await DATA.provider.quotes([sym]);const q=j.quotes&&j.quotes[sym];
+      if(!q){const er=(j.errors&&j.errors[sym]&&j.errors[sym].error)||'provider_error';return say(`${sym} not added: ${P.errorText(er)}`);}
+      WATCH.push(sym);saveWatchlist();rebuildUni();applyQuotes(j,[sym]);win.state.msg=`${sym} added`;DATA.ensureSeries(sym);repaintAll();}
+    catch(e){say(`${sym} not added: ${P.errorText('network')}`);}}
+  function removeFromWatchlist(sym,win){WATCH=WATCH.filter(x=>x!==sym);saveWatchlist();rebuildUni();if(win)win.state.msg=`${sym} removed`;repaintAll();}
 
   /* ---------- provenance UI ---------- */
   function pvKey(s){return s===S.NA?'NA':s;}
@@ -508,14 +589,14 @@
     body.innerHTML=`
       <div class="sec-top">
         <div class="sec-id"><div class="sym">${t.sym} ${chip(ist,instTitle(t),true)}</div><div class="nm">${esc(t.name||'—')}</div><div class="ex">${esc(t.ex||'—')} · <span title="static GICS sector classification">${SECT[t.sect]||'—'}</span></div></div>
-        <div class="sec-px"><div class="last num" title="${esc(instTitle(t))}">${money(t.px)}</div><div class="chg num ${cls(t.chg)}">${sign(chgAbs)} (${pct(t.chg)})</div></div>
+        <div class="sec-px"><div class="last num" title="${esc(instTitle(t))}">${pxText(t)}</div><div class="chg num ${cls(t.chg)}">${sign(chgAbs)} (${pct(t.chg)})</div></div>
       </div>${failBanner}
       <div class="tfbar">${["1D","1W","1M","3M","6M","1Y"].map(x=>`<button class="tf" data-tf="${x}" aria-pressed="${x===tfv}">${x}</button>`).join('')}</div>
       <div class="chart-box"><canvas aria-label="${t.sym} price chart"></canvas></div>
       <div class="src-line">${chartCaption(t,tfv)}</div>
       <div class="stat-grid">
-        ${stat("OPEN",money(t.open),fs('open'),OHL_NOTE)}${stat("PREV CLOSE",money(t.prev),fs('prevClose'))}${stat("DAY HIGH",money(t.dayHigh),fs('high'),OHL_NOTE)}${stat("DAY LOW",money(t.dayLow),fs('low'),OHL_NOTE)}
-        ${stat("VOLUME",fmtVol(t.vol),fs('volume'),VOL_NOTE)}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?money(t.lo52,0)+" – "+money(t.hi52,0):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
+        ${stat("OPEN",pxText(t,t.open),fs('open'),OHL_NOTE)}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),OHL_NOTE)}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),OHL_NOTE)}
+        ${stat("VOLUME",fmtVol(t.vol),fs('volume'),VOL_NOTE)}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?pxText(t,t.lo52)+" – "+pxText(t,t.hi52):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
       </div>`;
     setProv(win,{[t.sym]:ist,['chart:'+t.sym]:histStatus(t,intr)});
     $$('.tfbar .tf',body).forEach(b=>b.onclick=()=>{win.state.tf=b.dataset.tf;paintWin(win);});
@@ -523,11 +604,103 @@
     DATA.ensureSeries(t.sym);if(win.state.tf==='1D')DATA.ensureIntraday(t.sym);}
 
   function renderWatchlistWin(body,win){body.style.padding="0";const items={};
-    body.innerHTML=`<div class="list-head"><span>SYM · DATA</span><span>TREND</span><span style="text-align:right">LAST</span><span style="text-align:right">CHG%</span></div>`+
-      UNI.map(t=>{const st=instStatus(t);items[t.sym]=st;
+    const rows=UNI.map(t=>{const st=instStatus(t);items[t.sym]=st;
         const spark=t._real&&t.daily.length>1?sparkSVG(t.daily.slice(-24),t.daily[t.daily.length-1]>=t.daily[Math.max(0,t.daily.length-24)]?C.up:C.down):'<svg class="spark" aria-hidden="true"></svg>';
-        return`<div class="wl-row" data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><span class="sym">${t.sym} ${chip(st,instTitle(t))}</span>${spark}<span class="cell-v num">${money(t.px)}</span><span class="cell-c num ${cls(t.chg)}">${pct(t.chg)}</span></div>`;}).join('');
+        return`<div class="wl-row" data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><span class="sym">${t.sym} ${chip(st,instTitle(t))}<small>${esc(t.name||'')}</small></span>${spark}<span class="cell-v num">${pxText(t)}</span><span class="cell-c num ${cls(t.chg)}">${pct(t.chg)}</span><span class="wl-t">${t.q?fmtHM(t.q.timestamp):'—'}</span><button class="wl-x" data-del="${t.sym}" title="Remove ${t.sym}" aria-label="Remove ${t.sym}">✕</button></div>`;}).join('');
+    body.innerHTML=`<div class="wl-add"><input class="wl-in" placeholder="add symbol — e.g. TSLA, EUR/USD" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Add symbol"><button class="wl-btn">ADD</button><span class="wl-n">${WATCH.length}/${CONFIG.maxWatchlist}</span></div><div class="wl-msg">${esc(win.state.msg||'')}</div>
+      <div class="list-head wl"><span>SYM · DATA</span><span>TREND</span><span style="text-align:right">LAST</span><span style="text-align:right">CHG%</span><span style="text-align:right">TIME</span><span></span></div>`+(rows||'<div class="empty">Watchlist empty — add a symbol above.</div>');
+    const inp=body.querySelector('.wl-in'),add=()=>addToWatchlist(inp.value,win);
+    body.querySelector('.wl-btn').onclick=add;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add();}};
+    $$('[data-del]',body).forEach(b=>b.onclick=e=>{e.stopPropagation();removeFromWatchlist(b.dataset.del,win);});
     setProv(win,items);bindFocusRows(body);}
+
+  // ---- MARKETS: real quotes grouped by asset class; unavailable classes shown as N/A ----
+  function mktRow(t){const st=instStatus(t);return`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l nm">${esc(t.name||'—')}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td><td class="num">${fin(t.vol)?fmtVol(t.vol)+' '+chip(fStatus(t,'volume'),VOL_NOTE):'<span class="na" title="the provider sends no volume for this instrument">N/A</span>'}</td><td>${t.q?fmtHM(t.q.timestamp):'—'}</td><td>${chip(st,instTitle(t))}</td></tr>`;}
+  function renderMarkets(body,win){const items={};
+    const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length)DATA.fetchNow(missing);
+    const grp=(title,list)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+(list.length?list.map(t=>{items[t.sym]=instStatus(t);return mktRow(t);}).join(''):'<tr><td colspan="7" class="na">—</td></tr>');
+    const na=(title,names,why)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+names.map(n=>`<tr><td class="na">${n}</td><td class="l na" colspan="5">N/A — ${why}</td><td>${chip(S.NA,why)}</td></tr>`).join('');
+    body.innerHTML=`<table class="pf mkt"><thead><tr><th>SYM</th><th class="l">NAME</th><th>LAST</th><th>CHG%</th><th>VOLUME</th><th>TIME</th><th>DATA</th></tr></thead><tbody>
+      ${grp('EQUITIES · WATCHLIST',UNI.filter(t=>!t.sym.includes('/')))}
+      ${MARKET_GROUPS.map(([g,syms])=>grp(g,syms.map(x=>BY[x]))).join('')}
+      ${na('INDICES',['IDX'],'no licensed index source (see INDICES)')}
+      ${na('COMMODITIES',['WTI','BRENT','NAT GAS'],'not available on the current data plan')}
+    </tbody></table><div class="scr-count">Equity volume is PARTIAL (venue subset). The provider sends no volume for FX, crypto and gold: N/A.</div>`;
+    setProv(win,items);bindFocusRows(body);}
+
+  // ---- INDICES: kept as a section, NO DATA until a licensed real source exists ----
+  const INDEX_ROWS=["S&P 500","Nasdaq-100","Nasdaq Composite","Dow Jones Industrial Average","Russell 2000","Cboe VIX","Euro Stoxx 50","DAX","FTSE 100","CAC 40","FTSE MIB","Nikkei 225","Hang Seng"];
+  function renderIndices(body,win){setProv(win,{'ds:IDX':S.NA},'no licensed index source');
+    body.innerHTML=`<div class="banner warn"><b>NO DATA</b> — no real index source is connected. The current plan has no index data (test 2026-10-06: SPX and NDX need a higher plan; DJI, IXIC, RUT and VIX are not available), and index vendors (S&amp;P DJI, Nasdaq, Cboe, STOXX, Deutsche Börse) license even delayed values for display. ETFs are not shown as substitutes.</div>
+      <table class="pf"><thead><tr><th class="l">INDEX</th><th>LEVEL</th><th>CHG%</th><th>OPEN / HIGH / LOW</th><th>52W</th><th>TIME</th><th>DATA</th></tr></thead><tbody>${INDEX_ROWS.map(n=>`<tr><td class="l">${n}</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="na">—</td><td>${chip(S.NA,'no licensed source')}</td></tr>`).join('')}</tbody></table>`;}
+
+  // ---- YIELDS: official curves (U.S. Treasury, ECB) — no interpolated or estimated points ----
+  function drawYieldCurve(cv,c){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
+    const pts=c.points,padL=44,padR=10,padT=10,padB=18,iw=w-padL-padR,ih=h-padT-padB,prev=p=>fin(p.value)&&fin(p.changeBp)?p.value-p.changeBp/100:null;
+    const vals=[];pts.forEach(p=>{if(fin(p.value))vals.push(p.value);const pv=prev(p);if(fin(pv))vals.push(pv);});
+    if(!vals.length)return drawMsg(cv,'N/A');let mn=Math.min(...vals),mx=Math.max(...vals);const sp=(mx-mn)||0.5;mn-=sp*0.12;mx+=sp*0.12;
+    const X=i=>padL+iw*(pts.length===1?0.5:i/(pts.length-1)),Y=v=>padT+ih*(1-(v-mn)/(mx-mn));
+    ctx.font="10px "+getComputedStyle(cv).fontFamily;ctx.textBaseline="middle";
+    for(let g=0;g<=3;g++){const v=mn+(mx-mn)*g/3,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(v.toFixed(2)+"%",padL-5,y);}
+    ctx.textAlign="center";ctx.textBaseline="top";pts.forEach((p,i)=>{ctx.fillStyle=C.dim;ctx.fillText(p.tenor,X(i),h-padB+4);});
+    // segments only between adjacent published points: a missing maturity breaks the line
+    const line=(get,col,dash)=>{ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(dash);let on=false;ctx.beginPath();pts.forEach((p,i)=>{const v=get(p);if(!fin(v)){on=false;return;}const x=X(i),y=Y(v);on?ctx.lineTo(x,y):ctx.moveTo(x,y);on=true;});ctx.stroke();ctx.setLineDash([]);};
+    line(prev,C.dim,[3,3]);line(p=>p.value,C.amber,[]);
+    pts.forEach((p,i)=>{if(!fin(p.value))return;ctx.fillStyle=C.amber;ctx.beginPath();ctx.arc(X(i),Y(p.value),2.4,0,7);ctx.fill();});}
+  function renderYields(body,win){const e=EXT.yields;loadExt('yields');
+    if(!e.data&&!e.err){setProv(win,{'ds:YLD':S.LOADING});body.innerHTML='<div class="empty">Loading official yield curves…</div>';return;}
+    const d=e.data||{curves:{},errors:{}},items={};let html='';
+    for(const id of ['US','EA']){const c=d.curves&&d.curves[id],title=id==='US'?'UNITED STATES · U.S. TREASURY':'EURO AREA · ECB';
+      if(!c){const er=(d.errors&&d.errors[id]&&d.errors[id].error)||e.err||'no_data';items['yld:'+id]=S.NA;html+=`<div class="yc"><div class="yc-h">${title} ${chip(S.NA)}</div><div class="banner warn"><b>N/A</b> — ${esc(P.errorText(er))}. No values are shown in its place.</div></div>`;continue;}
+      const st=P.historyStatus({status:c.status,staleAt:c.staleAt},{}),two=c.points.find(p=>p.tenor==='2Y'),ten=c.points.find(p=>p.tenor==='10Y');
+      const spread=two&&ten&&fin(two.value)&&fin(ten.value)?((ten.value-two.value)*100).toFixed(1):null;items['yld:'+id]=st;
+      html+=`<div class="yc"><div class="yc-h">${esc(c.name.toUpperCase())} ${chip(st,c.kind)}</div>
+        <div class="src-line">${esc(c.kind)} · data date ${c.timestamp}${c.previousDate?' · Δ vs '+c.previousDate:''} · fetched ${fmtTime(c.fetchedAt)} · source <a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a>${c.staleReason?' · '+esc(P.errorText(c.staleReason)):''}</div>
+        <div class="chart-box" style="height:150px"><canvas class="yc-cv" data-curve="${id}" aria-label="${id} yield curve"></canvas></div>
+        <div class="corr-wrap"><table class="pf"><thead><tr><th class="l">TENOR</th>${c.points.map(p=>`<th>${p.tenor}</th>`).join('')}</tr></thead><tbody>
+          <tr><td class="l">YIELD %</td>${c.points.map(p=>`<td class="num">${fin(p.value)?p.value.toFixed(2):'<span class="na">N/A</span>'}</td>`).join('')}</tr>
+          <tr><td class="l">Δ BP ${chip(S.DERIVED,'difference between the two latest official publications')}</td>${c.points.map(p=>`<td class="num ${cls(p.changeBp)}">${fin(p.changeBp)?(p.changeBp>=0?'+':'')+p.changeBp.toFixed(1):'—'}</td>`).join('')}</tr></tbody></table></div>
+        ${spread!=null?`<div class="scr-count">2s10s spread ${spread} bp ${chip(S.DERIVED,'10Y minus 2Y, same publication')}</div>`:''}</div>`;}
+    html+=`<div class="des">Not connected: ${esc((d.notConnected||[]).join(', '))} — N/A until an approved official source is added. Maturities a source does not publish stay N/A; nothing is interpolated.</div>`;
+    body.innerHTML=html;setProv(win,items);
+    requestAnimationFrame(()=>$$('.yc-cv',body).forEach(cv=>{const c=d.curves&&d.curves[cv.dataset.curve];if(c)drawYieldCurve(cv,c);}));}
+
+  function extSources(d){return (d.sources||[]).map(x=>`${chip(x.status,x.staleReason?P.errorText(x.staleReason):x.status)} <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a> · fetched ${fmtTime(x.fetchedAt)}`).concat(Object.entries(d.errors||{}).map(([k,v])=>`${chip(S.NA)} ${k}: ${esc(P.errorText(v.error))}${v.note?' — '+esc(v.note):''}`)).join(' · ');}
+  function extItems(d,prefix){const items={};(d.sources||[]).forEach(x=>items[prefix+x.id]=x.status);Object.keys(d.errors||{}).forEach(k=>items[prefix+k]=S.NA);return items;}
+
+  // ---- CALENDAR: official release schedules; fields without a licensed source are N/A ----
+  function renderCal(body,win){const e=EXT.calendar;loadExt('calendar');
+    if(!e.data&&!e.err){setProv(win,{'ds:CAL':S.LOADING});body.innerHTML='<div class="empty">Loading official release schedules…</div>';return;}
+    const d=e.data||{events:[],sources:[],errors:{network:{error:e.err}}},now=Date.now(),na=f=>`<span class="na" title="${esc((f&&f.note)||'')}">N/A</span>`;
+    body.innerHTML=`<div class="src-line">${extSources(d)}</div>
+      <table class="pf cal"><thead><tr><th class="l">DATE</th><th class="l">TIME ET</th><th class="l">CTRY</th><th class="l">INDICATOR</th><th>ACTUAL</th><th>FORECAST</th><th>PREVIOUS</th><th>IMP.</th><th class="l">SRC</th></tr></thead><tbody>
+      ${(d.events||[]).map(ev=>`<tr class="${Date.parse(ev.datetime)<now?'past':''}"><td class="l">${ev.dateET}</td><td class="l">${ev.timeET||'—'}</td><td class="l">${ev.country}</td><td class="l">${esc(ev.indicator)}</td><td>${na(ev.actual)}</td><td>${na(ev.forecast)}</td><td>${na(ev.previous)}</td><td>${na(ev.importance)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">${ev.source}</a></td></tr>`).join('')||'<tr><td colspan="9" class="empty">NO DATA</td></tr>'}
+      </tbody></table><div class="scr-count">Official U.S. release schedules (BLS, BEA), past 7 and next 35 days. Actual / previous: N/A until a FRED API key is configured. Forecast and importance: N/A — consensus data is proprietary and not licensed.</div>`;
+    setProv(win,extItems(d,'cal:'),'official schedules');}
+
+  // ---- NEWS: real headlines (GDELT) and SEC filings — headline, source, time, link only ----
+  function renderNews(body,win){const e=EXT.news;loadExt('news');
+    if(!e.data&&!e.err){setProv(win,{'ds:N':S.LOADING});body.innerHTML='<div class="empty">Loading headlines and filings…</div>';return;}
+    const d=e.data||{items:[],filings:[],sources:[],errors:{network:{error:e.err}}};
+    const head=(d.items||[]).slice(0,40).map(n=>`<div class="news-item"><span class="tm">${fmtHM(n.timestamp)}</span><a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source)}">${esc(n.source)}</span></div>`).join('');
+    const fil=(d.filings||[]).slice(0,24).map(f=>`<div class="news-item"><span class="tm">${f.filingDate||'—'}</span><a class="h" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.ticker)} · ${esc(f.form)} · ${esc(f.company||'')}${f.description&&f.description!==f.form?' — '+esc(f.description):''}</a><span class="src">SEC</span></div>`).join('');
+    body.innerHTML=`<div class="src-line">${extSources(d)}</div><div class="set-grp" style="margin-top:10px">HEADLINES · TOPIC: STOCK MARKET (GDELT)</div>${head||'<div class="empty">NO DATA</div>'}<div class="set-grp" style="margin-top:14px">SEC FILINGS · WATCHLIST</div>${fil||'<div class="empty">NO DATA</div>'}<div class="scr-count">Headlines and links only, no article text. Sources: The GDELT Project (gdeltproject.org), SEC EDGAR.</div>`;
+    setProv(win,extItems(d,'news:'));}
+
+  // ---- BRIEFING: model analysis of the real data above, with sources and a number check ----
+  function renderBriefing(body,win){const e=EXT.briefing;loadExt('briefing');
+    if(!e.data&&!e.err){setProv(win,{'ds:BRF':S.LOADING});body.innerHTML='<div class="empty">Generating the briefing from real data…</div>';return;}
+    const d=e.data||{};
+    if(!d.text){setProv(win,{'ds:BRF':S.NA});body.innerHTML=`<div class="banner warn"><b>N/A</b> — briefing unavailable: ${esc(P.errorText(d.error||e.err||'model_error'))}. No text is produced without real inputs and a working model.</div><button class="set-reset brf-re">RETRY</button>`;body.querySelector('.brf-re').onclick=()=>loadExt('briefing',true);return;}
+    const v=d.verification||{checked:0,unverified:[]};
+    setProv(win,{'ds:BRF':S.DERIVED},'AI analysis of real data');
+    body.innerHTML=`<div class="banner"><b>AI-GENERATED</b> ${chip(S.DERIVED,'model analysis of real data')} · ${esc(d.provider||'')} · ${esc(d.model||'')} · ${fmtDT(d.generatedAt)}${d.cache==='HIT'?' (cached)':''} · ${esc(d.disclaimer||'')}</div>
+      <div class="brief">${esc(d.text).replace(/\n+/g,'<br><br>')}</div>
+      <div class="${v.unverified.length?'banner warn':'scr-count'}">${v.unverified.length?`<b>CHECK</b> — ${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`:`Number check: all ${v.checked} figures match the source data.`}</div>
+      <div class="set-grp" style="margin-top:10px">SOURCES</div>${(d.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
+      <details><summary class="scr-count">Input data given to the model</summary><pre class="brief-in">${esc(d.inputData||'')}</pre></details>
+      <button class="set-reset brf-re">REGENERATE</button>`;
+    body.querySelector('.brf-re').onclick=()=>loadExt('briefing',true);}
 
   function renderHeat(body,win){const groups={},items={};UNI.forEach(t=>{(groups[t.sect]=groups[t.sect]||[]).push(t);items[t.sym]=instStatus(t);});
     let html='<div class="heat-wrap">';
@@ -536,10 +709,11 @@
     html+='</div>';body.innerHTML=html;setProv(win,items);bindFocusRows(body);}
 
   function renderMovers(body,win){const items={};UNI.forEach(t=>items[t.sym]=instStatus(t));
+
     const pool=UNI.filter(t=>fin(t.chg));
     const gain=pool.filter(t=>t.chg>=0).sort((a,b)=>b.chg-a.chg).slice(0,6),lose=pool.filter(t=>t.chg<0).sort((a,b)=>a.chg-b.chg).slice(0,6),active=pool.filter(t=>fin(t.vol)).sort((a,b)=>b.vol-a.vol).slice(0,6);
-    const col=(title,arr,m,mc,hint)=>`<div class="mov-col"><h4>${title}${hint||''}</h4>`+(arr.length?arr.map((t,i)=>`<div class="mov-row" data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><span class="rk">${i+1}</span><span class="sym">${t.sym} ${chip(items[t.sym])}</span><span class="num px">${money(t.px)}</span><span class="num ${mc(t)}">${m(t)}</span></div>`).join(''):'<div class="scr-count">—</div>')+`</div>`;
-    const note=`<div class="banner">Rankings cover the ${UNI.length} live instruments. Most active ranks by <span class="pv pv-PARTIAL">PART</span> venue-subset volume.</div>`;
+    const col=(title,arr,m,mc,hint)=>`<div class="mov-col"><h4>${title}${hint||''}</h4>`+(arr.length?arr.map((t,i)=>`<div class="mov-row" data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><span class="rk">${i+1}</span><span class="sym">${t.sym} ${chip(items[t.sym])}</span><span class="num px">${pxText(t)}</span><span class="num ${mc(t)}">${m(t)}</span></div>`).join(''):'<div class="scr-count">—</div>')+`</div>`;
+    const note=`<div class="banner">Rankings cover the ${UNI.length} watchlist instruments. Most active ranks by <span class="pv pv-PARTIAL">PART</span> venue-subset volume.</div>`;
     body.innerHTML=note+(!pool.length?'<div class="empty">Waiting for live quotes…</div>':`<div class="mov-grid">${col("TOP GAINERS",gain,t=>pct(t.chg),t=>cls(t.chg))}${col("TOP LOSERS",lose,t=>pct(t.chg),t=>cls(t.chg))}${col("MOST ACTIVE",active,t=>fmtVol(t.vol),()=>'',' '+chip(S.PARTIAL,VOL_NOTE))}</div>`);
     setProv(win,items);bindFocusRows(body);}
 
@@ -548,7 +722,7 @@
   function updateScreenerResults(body,st,win){const el=body.querySelector('.scr-results');if(!el)return;const rows=screenerRows(st);const items={};rows.forEach(t=>items[t.sym]=instStatus(t));
     if(win){setProv(win,items);renderWinProv(win);updateGlobal();}
     if(!rows.length){el.innerHTML='<div class="empty">No matches. Loosen the filters.</div>';return;}
-    el.innerHTML=`<table class="pf"><thead><tr><th>SYM</th><th class="l">DATA</th><th class="l">NAME</th><th class="l">SECTOR</th><th>LAST</th><th>CHG%</th></tr></thead><tbody>`+rows.map(t=>`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l">${chip(items[t.sym],instTitle(t))}</td><td class="l nm">${esc(t.name||'—')}</td><td class="l">${t.sect}</td><td class="num">${money(t.px)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td></tr>`).join('')+`</tbody></table><div class="scr-count">${rows.length} result${rows.length>1?'s':''} of ${UNI.length} · market cap and P/E removed: no fundamentals source (N/A)</div>`;
+    el.innerHTML=`<table class="pf"><thead><tr><th>SYM</th><th class="l">DATA</th><th class="l">NAME</th><th class="l">SECTOR</th><th>LAST</th><th>CHG%</th></tr></thead><tbody>`+rows.map(t=>`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l">${chip(items[t.sym],instTitle(t))}</td><td class="l nm">${esc(t.name||'—')}</td><td class="l">${t.sect}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td></tr>`).join('')+`</tbody></table><div class="scr-count">${rows.length} result${rows.length>1?'s':''} of ${UNI.length} · market cap and P/E removed: no fundamentals source (N/A)</div>`;
     bindFocusRows(el);}
   function renderScreener(body,win){const st=win.state;if(!['chg','px'].includes(st.sort))st.sort='chg';const present=Object.keys(SECT).filter(k=>UNI.some(t=>t.sect===k));const sectOpts=['<option value="ALL">All sectors</option>'].concat(present.map(k=>`<option value="${k}" ${st.sector===k?'selected':''}>${SECT[k]}</option>`)).join('');
     body.innerHTML=`<div class="scr-controls">
@@ -598,7 +772,7 @@
     const c=common.slice(-(n+1)),ra=[],rb=[];for(let i=1;i<c.length;i++){ra.push(c[i][0]/c[i-1][0]-1);rb.push(c[i][1]/c[i-1][1]-1);}return[ra,rb];}
   function pearson(a,b){const n=Math.min(a.length,b.length);let sa=0,sb=0;for(let i=0;i<n;i++){sa+=a[i];sb+=b[i];}const ma=sa/n,mb=sb/n;let num=0,da=0,db=0;for(let i=0;i<n;i++){const x=a[i]-ma,y=b[i]-mb;num+=x*y;da+=x*x;db+=y*y;}return num/(Math.sqrt(da*db)||1);}
   function corrColor(c){return c>=0?`rgba(46,194,138,${(0.07+c*0.5).toFixed(3)})`:`rgba(240,85,91,${(0.07+(-c)*0.5).toFixed(3)})`;}
-  function renderCorr(body,win){const syms=CORRSET.filter(s=>BY[s]),n=syms.length,items={};syms.forEach(s=>DATA.ensureSeries(s));
+  function renderCorr(body,win){const syms=UNI.map(t=>t.sym),n=syms.length,items={};syms.forEach(s=>DATA.ensureSeries(s));
     const ready=t=>t._real&&t.dailyDates&&t.daily.length>2;
     syms.forEach(s=>{const t=BY[s];items[s]=instStatus(t);items['corr:'+s]=P.derivedStatus([histStatus(t,false)]);});
     let html=`<div class="corr-wrap"><div class="corr" style="grid-template-columns:52px repeat(${n},1fr)"><div class="hc"></div>`+syms.map(s=>`<div class="hc">${s}</div>`).join('');
@@ -634,6 +808,12 @@
     SCR:{tag:'SCR',w:640,h:430,title:()=>'EQUITY SCREENER',render:renderScreener},
     COMP:{tag:'COMP',w:600,h:510,title:()=>'COMPARE',render:renderCompare},
     CORR:{tag:'CORR',w:560,h:420,title:()=>'CORRELATION',render:renderCorr},
+    MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
+    IDX:{tag:'IDX',w:620,h:430,title:()=>'WORLD INDICES',render:renderIndices},
+    YLD:{tag:'YLD',w:680,h:560,title:()=>'GOVERNMENT YIELDS',render:renderYields},
+    CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
+    N:{tag:'N',w:620,h:500,title:()=>'NEWS',render:renderNews},
+    BRF:{tag:'BRF',w:600,h:520,title:()=>'BRIEFING',render:renderBriefing},
     SET:{tag:'SET',w:460,h:430,title:()=>'SETTINGS',render:renderSettings}
   };
   function liveRepaint(w){const b=w.bodyEl,s=b.scrollTop;paintWin(w);b.scrollTop=s;}
@@ -668,7 +848,8 @@
   function toggleMax(w){w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
   function reflowWin(w){if(!w.bodyEl||w.min)return;const b=w.bodyEl,cv=b.querySelector('canvas');
     if(w.type==='GP'&&cv)drawChart(cv,BY[w.state.ticker],w.state.tf);
-    else if(w.type==='COMP')drawCompareChart(b,w.state);}
+    else if(w.type==='COMP')drawCompareChart(b,w.state);
+    else if(w.type==='YLD')$$('.yc-cv',b).forEach(c=>{const d=EXT.yields.data,k=d&&d.curves&&d.curves[c.dataset.curve];if(k)drawYieldCurve(c,k);});}
   function tileAll(){const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
     live.forEach((w,i)=>{w.max=false;w.el.classList.remove('ismax');w.x=(i%cols)*cw;w.y=Math.floor(i/cols)*ch;w.w=cw-6;w.h=ch-6;applyRect(w);requestAnimationFrame(()=>reflowWin(w));});bringFront(live[live.length-1]);}
 
@@ -700,13 +881,13 @@
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
       bar.appendChild(c);});}
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
-    [['GP','SECURITY'],['WL','WATCHLIST'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
+    [['GP','SECURITY'],['WL','WATCHLIST'],['MKT','MARKETS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
       const b=document.createElement('button');b.className='fn';b.textContent=label;
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCSET=new Set(["GP","HEAT","MOV","SCR","COMP","PERF","CORR","WL","WATCH","SET","SETTINGS","HELP","TILE","CLOSE","UNDO"]);
-  const FUNCMAP={GP:"GP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={GP:"GP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO"]));
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
     if(f==="TILE"){tileAll();return;}
@@ -724,7 +905,7 @@
 
   /* ---------- tape + clock ---------- */
   function renderTape(){const movers=UNI.filter(t=>fin(t.chg)).sort((a,b)=>Math.abs(b.chg)-Math.abs(a.chg)).slice(0,8);tapeItems={};movers.forEach(t=>tapeItems[t.sym]=instStatus(t));
-    const q=movers.map(t=>`<span title="${esc(instTitle(t))}"><b>${t.sym}</b> ${money(t.px)} <span class="${cls(t.chg)}">${pct(t.chg)}</span> ${chip(tapeItems[t.sym])}</span>`).join('');
+    const q=movers.map(t=>`<span title="${esc(instTitle(t))}"><b>${t.sym}</b> ${pxText(t)} <span class="${cls(t.chg)}">${pct(t.chg)}</span> ${chip(tapeItems[t.sym])}</span>`).join('');
     $('#tape').innerHTML=q?q+q:'<span>waiting for live quotes…</span>';}
   function two(n){return String(n).padStart(2,'0');}
   function tickClock(){const d=new Date();$('#clk').textContent=two(d.getHours())+":"+two(d.getMinutes())+":"+two(d.getSeconds());}
@@ -733,12 +914,12 @@
   $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){const ok=runCmd(e.target.value);if(ok)e.target.value='';else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
   $('#helpClose').addEventListener('click',()=>toggleHelp(false));
   $('#help').addEventListener('click',e=>{if(e.target.id==='help')toggleHelp(false);});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleHelp(false);if(e.key==='?'&&document.activeElement!==$('#cmd'))toggleHelp(true);if(e.key==='/'&&document.activeElement!==$('#cmd')){e.preventDefault();$('#cmd').focus();}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')toggleHelp(false);const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if(e.key==='/'){e.preventDefault();$('#cmd').focus();}});
   let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
 
   /* ---------- boot ---------- */
   function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();
-    openWindow('GP',{ticker:'NVDA',tf:'6M'});openWindow('WL',{});openWindow('HEAT',{});openWindow('MOV',{});
+    openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
     renderTape();tickClock();setInterval(tickClock,1000);
     updateStatusBar();updateGlobal();

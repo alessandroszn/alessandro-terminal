@@ -10,26 +10,38 @@ Browser ──► alessandrozanichelli.com/terminal   (static page: public/termi
 The Twelve Data API key lives only in the Worker as the secret `TWELVEDATA_KEY`.
 It is never in this repository, in the page, in a URL the browser sees, or in a response.
 
-## Data integrity rules (T04)
-- **Only real data.** The UI shows the instruments in `CONFIG.liveSymbols` (NVDA, AAPL, MSFT, AMZN,
-  GOOGL, JPM), all served by the provider through `/api/*`. There are no simulated instruments,
-  datasets, prices or estimates; the only static data is each symbol's GICS sector (heatmap grouping).
-- Every number carries a status: **LIVE**, **PARTIAL**, **STALE**, **N/A** (from the API) and
-  **DERIVED**, **LOADING** (assigned by the page). Rules: `public/terminal/provenance.js`.
-- No silent fallback: if the provider fails, a symbol shows its last real quote marked **STALE**
-  (Worker cache, up to 24 h) or **N/A** — never an invented value.
-- Fundamentals (market cap, P/E, EPS, dividend yield, shares outstanding, short interest) have no
-  source on the current plan: **N/A**. Nothing is estimated.
-- Volume, open, high and low are **PARTIAL**: Twelve Data real-time US equities come from venues
-  covering ~5% of US consolidated volume. Prices, previous close and 52-week range match consolidated
-  values; historical daily bars are consolidated.
-- Each window shows a provenance pill; the status bar badge summarises what is on screen
-  (e.g. `LIVE · 6 LIVE`, or `STALE · 5 LIVE · 1 STALE`), with a per-instrument list in its tooltip.
+## Access (T05)
+The terminal is **private**: `/terminal*` and `/api/*` sit behind Cloudflare Access (owner login).
+The free Twelve Data plan is licensed for internal use only ("Internal non-display usage";
+external display needs a redistribution agreement), so its quotes are not shown publicly.
+`workers_dev` and preview URLs are disabled so nothing bypasses Access.
+
+## Data integrity rules (T04–T05)
+- **Only real data.** Every number comes from a real source through `/api/*`; a value without one is
+  **N/A** (or the section shows **NO DATA**). No mock, random, estimated or placeholder values.
+- Every datum carries source, timestamp, fetchedAt and status: **LIVE**, **PARTIAL**, **STALE**,
+  **N/A** (API) and **DERIVED**, **LOADING** (page). Rules: `public/terminal/provenance.js`.
+- No silent fallback: on failure a section shows its last real data marked **STALE** (bounded) or N/A.
+
+## Sections and sources
+| Section | Source | Notes |
+|---|---|---|
+| Watchlist (editable, max 12) | Twelve Data `/quote` via `/api/quote` | US equities (venue subset: volume/OHL PARTIAL), FX, crypto, gold |
+| Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
+| Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
+| Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
+| Calendar | BLS + BEA ICS schedules | actual/previous N/A until a FRED key is configured; forecast/importance N/A |
+| News | GDELT DOC 2.0, SEC EDGAR | headline, source, time, link only |
+| Briefing | Cloudflare Workers AI (Llama 3.3 70B) | summary of the real inputs above, sources listed, every figure checked |
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
+- `GET /api/yields` → `{ curves: { US, EA }, errors, notConnected }`
+- `GET /api/calendar` → `{ events, sources, errors }`
+- `GET /api/news?tickers=AAPL,MSFT` → `{ items (GDELT), filings (SEC), sources, errors }`
+- `GET /api/briefing?symbols=…[&refresh=1]` → `{ text, model, generatedAt, sources, verification, inputData }`
 
 ```
 InstrumentData = { symbol, name, exchange, currency,
@@ -58,14 +70,20 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
   15 min when closed (`X-Cache: HIT|MISS|PARTIAL-HIT|STALE`). Concurrent requests for the same
   symbol share one provider call; one batched `/quote` call per refresh. Browsers get `no-store`.
 - History: Worker cache 120 s intraday, 900 s daily, 3600 s weekly; served STALE (≤ 24 h) if the provider fails.
-- Page: quotes every 5 min while the market is open, 30 min when closed, paused in hidden tabs.
-  History: 1Y daily per live symbol (once per session), 1D intraday on demand (refetched after 10 min).
+- Page: quotes for what is on screen every 10 min while the market is open, 30 min when closed,
+  paused in hidden tabs; requests of ≤ 7 symbols, and a client-side budget never sends more than
+  8 credits per minute. History: 1Y daily per symbol (once per session), 1D intraday on demand.
   Free plan budget: 8 credits/min, 800/day.
+- Yields 30 min, calendar 6 h, news 10 min, briefing 60 min (Worker cache; STALE serving on failure).
 
-## Removed because no real source is connected (T04)
-World indices, yield curve, economic calendar, news, earnings, model portfolio, currency conversion
-(fixed FX rates), company descriptions, short interest, market cap / P/E, and the 12 instruments that
-had no live quotes. `test/nomock.test.mjs` fails if any of them comes back.
+## Not available (shown as N/A / NO DATA)
+Index levels, commodities (WTI, Brent), consensus forecasts and importance, fundamentals, yields for
+countries other than the US and the euro area. Earnings, model portfolio, FX conversion and company
+descriptions were removed. `test/nomock.test.mjs` fails if mock or hard-coded market data comes back.
+
+## Optional secrets
+- `FRED_KEY` — enables actual/previous values in the calendar (not configured yet).
+- `SEC_CONTACT` — contact for the SEC fair-access User-Agent, if SEC starts refusing requests.
 
 ## Deploy
 Connected to Cloudflare Workers Builds: every push to `main` redeploys.
@@ -77,6 +95,7 @@ node test/worker.test.mjs       # quote normalizer
 node test/history.test.mjs      # history contract + Worker handler (mocked provider/cache)
 node test/integrity.test.mjs    # T04: provenance, shared cache, coalescing, failures, timeout
 node test/provenance.test.mjs   # T04: client status rules
-node test/nomock.test.mjs       # T04: no mock / simulated data in the shipped files
+node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
+node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)
 ```
