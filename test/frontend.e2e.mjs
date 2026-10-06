@@ -58,6 +58,22 @@ const SEARCH_ROWS = {
 const searchBody = (q, credits = 0) => { const results = normalizeSearch({ data: SEARCH_ROWS[q.toLowerCase()] || [] }, q);
   return { q, count: results.length, results, plan: "Basic", quotable: results.filter((x) => x.quotable).length, source: "Twelve Data symbol_search", fetchedAt: new Date().toISOString(), status: "LIVE", truncated: false, credits }; };
 
+// S&P 500 map fixtures (shape of the Worker's /api/spx/* responses)
+const ET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+const dShift = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const SPX_ITEMS = [["NVDA", "NVIDIA", "Information Technology", 8.6], ["AAPL", "APPLE", "Information Technology", 7.2], ["MSFT", "MICROSOFT", "Information Technology", 5.8], ["AMZN", "AMAZON COM", "Consumer Discretionary", 3.9], ["GOOGL", "ALPHABET CLASS A", "Communication", 2.4], ["META", "META PLATFORMS CLASS A", "Communication", 2.9], ["JPM", "JPMORGAN CHASE & CO", "Financials", 1.5], ["BRK.B", "BERKSHIRE HATHAWAY INC CLASS B", "Financials", 1.6], ["XOM", "EXXON MOBIL CORP", "Energy", 0.9], ["LLY", "ELI LILLY", "Health Care", 1.3], ["UNH", "UNITEDHEALTH GROUP INC", "Health Care", 0.8], ["ZZNA", "NO PRICE INC", "Utilities", 0.1]].map(([sym, name, sector, weight]) => ({ sym, name, sector, weight, exchange: "NYSE" }));
+const SPX_PREV = { NVDA: 236, AAPL: 330, MSFT: 520, AMZN: 250, GOOGL: 340, META: 700, JPM: 330, "BRK.B": 480, XOM: 110, LLY: 800, UNH: 300 };
+const SPX_LIVE = { NVDA: 240.72, AAPL: 326.7, MSFT: 520, AMZN: 257.5, GOOGL: 340, META: 707, JPM: 323.4, "BRK.B": 480, XOM: 111.1, LLY: 784, UNH: 310 };
+const spxApi = (path, u, { configured = true } = {}) => {
+  const now = new Date().toISOString();
+  if (path === "/api/spx/universe") return { body: { source: "iShares Core S&P 500 ETF (IVV) — daily holdings", sourceUrl: "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf", holdingsAsOf: dShift(ET, -1), count: SPX_ITEMS.length, items: SPX_ITEMS, fetchedAt: now, status: "LIVE" } };
+  if (!configured) return { status: 503, body: { error: "alpaca_not_configured", status: "N/A" } };
+  if (path === "/api/spx/live") return { body: { trades: Object.fromEntries(Object.entries(SPX_LIVE).map(([k, v]) => [k, [v, now]])), live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
+  const ref = u.searchParams.get("ref");
+  if (ref === "recent") return { body: { ref, todayET: ET, todayBarFinal: false, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [[dShift(ET, -2), v * 0.98], [dShift(ET, -1), v]]])), fetchedAt: now, status: "LIVE" } };
+  return { body: { ref, target: dShift(ET, -30), todayET: ET, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [dShift(ET, -31), v * 0.9]])), fetchedAt: now, status: "LIVE" } };
+};
+
 // ---------- harness ----------
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
@@ -67,7 +83,7 @@ const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|MODEL —|hypothetica
 
 async function openTerminal(api, html = htmlFast) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const requests = [], errors = [], quoteBatches = [];
+  const requests = [], errors = [], quoteBatches = [], spxCalls = [];
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -78,15 +94,16 @@ async function openTerminal(api, html = htmlFast) {
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
   });
   await page.goto(ORIGIN + "/terminal/");
-  return { page, requests, errors, quoteBatches };
+  return { page, requests, errors, quoteBatches, spxCalls };
 }
-const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "" } : null; }, prefix);
+const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "", pillTitle: w.querySelector(".w-pv .pv")?.getAttribute("title") || "" } : null; }, prefix);
 const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(500); return page.evaluate(() => document.querySelector("#cmd").value !== ""); };
 const wlFill = async (page, sym) => { await page.fill(".wl-in", sym); await page.press(".wl-in", "Enter"); await page.waitForTimeout(700); };
 
@@ -155,7 +172,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
-  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,MARKETS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
+  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,MARKETS,S&P 500 MAP,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(800); await page.screenshot({ path: SHOTS + "/e2e-t05.png" }); }
@@ -253,6 +270,53 @@ const OK_API = {
   const sr = await winOf(page, "SYMBOL SEARCH");
   ok("[E] search unavailable → N/A with the reason, no rows", /N\/A — search unavailable: provider unreachable/.test(sr.text) && sr.pill === "N/A" && !/SYMBOL\s+NAME/.test(sr.text));
   ok("[E] no JavaScript errors", errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== F. S&P 500 heat map: real constituents + prices, changes derived ===============
+{
+  const { page, errors, spxCalls, quoteBatches } = await openTerminal(OK_API);
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await cmd(page, "MAP"); await page.waitForTimeout(900);
+  let mp = await winOf(page, "S&P 500 HEAT MAP");
+  const tiles = await page.$$eval(".spx-t", (t) => t.map((x) => ({ s: x.dataset.s, na: x.classList.contains("spx-na"), bg: x.style.background, w: x.offsetWidth, h: x.offsetHeight, txt: x.innerText })));
+  ok("[F] MAP opens the heat map: one tile per constituent, grouped by sector", !!mp && tiles.length === SPX_ITEMS.length && (await page.$$eval(".spx-sec", (s) => s.length)) === 7, mp && mp.text.slice(0, 200));
+  ok("[F] only universe, recent closes and live trades are requested for 1D", ["/api/spx/universe", "/api/spx/closes?ref=recent", "/api/spx/live"].every((p) => spxCalls.includes(p)) && !spxCalls.some((p) => /ref=1M/.test(p)));
+  const nv = tiles.find((t) => t.s === "NVDA"), aapl = tiles.find((t) => t.s === "AAPL");
+  ok("[F] 1D change = live IEX trade vs last consolidated close (NVDA +2.00%, AAPL −1.00%)", /\+2\.00%/.test(nv.txt) && /-1\.00%/.test(aapl.txt), nv.txt + " / " + aapl.txt);
+  ok("[F] colour by sign, neutral at 0, striped N/A for a constituent without price", nv.bg !== aapl.bg && tiles.find((t) => t.s === "ZZNA").na && !tiles.find((t) => t.s === "MSFT").na);
+  ok("[F] tile area follows the index weight", nv.w * nv.h > 20 * tiles.find((t) => t.s === "XOM").w * tiles.find((t) => t.s === "XOM").h / 2);
+  ok("[F] footer names the sources, holdings date and N/A count; pill DERIVED", /iShares IVV holdings as of/.test(mp.text) && /latest IEX trade/.test(mp.text) && /1 N\/A/.test(mp.text) && /changes DERIVED/.test(mp.text) && mp.pill === "LIVE", mp.pill + " | " + mp.text.slice(-300));
+  ok("[F] sector header shows the weighted change", /INFORMATION TECHNOLOGY [+-]\d+\.\d\d%/.test(mp.text));
+  await page.hover('.spx-t[data-s="AAPL"]'); await page.waitForTimeout(150);
+  const tip = await page.$eval(".spx-tip", (t) => ({ d: getComputedStyle(t).display, txt: t.innerText }));
+  ok("[F] hover: value first, then name, weight, last price source and base date", tip.d === "block" && /^-1\.00%/.test(tip.txt) && /APPLE/.test(tip.txt) && /weight 7\.20%/.test(tip.txt) && /IEX trade/.test(tip.txt) && /consolidated close \d{4}-\d{2}-\d{2}/.test(tip.txt), tip.txt);
+  await page.click('[data-metric="1M"]'); await page.waitForTimeout(700);
+  mp = await winOf(page, "S&P 500 HEAT MAP");
+  ok("[F] switching to 1M fetches the 1M reference closes and recolours (NVDA +13.33%)", spxCalls.includes("/api/spx/closes?ref=1M") && /\+13\.33%/.test(await page.$eval('.spx-t[data-s="NVDA"]', (t) => t.innerText)));
+  await page.click('[data-size="equal"]'); await page.waitForTimeout(300);
+  const eq = await page.$$eval(".spx-t", (t) => t.map((x) => x.offsetWidth * x.offsetHeight));
+  ok("[F] EQUAL size: tiles of (almost) equal area", Math.max(...eq) / Math.min(...eq) < 1.6, eq.join());
+  await page.click('[data-view="table"]'); await page.waitForTimeout(300);
+  const rowsT = await page.$$eval(".win tr[data-open]", (r) => r.map((x) => x.dataset.open));
+  ok("[F] TABLE view: every constituent, sorted by change, N/A last", rowsT.length === SPX_ITEMS.length && rowsT[rowsT.length - 1] === "ZZNA" && rowsT[0] === "UNH");
+  await page.click('[data-view="map"]'); await page.waitForTimeout(300);
+  await page.click('.spx-t[data-s="MSFT"]'); await page.waitForTimeout(600);
+  ok("[F] clicking a tile opens its quote window", !!(await winOf(page, "MSFT")));
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[F] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
+  if (SHOTS) { await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => /S&P 500/.test(w.querySelector(".w-title").textContent)); w.querySelector(".w-max").click(); }); await page.click('[data-metric="1D"]'); await page.click('[data-size="weight"]'); await page.waitForTimeout(600); await page.screenshot({ path: SHOTS + "/e2e-map.png" }); }
+  await page.close();
+}
+{
+  // price source not connected: constituents and weights only, every change N/A, nothing invented
+  const NOKEY = { ...OK_API, spx: (path, u) => spxApi(path, u, { configured: false }) };
+  const { page, errors } = await openTerminal(NOKEY);
+  await cmd(page, "MAP"); await page.waitForTimeout(900);
+  const mp = await winOf(page, "S&P 500 HEAT MAP");
+  const tiles = await page.$$eval(".spx-t", (t) => t.map((x) => ({ na: x.classList.contains("spx-na"), txt: x.innerText })));
+  ok("[F] keys missing → NO DATA banner, all tiles N/A, no percentages", /NO DATA — price source not connected/.test(mp.text) && tiles.length === SPX_ITEMS.length && tiles.every((t) => t.na && !/%/.test(t.txt)) && !/[+-]\d+\.\d\d%/.test(mp.text) && /N\/A/.test(mp.pillTitle || ""), mp.pill + " | " + mp.pillTitle + " | " + mp.text.slice(0, 400));
+  ok("[F] no JavaScript errors (keys missing)", errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

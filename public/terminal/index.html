@@ -131,6 +131,24 @@
 
   /* ---- heatmap ---- */
   .heat-wrap{display:flex;flex-direction:column;gap:12px}
+  /* S&P 500 map */
+  .spx-bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--line)}
+  .spx-bar .grp{display:flex;gap:2px;align-items:center}
+  .spx-bar .grp>span{color:var(--dim);font-size:9.5px;letter-spacing:.08em;margin-right:4px}
+  .spx-legend{display:flex;align-items:center;gap:1px;font-size:9.5px;color:var(--muted);margin-left:auto}
+  .spx-legend .sw{width:24px;height:10px;display:inline-block}
+  .spx-legend .lb{margin:0 4px}
+  .spx-map{position:relative;flex:1 1 auto;min-height:240px;margin:4px 6px;overflow:hidden;background:var(--bg)}
+  .spx-sec{position:absolute;box-sizing:border-box;outline:1px solid var(--bg)}
+  .spx-sec>.lbl{position:absolute;left:0;top:0;right:0;height:15px;font-size:9.5px;letter-spacing:.06em;color:var(--fg);background:#0b0d11;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .spx-t{position:absolute;box-sizing:border-box;border:1px solid var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;color:#fff;cursor:pointer;text-align:center;line-height:1.08;text-shadow:0 1px 1px #0008}
+  .spx-t:hover{outline:2px solid var(--amber);outline-offset:-2px;z-index:2}
+  .spx-t b{font-weight:700} .spx-t i{font-style:normal;opacity:.95}
+  .spx-na{background:repeating-linear-gradient(45deg,#23272f 0 4px,#1a1d23 4px 8px)}
+  .spx-tip{position:fixed;z-index:9000;pointer-events:none;background:var(--panel);border:1px solid var(--line-2);border-radius:4px;padding:8px 10px;font-size:11px;min-width:210px;max-width:300px;box-shadow:0 8px 24px #000a;display:none;line-height:1.45}
+  .spx-tip .v{font-size:15px;font-weight:700}
+  .spx-tip .k{color:var(--dim)}
+  .spx-foot{font-size:10px;color:var(--dim);padding:2px 8px 6px;line-height:1.4}
   .heat-sector{font-size:10px;letter-spacing:.14em;color:var(--muted);margin-bottom:5px}
   .heat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px}
   .heat-cell{border:1px solid #0003;border-radius:3px;padding:8px;cursor:pointer;min-width:0}
@@ -338,6 +356,7 @@
     <div class="help-row"><code>SRCH</code><span>Symbol search: find any listed instrument, open it, add it to the watchlist</span></div>
     <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
     <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
+    <div class="help-row"><code>MAP</code><span>S&amp;P 500 heat map: every constituent, sized by index weight, coloured by 1D / 1W / 1M / 3M / 6M / YTD / 1Y change</span></div>
     <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
     <div class="help-row"><code>YLD</code><span>Government yields: U.S. Treasury, ECB euro area</span></div>
     <div class="help-row"><code>CAL</code><span>Economic calendar: official BLS / BEA schedules</span></div>
@@ -461,7 +480,7 @@
     sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
       if(st===S.NA&&t.q){clearMarket(t);t.qErr=t.qErr||'expired';st=instStatus(t);}
       if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();
-      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);});},
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D');});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
@@ -870,6 +889,100 @@
     $$('[data-open]',body).forEach(b=>b.onclick=()=>openSecurity(b.dataset.open));
     $$('[data-add]',body).forEach(b=>b.onclick=()=>{st.msg='';addToWatchlist(b.dataset.add,win);});}
 
+  // ---- S&P 500 HEAT MAP: constituents + weights (iShares IVV holdings), prices (Alpaca), changes DERIVED ----
+  const SPX={u:null,recent:null,live:null,refs:{},err:{},at:{},loading:{}};
+  const SPX_METRICS=["1D","1W","1M","3M","6M","YTD","1Y"];
+  const SPX_SCALE={"1D":3,"1W":5,"1M":8,"3M":12,"6M":18,"YTD":25,"1Y":30}; // colour saturates at ± this %
+  function spxTtl(key){return key==='u'?43200000:key==='recent'?1800000:key==='live'?(SPX.live&&SPX.live.live?120000:900000):21600000;}
+  async function spxGet(key,path,force){if(SPX.loading[key])return;if(!force&&SPX.at[key]&&Date.now()-SPX.at[key]<(SPX.err[key]?60000:spxTtl(key)))return;
+    SPX.loading[key]=true;
+    try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
+      if(!j||j.error){SPX.err[key]=(j&&j.error)||('http '+r.status);}
+      else{SPX.err[key]=null;if(key.startsWith('ref:'))SPX.refs[key.slice(4)]=j;else SPX[key]=j;}}
+    catch(e){SPX.err[key]='network';}
+    finally{SPX.loading[key]=false;SPX.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&w.type==='MAP')liveRepaint(w);});updateGlobal();}}
+  function spxEnsure(metric){spxGet('u','/api/spx/universe');spxGet('recent','/api/spx/closes?ref=recent');spxGet('live','/api/spx/live');
+    if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes?ref='+encodeURIComponent(metric));}
+  // per constituent: last price, base price for the chosen period, change (all from real prices; null = N/A)
+  function spxRows(metric){const u=SPX.u;if(!u||!Array.isArray(u.items))return null;
+    const R=SPX.recent,L=SPX.live,ref=metric==='1D'?null:SPX.refs[metric],liveMode=!!(L&&L.live&&L.trades);
+    return u.items.map(it=>{const bars=R&&R.closes&&R.closes[it.sym]||null;let last=null,lastT=null,src=null,base=null,baseD=null;
+      if(liveMode){const tr=L.trades[it.sym];if(tr){last=tr[0];lastT=tr[1];src='iex';}
+        if(bars){const done=bars.filter(b=>b[0]<R.todayET);if(done.length&&metric==='1D'){base=done[done.length-1][1];baseD=done[done.length-1][0];}}}
+      else if(bars){const done=bars.filter(b=>b[0]<R.todayET||R.todayBarFinal);
+        if(done.length){last=done[done.length-1][1];lastT=done[done.length-1][0];src='close';if(metric==='1D'&&done.length>1){base=done[done.length-2][1];baseD=done[done.length-2][0];}}}
+      if(ref&&ref.closes&&ref.closes[it.sym]){base=ref.closes[it.sym][1];baseD=ref.closes[it.sym][0];}
+      const chg=fin(last)&&fin(base)&&base>0?(last/base-1)*100:null;
+      return Object.assign({},it,{last,lastT,src,base,baseD,chg});});}
+  function mixHex(a,b,k){const p=h=>{h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[n>>16&255,n>>8&255,n&255];};
+    const x=p(a),y=p(b);return'#'+x.map((v,i)=>Math.round(v+(y[i]-v)*k).toString(16).padStart(2,'0')).join('');}
+  // diverging scale: theme down colour ← neutral grey → theme up colour, 3 equal steps per arm
+  const SPX_NEUTRAL='#3b414d';
+  function spxColor(chg,metric){if(!fin(chg))return null;const s=SPX_SCALE[metric]||3,q=Math.round(Math.max(-1,Math.min(1,chg/s))*3)/3;
+    if(q===0)return SPX_NEUTRAL;const pole=mixHex(q>0?C.up:C.down,'#000000',0.22);return mixHex(SPX_NEUTRAL,pole,Math.abs(q));}
+  function squarify(items,x,y,w,h){const out=[],total=items.reduce((a,b)=>a+b.v,0);if(!total||w<=0||h<=0)return out;
+    const k=w*h/total;let rest=items.map(it=>({it,a:it.v*k})),rx=x,ry=y,rw=w,rh=h;
+    while(rest.length){const side=Math.min(rw,rh);let row=[],best=Infinity,sum=0;
+      while(rest.length){const c=rest[0],s2=sum+c.a,mx=Math.max(c.a,...row.map(r=>r.a)),mn=Math.min(c.a,...row.map(r=>r.a));
+        const worst=Math.max(side*side*mx/(s2*s2),(s2*s2)/(side*side*mn));if(!row.length||worst<=best){best=worst;row.push(c);sum=s2;rest.shift();}else break;}
+      if(rw>=rh){const cw=sum/rh;let cy=ry;row.forEach(r=>{const ch=r.a/cw;out.push({it:r.it,x:rx,y:cy,w:cw,h:ch});cy+=ch;});rx+=cw;rw-=cw;}
+      else{const ch=sum/rw;let cx=rx;row.forEach(r=>{const cw=r.a/ch;out.push({it:r.it,x:cx,y:ry,w:cw,h:ch});cx+=cw;});ry+=ch;rh-=ch;}}
+    return out;}
+  function spxPriceStatus(){const L=SPX.live,R=SPX.recent;if(L&&L.live)return L.status==='STALE'?S.STALE:S.LIVE;if(R)return R.status==='STALE'?S.STALE:S.LIVE;return SPX.err.recent||SPX.err.live?S.NA:S.LOADING;}
+  function renderMap(body,win){const st=win.state;st.metric=st.metric||'1D';st.size=st.size||'weight';st.view=st.view||'map';spxEnsure(st.metric);
+    body.style.padding='0';body.style.display='flex';body.style.flexDirection='column';
+    const u=SPX.u,rows=spxRows(st.metric),priceErr=SPX.err.live&&SPX.err.recent?SPX.err.live:null,refErr=st.metric!=='1D'?SPX.err['ref:'+st.metric]:null;
+    win._spxRows=rows;
+    const sc=SPX_SCALE[st.metric],steps=[-1,-2/3,-1/3,0,1/3,2/3,1];
+    const legend=`<span class="spx-legend" title="colour = ${st.metric} change; saturates at ±${sc}%; striped = N/A">`+`<span class="lb">−${sc}%</span>`+steps.map(q=>`<span class="sw" style="background:${spxColor(q*sc,st.metric)}"></span>`).join('')+`<span class="lb">+${sc}%</span><span class="sw spx-na" title="N/A"></span></span>`;
+    const btns=(name,list,cur)=>list.map(([v,l])=>`<button class="tf" data-${name}="${v}" aria-pressed="${v===cur}">${l}</button>`).join('');
+    const bar=`<div class="spx-bar"><div class="grp"><span>CHANGE</span>${btns('metric',SPX_METRICS.map(m=>[m,m]),st.metric)}</div><div class="grp"><span>SIZE</span>${btns('size',[['weight','INDEX WT'],['equal','EQUAL']],st.size)}</div><div class="grp"><span>VIEW</span>${btns('view',[['map','MAP'],['table','TABLE']],st.view)}</div>${legend}</div>`;
+    let banner='';
+    if(!u&&SPX.err.u)banner=`<div class="banner warn" style="margin:8px"><b>N/A</b> — constituents unavailable (${esc(P.errorText(SPX.err.u))}). Nothing is drawn without the real list.</div>`;
+    else if(priceErr==='alpaca_not_configured')banner=`<div class="banner warn" style="margin:6px 8px 0"><b>NO DATA</b> — price source not connected: Alpaca API keys are not set in the Worker. Tiles show the real constituents and weights only; every change is N/A.</div>`;
+    else if(priceErr||refErr)banner=`<div class="banner warn" style="margin:6px 8px 0"><b>N/A</b> — prices unavailable (${esc(P.errorText(refErr||priceErr))}). No substitute value is shown.</div>`;
+    const n=rows?rows.length:0,nNA=rows?rows.filter(r=>!fin(r.chg)).length:0;
+    const baseD=rows?(()=>{const c={};rows.forEach(r=>{if(r.baseD)c[r.baseD]=(c[r.baseD]||0)+1;});return Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||null;})():null;
+    const L=SPX.live,R=SPX.recent,liveMode=!!(L&&L.live);
+    const foot=u?`<div class="spx-foot">${n} constituents · ${nNA} N/A · size: ${st.size==='weight'?'weight in IVV holdings (proxy for the index weight)':'equal'} · constituents &amp; weights: <a href="${esc(u.sourceUrl)}" target="_blank" rel="noopener">iShares IVV holdings</a> as of ${esc(u.holdingsAsOf||'—')} · last price: ${liveMode?`Alpaca, latest IEX trade (fetched ${fmtTime(L.fetchedAt)})`:R?`Alpaca, consolidated close ${esc(rows&&rows.find(r=>r.src==='close')?rows.find(r=>r.src==='close').lastT:'—')}`:'—'} · base: consolidated close ${esc(baseD||'—')} · changes DERIVED</div>`:'';
+    const body2=!u?(SPX.err.u?'':'<div class="empty">Loading the S&amp;P 500 constituents…</div>'):st.view==='table'?spxTable(rows,st.metric):'<div class="spx-map" aria-label="S&amp;P 500 heat map"></div>';
+    body.innerHTML=bar+banner+body2+foot;
+    const ps=spxPriceStatus(),items={'ds:spx-list':u?(u.status==='STALE'?S.STALE:S.LIVE):SPX.err.u?S.NA:S.LOADING,'ds:spx-prices':ps};
+    if(rows){items['ds:spx-changes']=nNA===n?S.NA:ps===S.STALE?S.STALE:S.DERIVED;}
+    setProv(win,items,'S&P 500 heat map: real constituents, weights and prices; changes computed here');
+    $$('[data-metric]',body).forEach(b=>b.onclick=()=>{st.metric=b.dataset.metric;paintWin(win);});
+    $$('[data-size]',body).forEach(b=>b.onclick=()=>{st.size=b.dataset.size;paintWin(win);});
+    $$('[data-view]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.view;paintWin(win);});
+    $$('tr[data-open]',body).forEach(tr=>tr.onclick=()=>openSecurity(tr.dataset.open));
+    if(st.view==='map')requestAnimationFrame(()=>drawSpx(win));}
+  function spxTable(rows,metric){if(!rows)return'';const r=rows.slice().sort((a,b)=>(fin(b.chg)?b.chg:-1e9)-(fin(a.chg)?a.chg:-1e9));
+    return`<div style="overflow:auto;flex:1 1 auto;margin:0 8px"><table class="pf"><thead><tr><th>SYM</th><th class="l">NAME</th><th class="l">SECTOR</th><th>WEIGHT</th><th>LAST</th><th>${metric} CHG</th><th>BASE DATE</th></tr></thead><tbody>`+
+      r.map(x=>`<tr data-open="${esc(x.sym)}" tabindex="0" role="button"><td>${esc(x.sym)}</td><td class="l nm">${esc(x.name||'—')}</td><td class="l">${esc(x.sector||'—')}</td><td class="num">${fin(x.weight)?x.weight.toFixed(2)+'%':'—'}</td><td class="num">${fin(x.last)?money(x.last):'<span class="na">N/A</span>'}</td><td class="num ${cls(x.chg)}">${fin(x.chg)?pct(x.chg):'<span class="na">N/A</span>'}</td><td>${esc(x.baseD||'—')}</td></tr>`).join('')+`</tbody></table></div>`;}
+  function drawSpx(win){const host=win.bodyEl&&win.bodyEl.querySelector('.spx-map'),rows=win._spxRows;if(!host||!rows||!host.clientWidth)return;
+    const st=win.state,W=host.clientWidth,H=host.clientHeight,val=r=>st.size==='equal'?1:Math.max(r.weight,0.0001);
+    const bySec={};rows.forEach(r=>{(bySec[r.sector||'Other']=bySec[r.sector||'Other']||[]).push(r);});
+    const secs=Object.entries(bySec).map(([name,list])=>({name,list:list.sort((a,b)=>val(b)-val(a)),v:list.reduce((a,r)=>a+val(r),0)})).sort((a,b)=>b.v-a.v);
+    let html='';
+    squarify(secs,0,0,W,H).forEach(sb=>{const sec=sb.it,head=sb.h>40&&sb.w>60?15:0;
+      const wsum=sec.list.filter(r=>fin(r.chg)).reduce((a,r)=>a+r.weight,0),wchg=wsum?sec.list.filter(r=>fin(r.chg)).reduce((a,r)=>a+r.weight*r.chg,0)/wsum:null;
+      html+=`<div class="spx-sec" style="left:${sb.x}px;top:${sb.y}px;width:${sb.w}px;height:${sb.h}px">${head?`<div class="lbl" title="${esc(sec.name)} — weighted ${st.metric} change (DERIVED)">${esc(sec.name.toUpperCase())} <span class="${cls(wchg)}">${fin(wchg)?pct(wchg):''}</span></div>`:''}`;
+      squarify(sec.list.map(r=>({v:val(r),r})),0,head,sb.w,sb.h-head).forEach(t=>{const r=t.it.r,col=spxColor(r.chg,st.metric),fs=Math.max(8,Math.min(22,Math.min(t.w/4,t.h/2.6)));
+        const lab=t.w>=26&&t.h>=14?`<b style="font-size:${fs}px">${esc(r.sym)}</b>${t.h>=fs*2.4&&t.w>=34?`<i style="font-size:${Math.max(8,fs*0.72)}px">${fin(r.chg)?pct(r.chg):'N/A'}</i>`:''}`:'';
+        html+=`<div class="spx-t${col?'':' spx-na'}" data-s="${esc(r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;${col?'background:'+col:''}">${lab}</div>`;});
+      html+='</div>';});
+    host.innerHTML=html;
+    const byS={};rows.forEach(r=>byS[r.sym]=r);
+    let tip=document.querySelector('.spx-tip');if(!tip){tip=document.createElement('div');tip.className='spx-tip';document.body.appendChild(tip);}
+    const L=SPX.live,liveMode=!!(L&&L.live);
+    host.onpointermove=e=>{const el=e.target.closest('.spx-t');if(!el){tip.style.display='none';return;}const r=byS[el.dataset.s];if(!r)return;
+      tip.innerHTML=`<div class="v ${cls(r.chg)}">${fin(r.chg)?pct(r.chg):'N/A'} <span class="k" style="font-size:10px;font-weight:400">${st.metric} ${fin(r.chg)?'· DERIVED':''}</span></div>
+        <div><b>${esc(r.sym)}</b> · ${esc(r.name||'')}</div><div class="k">${esc(r.sector||'')} · weight ${fin(r.weight)?r.weight.toFixed(2)+'%':'—'}</div>
+        <div>last ${fin(r.last)?money(r.last):'N/A'} <span class="k">${r.src==='iex'?'IEX trade '+fmtDT(r.lastT):r.src==='close'?'consolidated close '+esc(r.lastT):''}</span></div>
+        <div>base ${fin(r.base)?money(r.base):'N/A'} <span class="k">${r.baseD?'consolidated close '+esc(r.baseD):''}</span></div>`;
+      tip.style.display='block';const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8),y=Math.min(e.clientY+14,innerHeight-tip.offsetHeight-8);tip.style.left=x+'px';tip.style.top=y+'px';};
+    host.onpointerleave=()=>{tip.style.display='none';};
+    host.onclick=e=>{const el=e.target.closest('.spx-t');if(el){tip.style.display='none';openSecurity(el.dataset.s);}};}
+
   /* ---------- window types ---------- */
   const WINTYPES={
     GP:{tag:'GP',w:560,h:470,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
@@ -881,6 +994,7 @@
     COMP:{tag:'COMP',w:600,h:510,title:()=>'COMPARE',render:renderCompare},
     CORR:{tag:'CORR',w:560,h:420,title:()=>'CORRELATION',render:renderCorr},
     MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
+    MAP:{tag:'MAP',w:980,h:620,title:w=>`S&P 500 HEAT MAP · ${w.state.metric||'1D'}`,render:renderMap},
     IDX:{tag:'IDX',w:620,h:430,title:()=>'WORLD INDICES',render:renderIndices},
     YLD:{tag:'YLD',w:680,h:560,title:()=>'GOVERNMENT YIELDS',render:renderYields},
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
@@ -910,7 +1024,7 @@
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
-  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};return{};}
+  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{metric:'1D',size:'weight',view:'map'};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
   function closeWin(w,batch){const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
@@ -921,6 +1035,7 @@
   function reflowWin(w){if(!w.bodyEl||w.min)return;const b=w.bodyEl,cv=b.querySelector('canvas');
     if(w.type==='GP'&&cv)drawChart(cv,BY[w.state.ticker],w.state.tf);
     else if(w.type==='COMP')drawCompareChart(b,w.state);
+    else if(w.type==='MAP')drawSpx(w);
     else if(w.type==='YLD')$$('.yc-cv',b).forEach(c=>{const d=EXT.yields.data,k=d&&d.curves&&d.curves[c.dataset.curve];if(k)drawYieldCurve(c,k);});}
   function tileAll(){const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
     live.forEach((w,i)=>{w.max=false;w.el.classList.remove('ismax');w.x=(i%cols)*cw;w.y=Math.floor(i/cols)*ch;w.w=cw-6;w.h=ch-6;applyRect(w);requestAnimationFrame(()=>reflowWin(w));});bringFront(live[live.length-1]);}
@@ -953,12 +1068,12 @@
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
       bar.appendChild(c);});}
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
-    [['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['MKT','MARKETS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
+    [['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['MKT','MARKETS'],['MAP','S&P 500 MAP'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
       const b=document.createElement('button');b.className='fn';b.textContent=label;
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={GP:"GP",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={GP:"GP",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO"]));
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}

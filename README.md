@@ -41,6 +41,7 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 |---|---|---|
 | Symbol search (SRCH) | Twelve Data `/symbol_search` via `/api/search` | name or ticker, every exchange the provider lists; metadata only (no prices) |
 | Watchlist (editable, max 12) | Twelve Data `/quote` via `/api/quote` | US equities (venue subset: volume/OHL PARTIAL), FX, crypto, gold; any searched listing the plan covers |
+| S&P 500 heat map (MAP) | iShares IVV daily holdings (constituents, GICS sector, weight) + Alpaca (latest IEX trade; consolidated SIP daily closes) | every constituent, size = IVV weight (proxy for index weight) or equal, colour = 1D/1W/1M/3M/6M/YTD/1Y change (DERIVED); MAP or TABLE view |
 | Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
@@ -66,6 +67,9 @@ warrants: search the ticker); indices are not in the provider's search.
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
+- `GET /api/spx/universe` → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
+- `GET /api/spx/closes?ref=recent|1W|1M|3M|6M|YTD|1Y` → `{ ref, target, todayET, todayBarFinal, closes: { SYM: [date, close] | [[date, close]…] } }`
+- `GET /api/spx/live` → `{ trades: { SYM: [price, time] }, live, medianTradeAgeSec }` (cache 60 s)
 - `GET /api/search?q=Roche` → `{ q, count, results: [{ id, symbol, name, exchange, mic, country, currency, type, planRequired, quotable }], plan, quotable, source, fetchedAt, status, truncated, credits }`
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
@@ -113,6 +117,8 @@ countries other than the US and the euro area. Earnings, model portfolio, FX con
 descriptions were removed. `test/nomock.test.mjs` fails if mock or hard-coded market data comes back.
 
 ## Optional secrets
+- `ALPACA_KEY_ID`, `ALPACA_SECRET_KEY` — Alpaca market data (free plan) for the S&P 500 heat map. Without
+  them the map shows the real constituents and weights only, every change N/A.
 - `FRED_KEY` — enables actual/previous values in the calendar (not configured yet).
 - `SEC_CONTACT` — contact for the SEC fair-access User-Agent, if SEC starts refusing requests.
 
@@ -128,6 +134,7 @@ node test/integrity.test.mjs    # T04: provenance, shared cache, coalescing, fai
 node test/provenance.test.mjs   # T04: client status rules
 node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
 node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes/history, plan errors
+node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca bars/trades, live phase)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)

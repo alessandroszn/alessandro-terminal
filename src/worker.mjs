@@ -1,6 +1,7 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
 //   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
+//   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/health
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
 //                                            "SYMBOL:MIC" ids such as NOVN:XSWX address one venue)
@@ -15,6 +16,7 @@ import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
+import { handleSpx } from "./spx.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -466,6 +468,7 @@ export const app = {
     if (url.pathname === "/api/news") return handleNews(url, env, ctx, H, json);
     if (url.pathname === "/api/briefing") return handleBriefing(url, env, ctx, H, json);
     if (url.pathname === "/api/search") return handleSearch(url, env, ctx, H, json);
+    if (url.pathname.startsWith("/api/spx/")) return handleSpx(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };

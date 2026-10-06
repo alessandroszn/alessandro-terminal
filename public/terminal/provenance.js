@@ -97,6 +97,9 @@
 
   var ERRORS = {
     plan_required: "listed by the provider, but not included in the current data plan",
+    alpaca_not_configured: "price source not connected (Alpaca keys not set)",
+    universe_unavailable: "S&P 500 constituent list unavailable",
+    provider_forbidden: "provider refused the request",
     symbol_not_found: "unknown symbol at the provider",
     invalid_symbol: "invalid symbol",
     rate_limited: "provider rate limit reached",
