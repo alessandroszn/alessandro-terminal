@@ -1,4 +1,5 @@
 // T04 — client provenance rules (public/terminal/provenance.js), run in a sandbox like the browser would.
+// Policy: only real data; there is no SIMULATED status — a value without a real source is N/A.
 //   node test/provenance.test.mjs
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -23,56 +24,58 @@ const q = (over = {}) => ({
   ...over,
 });
 
+// ---- policy ----
+ok("no SIMULATED or MIXED status exists", !("SIMULATED" in S) && !("MIXED" in S) && !Object.values(S).some((v) => /SIM|MIX/.test(v)));
+ok("vocabulary = LIVE, PARTIAL, STALE, N/A, DERIVED, LOADING", Object.values(S).sort().join() === ["DERIVED", "LIVE", "LOADING", "N/A", "PARTIAL", "STALE"].join());
+
 // ---- instruments ----
-ok("live data -> LIVE", P.instrumentStatus(q(), { live: true, now: NOW }) === S.LIVE);
-ok("simulated symbol -> SIMULATED (whatever data it has)", P.instrumentStatus(q(), { live: false, now: NOW }) === S.SIMULATED);
-ok("stale from server -> STALE", P.instrumentStatus(q({ status: "STALE" }), { live: true, now: NOW }) === S.STALE);
-ok("past staleAt on the client -> STALE", P.instrumentStatus(q(), { live: true, now: NOW + 600_000 }) === S.STALE);
-ok("older than 24 h -> N/A (not shown)", P.instrumentStatus(q(), { live: true, now: NOW + 25 * 3600_000 }) === S.NA);
-ok("live symbol, no quote yet -> LOADING", P.instrumentStatus(null, { live: true, now: NOW }) === S.LOADING);
-ok("live symbol, provider error, no quote -> N/A (no fallback)", P.instrumentStatus(null, { live: true, now: NOW, error: "rate_limited" }) === S.NA);
+ok("live data -> LIVE", P.instrumentStatus(q(), { now: NOW }) === S.LIVE);
+ok("stale from server -> STALE", P.instrumentStatus(q({ status: "STALE" }), { now: NOW }) === S.STALE);
+ok("past staleAt on the client -> STALE", P.instrumentStatus(q(), { now: NOW + 600_000 }) === S.STALE);
+ok("older than 24 h -> N/A (not shown)", P.instrumentStatus(q(), { now: NOW + 25 * 3600_000 }) === S.NA);
+ok("no quote yet -> LOADING", P.instrumentStatus(null, { now: NOW }) === S.LOADING);
+ok("provider error, no quote -> N/A (no fallback)", P.instrumentStatus(null, { now: NOW, error: "rate_limited" }) === S.NA);
+ok("quote without fetchedAt -> N/A (cannot prove freshness)", P.instrumentStatus(q({ fetchedAt: null }), { now: NOW }) === S.NA);
 
 // ---- fields ----
-const inst = P.instrumentStatus(q(), { live: true, now: NOW });
+const inst = P.instrumentStatus(q(), { now: NOW });
 ok("price field -> LIVE", P.fieldStatus(q(), "price", inst) === S.LIVE);
 ok("volume field -> PARTIAL", P.fieldStatus(q(), "volume", inst) === S.PARTIAL);
 ok("missing fundamental (market cap) -> N/A", P.fieldStatus(q(), "marketCap", inst) === S.NA && P.fieldValue(q(), "marketCap") === null);
 ok("field the API never sent (P/E) -> N/A", P.fieldStatus(q(), "pe", inst) === S.NA && P.fieldValue(q(), "pe") === null);
 ok("fields of a STALE instrument -> STALE", P.fieldStatus(q(), "price", S.STALE) === S.STALE && P.fieldStatus(q(), "volume", S.STALE) === S.STALE);
-ok("fields of a simulated instrument -> SIMULATED", P.fieldStatus(null, "price", S.SIMULATED) === S.SIMULATED);
+ok("fields of an N/A instrument -> N/A", P.fieldStatus(null, "price", S.NA) === S.NA);
+ok("fields while loading -> LOADING", P.fieldStatus(null, "price", S.LOADING) === S.LOADING);
 ok("fieldValue returns the real value", P.fieldValue(q(), "price") === 332.88);
+ok("fieldValue of N/A field is null even if a value slipped in", P.fieldValue({ fields: { pe: { value: 12, status: "N/A" } } }, "pe") === null);
 
 // ---- history ----
 const h = { status: "LIVE", fetchedAt: iso(NOW - 1000), staleAt: iso(NOW + 86_000_000) };
-ok("history LIVE", P.historyStatus(h, { live: true, now: NOW }) === S.LIVE);
-ok("history STALE (server)", P.historyStatus({ ...h, status: "STALE" }, { live: true, now: NOW }) === S.STALE);
-ok("history past staleAt -> STALE", P.historyStatus({ ...h, staleAt: iso(NOW - 1) }, { live: true, now: NOW }) === S.STALE);
-ok("history of a simulated symbol -> SIMULATED", P.historyStatus(null, { live: false }) === S.SIMULATED);
-ok("history failed -> N/A", P.historyStatus(null, { live: true, error: "no_data" }) === S.NA);
+ok("history LIVE", P.historyStatus(h, { now: NOW }) === S.LIVE);
+ok("history STALE (server)", P.historyStatus({ ...h, status: "STALE" }, { now: NOW }) === S.STALE);
+ok("history past staleAt -> STALE", P.historyStatus({ ...h, staleAt: iso(NOW - 1) }, { now: NOW }) === S.STALE);
+ok("history not loaded -> LOADING", P.historyStatus(null, {}) === S.LOADING);
+ok("history failed -> N/A", P.historyStatus(null, { error: "no_data" }) === S.NA);
 
 // ---- derived ----
 ok("derived from real inputs -> DERIVED", P.derivedStatus([S.LIVE, S.LIVE]) === S.DERIVED);
 ok("derived from PARTIAL + LIVE -> DERIVED", P.derivedStatus([S.LIVE, S.PARTIAL]) === S.DERIVED);
-ok("derived from real + simulated -> MIXED", P.derivedStatus([S.LIVE, S.SIMULATED]) === S.MIXED);
-ok("derived from simulated only -> SIMULATED", P.derivedStatus([S.SIMULATED, S.SIMULATED]) === S.SIMULATED);
 ok("derived with a stale input -> STALE", P.derivedStatus([S.LIVE, S.STALE]) === S.STALE);
-ok("derived with a missing input -> N/A", P.derivedStatus([S.LIVE, S.NA]) === S.NA);
+ok("derived with a missing input -> N/A (never computed from a guess)", P.derivedStatus([S.LIVE, S.NA]) === S.NA);
 ok("derived with a loading input -> LOADING", P.derivedStatus([S.LIVE, S.LOADING]) === S.LOADING);
+ok("derived from nothing -> N/A", P.derivedStatus([]) === S.NA);
 
-// ---- views (mixed indication) ----
-const mixed = P.summarize([S.LIVE, S.LIVE, S.SIMULATED]);
-ok("view with real + simulated -> MIXED", mixed.label === S.MIXED);
-ok("MIXED text names both parts", mixed.text === "MIXED · 2 LIVE · 1 SIM", mixed.text);
+// ---- views: a mix of states is always visible ----
 ok("all-live view -> LIVE", P.summarize([S.LIVE, S.PARTIAL]).label === S.LIVE);
-ok("all-simulated view -> SIMULATED", P.summarize([S.SIMULATED]).label === S.SIMULATED);
-ok("live + stale view -> STALE (worst real state wins)", P.summarize([S.LIVE, S.STALE]).label === S.STALE);
+const mixed = P.summarize([S.LIVE, S.LIVE, S.STALE, S.NA]);
+ok("live + stale + N/A view -> STALE, every state counted", mixed.label === S.STALE && mixed.text === "STALE · 2 LIVE · 1 STALE · 1 N/A", mixed.text);
 ok("live + N/A view -> LIVE with the N/A counted", P.summarize([S.LIVE, S.NA]).text === "LIVE · 1 LIVE · 1 N/A", P.summarize([S.LIVE, S.NA]).text);
 ok("nothing real arrived -> LOADING / N/A", P.summarize([S.LOADING]).label === S.LOADING && P.summarize([S.NA]).label === S.NA);
 ok("derived-only view -> DERIVED", P.summarize([S.DERIVED]).label === S.DERIVED);
 ok("empty view -> no label", P.summarize([]).label === null);
 
 // ---- text ----
-ok("short chip labels", P.short(S.SIMULATED) === "SIM" && P.short(S.PARTIAL) === "PART" && P.short(S.NA) === "N/A");
+ok("short chip labels", P.short(S.PARTIAL) === "PART" && P.short(S.DERIVED) === "DRV" && P.short(S.NA) === "N/A");
 ok("error codes have readable text", P.errorText("symbol_not_found").includes("unknown") && P.errorText("rate_limited").includes("rate limit"));
 
 console.log(`\n${pass} passed, ${fail} failed`);

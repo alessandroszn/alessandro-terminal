@@ -11,17 +11,20 @@ The Twelve Data API key lives only in the Worker as the secret `TWELVEDATA_KEY`.
 It is never in this repository, in the page, in a URL the browser sees, or in a response.
 
 ## Data integrity rules (T04)
+- **Only real data.** The UI shows the instruments in `CONFIG.liveSymbols` (NVDA, AAPL, MSFT, AMZN,
+  GOOGL, JPM), all served by the provider through `/api/*`. There are no simulated instruments,
+  datasets, prices or estimates; the only static data is each symbol's GICS sector (heatmap grouping).
 - Every number carries a status: **LIVE**, **PARTIAL**, **STALE**, **N/A** (from the API) and
-  **SIMULATED**, **DERIVED**, **MIXED**, **LOADING** (assigned by the page). Rules: `public/terminal/provenance.js`.
-- No silent fallback: if the provider fails, a live symbol shows its last real quote marked
-  **STALE** (Worker cache, up to 24 h) or **N/A** — never a seed or simulated value.
+  **DERIVED**, **LOADING** (assigned by the page). Rules: `public/terminal/provenance.js`.
+- No silent fallback: if the provider fails, a symbol shows its last real quote marked **STALE**
+  (Worker cache, up to 24 h) or **N/A** — never an invented value.
 - Fundamentals (market cap, P/E, EPS, dividend yield, shares outstanding, short interest) have no
-  source on the current plan: **N/A** everywhere. Nothing is estimated.
+  source on the current plan: **N/A**. Nothing is estimated.
 - Volume, open, high and low are **PARTIAL**: Twelve Data real-time US equities come from venues
   covering ~5% of US consolidated volume. Prices, previous close and 52-week range match consolidated
   values; historical daily bars are consolidated.
 - Each window shows a provenance pill; the status bar badge summarises what is on screen
-  (e.g. `MIXED · 6 LIVE · 12 SIM`), with a per-instrument list in its tooltip.
+  (e.g. `LIVE · 6 LIVE`, or `STALE · 5 LIVE · 1 STALE`), with a per-instrument list in its tooltip.
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
@@ -59,9 +62,10 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
   History: 1Y daily per live symbol (once per session), 1D intraday on demand (refetched after 10 min).
   Free plan budget: 8 credits/min, 800/day.
 
-## What is still simulated
-Symbols outside `CONFIG.liveSymbols`, world indices, yield curve, economic calendar, news and the
-model portfolio's holdings. All are labelled SIMULATED (or MODEL) on screen. Earnings were removed (N/A).
+## Removed because no real source is connected (T04)
+World indices, yield curve, economic calendar, news, earnings, model portfolio, currency conversion
+(fixed FX rates), company descriptions, short interest, market cap / P/E, and the 12 instruments that
+had no live quotes. `test/nomock.test.mjs` fails if any of them comes back.
 
 ## Deploy
 Connected to Cloudflare Workers Builds: every push to `main` redeploys.
@@ -73,5 +77,6 @@ node test/worker.test.mjs       # quote normalizer
 node test/history.test.mjs      # history contract + Worker handler (mocked provider/cache)
 node test/integrity.test.mjs    # T04: provenance, shared cache, coalescing, failures, timeout
 node test/provenance.test.mjs   # T04: client status rules
+node test/nomock.test.mjs       # T04: no mock / simulated data in the shipped files
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)
 ```

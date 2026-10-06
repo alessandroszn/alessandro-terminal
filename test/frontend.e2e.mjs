@@ -1,6 +1,6 @@
-// Headless browser tests of the terminal page with MOCKED /api responses (fixtures, not market data).
-// The quote fixtures are produced by the Worker's own normalizeQuote + buildInstrument, so the page is
-// tested against the real response contract.
+// Headless browser tests of the terminal page with MOCKED /api responses (test fixtures, not shipped).
+// Quote fixtures are produced by the Worker's own normalizeQuote + buildInstrument, so the page is
+// tested against the real response contract. Policy under test: only real data, otherwise N/A.
 //   node test/frontend.e2e.mjs
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
@@ -11,7 +11,6 @@ const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.m
 const ORIGIN = "https://alessandrozanichelli.com";
 const SHOTS = process.env.SHOTS_DIR || null;
 const LIVE = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "JPM"];
-const SEED = { NVDA: "182.40", AAPL: "247.15", MSFT: "441.80", AMZN: "221.60", GOOGL: "198.25", JPM: "258.70" };
 
 // ---------- fixtures ----------
 function fixtureDaily() {
@@ -37,6 +36,7 @@ const historyBody = (sym, range, extra = {}) => {
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" + "-1194/chrome-linux/chrome" }).catch(() => chromium.launch());
+const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL|hypothetical|static sample|WORLD INDICES|YIELD CURVE|ECONOMIC CALENDAR|NEWS WIRE|EARNINGS|PORTFOLIO|\bDES\b/;
 
 async function openTerminal(api) {
   const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
@@ -58,84 +58,79 @@ async function openTerminal(api) {
   return { page, requests, errors };
 }
 const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "" } : null; }, prefix);
-const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(400); };
+// returns true when the command line refused the command (input kept / error flash)
+const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(400); return page.evaluate(() => document.querySelector("#cmd").value !== ""); };
+const winCount = (page) => page.evaluate(() => document.querySelectorAll(".win").length);
 
-// =============== A. normal operation: live + simulated universe ===============
+// =============== A. normal operation: every value real ===============
 {
   const api = {
     quote: (syms) => ({ body: { quotes: Object.fromEntries(syms.map((s) => [s, instrument(s)])), errors: {}, meta: { source: "twelvedata" } } }),
     history: (sym, range) => ({ body: historyBody(sym, range) }),
   };
   const { page, requests, errors } = await openTerminal(api);
-  await page.waitForFunction(() => /MIXED/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   const badge = await page.textContent("#dataBadge");
-  ok("[A] global badge = MIXED with live and simulated counts", /MIXED · 6 LIVE · 12 SIM/.test(badge), badge);
+  ok("[A] global badge = LIVE · 6 LIVE", badge === "● LIVE · 6 LIVE", badge);
   const badgeTitle = await page.getAttribute("#dataBadge", "title");
-  ok("[A] badge tooltip lists per-instrument status (AAPL — LIVE, XOM — SIMULATED)", badgeTitle.includes("AAPL — LIVE") && badgeTitle.includes("XOM — SIMULATED"), badgeTitle.slice(0, 200));
+  ok("[A] badge tooltip lists each instrument with its status", LIVE.every((s) => badgeTitle.includes(`${s} — LIVE`)), badgeTitle.slice(0, 200));
   const wl = await winOf(page, "WATCHLIST");
-  ok("[A] watchlist window marked MIXED", wl.pill === "MIXED", wl.pill);
-  ok("[A] watchlist rows carry LIVE and SIM chips", /AAPL\s+LIVE/.test(wl.text) && /XOM\s+SIM/.test(wl.text), wl.text.slice(0, 160));
+  ok("[A] watchlist = exactly the 6 live instruments", (await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())) === LIVE.join());
+  ok("[A] watchlist window LIVE, every row LIVE", wl.pill === "LIVE" && LIVE.every((s) => new RegExp(`${s}\\s+LIVE`).test(wl.text)), wl.pill);
+  const heatCells = await page.$$eval(".heat-cell", (c) => c.length);
+  ok("[A] heatmap = 6 cells, GICS sectors", heatCells === 6 && /INFORMATION TECHNOLOGY/.test((await winOf(page, "SECTOR HEATMAP")).text));
   const mov = await winOf(page, "MARKET MOVERS");
-  ok("[A] movers rank live instruments only", !/XOM|CVX|LLY|TSLA/.test(mov.text) && /NVDA|AAPL/.test(mov.text), mov.text.slice(0, 200));
-  ok("[A] movers: no 'most shorted' (no source)", !/SHORTED/i.test(mov.text));
-  ok("[A] movers volume ranking flagged PARTIAL", /MOST ACTIVE\s*PART/.test(mov.text), mov.text.slice(0, 300));
+  ok("[A] movers: live instruments, volume ranking flagged PARTIAL", /MOST ACTIVE\s*PART/.test(mov.text) && /NVDA|AAPL/.test(mov.text) && !/SHORTED/i.test(mov.text));
 
   await cmd(page, "AAPL");
   await page.waitForFunction(() => [...document.querySelectorAll(".win")].some((w) => w.querySelector(".w-title")?.textContent.startsWith("AAPL")), null, { timeout: 5000 });
   let gp = await winOf(page, "AAPL");
-  ok("[A] AAPL price comes from /api/quote", gp.text.includes("$250.00"), gp.text.slice(0, 120));
-  ok("[A] AAPL marked LIVE", /AAPL\s+LIVE/.test(gp.text));
+  ok("[A] AAPL price and name come from /api/quote", gp.text.includes("$250.00") && gp.text.includes("AAPL Inc") && gp.text.includes("NASDAQ"), gp.text.slice(0, 160));
   ok("[A] volume shown with PARTIAL chip", /VOLUME\s*PART\s*537\.8K/.test(gp.text), gp.text.match(/VOLUME[\s\S]{0,30}/)?.[0]);
   ok("[A] open/high/low flagged PARTIAL", /OPEN\s*PART/.test(gp.text) && /DAY HIGH\s*PART/.test(gp.text));
-  ok("[A] market cap = N/A (no fundamentals source)", /MKT CAP\s*N\/A\s*N\/A/.test(gp.text), gp.text.match(/MKT CAP[\s\S]{0,20}/)?.[0]);
-  ok("[A] P/E = N/A", /P\/E\s*N\/A\s*N\/A/.test(gp.text));
+  ok("[A] market cap and P/E = N/A (no fundamentals source)", /MKT CAP\s*N\/A\s*N\/A/.test(gp.text) && /P\/E\s*N\/A\s*N\/A/.test(gp.text));
+  ok("[A] no hand-written description", !/DES —|static description/.test(gp.text));
   await page.waitForTimeout(11000); // history queue (9 s gap)
   gp = await winOf(page, "AAPL");
   ok("[A] chart caption: real daily closes, LIVE", /LIVE\s+daily closes, split-adjusted · 252 obs/.test(gp.text), gp.text.match(/daily closes[^\n]*/)?.[0]);
-  const histCalls = requests.filter((u) => u.includes("/api/history?symbol=AAPL"));
-  ok("[A] /api/history called on the site origin", histCalls.length >= 1 && histCalls.every((u) => u.startsWith(ORIGIN)));
   const chartPx = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith("AAPL")); const cv = w.querySelector("canvas"); const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; });
   ok("[A] AAPL chart drew the real series", chartPx > 1000, String(chartPx));
+  ok("[A] /api/history called on the site origin", requests.some((u) => u.startsWith(ORIGIN + "/api/history?symbol=AAPL")));
 
-  await cmd(page, "XOM");
-  const xom = await winOf(page, "XOM");
-  ok("[A] simulated instrument labelled SIMULATED everywhere", /XOM\s+SIMULATED/.test(xom.text) && xom.text.includes("simulated price path") && xom.pill === "SIMULATED", xom.pill);
-  ok("[A] simulated instrument: fundamentals still N/A", /MKT CAP\s*N\/A\s*N\/A/.test(xom.text));
+  // functions without a real source no longer exist
+  const before = await winCount(page);
+  const refused = [];
+  for (const c of ["IDX", "CURV", "CAL", "N", "ERN", "PORT", "DES", "XOM", "META"]) { if (await cmd(page, c)) refused.push(c); await page.fill("#cmd", ""); }
+  ok("[A] IDX, CURV, CAL, N, ERN, PORT, DES and former simulated tickers are refused", refused.length === 9 && (await winCount(page)) === before, refused.join());
+  const launcher = await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","));
+  ok("[A] launcher only lists functions backed by real data", launcher === "SECURITY,WATCHLIST,MOVERS,SCREENER,COMPARE,CORREL,HEATMAP,SETTINGS,HELP", launcher);
+  ok("[A] no currency selector (no live FX source)", (await page.$("#ccy")) === null);
 
-  await cmd(page, "IDX");
-  const idx = await winOf(page, "WORLD INDICES");
-  ok("[A] static dataset (indices) shows a SIMULATED banner and pill", idx.text.includes("SIMULATED — index levels") && idx.pill === "SIMULATED");
-  ok("[A] global badge counts the simulated dataset", /SIM DATASET/.test(await page.textContent("#dataBadge")));
-  await cmd(page, "ERN");
-  const ern = await winOf(page, "EARNINGS");
-  ok("[A] earnings: simulated estimates removed, N/A empty state", /No earnings data source/.test(ern.text) && !/EPS EST|BMO|AMC/.test(ern.text));
   await cmd(page, "SCR");
   const scr = await winOf(page, "EQUITY SCREENER");
-  ok("[A] screener: no MKT CAP / P/E columns, rows labelled", !/MKT CAP\s|P\/E\s/.test(scr.text.split("\n").slice(0, 8).join(" ")) && /LIVE/.test(scr.text) && /SIM/.test(scr.text));
-  await cmd(page, "PORT");
-  const port = await winOf(page, "MODEL PORTFOLIO");
-  ok("[A] portfolio: hypothetical, MIXED, DRV + SIM rows", port.pill === "MIXED" && /hypothetical/.test(port.text) && /NVDA\s+DRV/.test(port.text) && /LLY\s+SIM/.test(port.text), port.pill);
+  ok("[A] screener: 6 rows, no MKT CAP / P/E columns", (await page.$$eval(".scr-results tbody tr", (r) => r.length)) === 6 && !/MKT CAP\s|P\/E\s/.test(scr.text.split("\n").slice(0, 8).join(" ")));
+  await cmd(page, "COMP");
+  await page.waitForTimeout(500);
+  ok("[A] compare: only live instruments to choose from", (await page.$$eval(".chip[data-csym]", (c) => c.map((x) => x.dataset.csym).join())) === LIVE.join());
+  await cmd(page, "CORR");
+  ok("[A] correlation: 6×6 over live instruments only", (await page.$$eval(".corr .cc", (c) => c.length)) === 36);
 
   const tape = await page.textContent("#tape");
-  ok("[A] tape: instruments only, no sample headlines", !/Futures steady|Chipmakers|Treasury yields/.test(tape) && /LIVE/.test(tape));
-  ok("[A] tape: live instruments only", !/XOM|CVX|TSLA|LLY/.test(tape));
+  ok("[A] tape: live instruments only, no headlines", /LIVE/.test(tape) && !/Futures|Chipmakers|Treasury/.test(tape));
   const status = await page.textContent("#status");
-  ok("[A] status bar: no fake FOMC countdown / breadth", !/FOMC|\/199/.test(status) && !/\/199/.test(await page.textContent("#cmdbar")));
-  ok("[A] status bar: US market state from the provider flag", /US MARKET OPEN/.test(status), status);
-  ok("[A] status bar: data time from the quote timestamp", /DATA AS OF \d\d:\d\d:\d\d local/.test(status), status);
-  ok("[A] currency selector locked to USD (no live FX)", await page.isDisabled("#ccy"));
+  ok("[A] status bar: US market state and data time from the provider", /US MARKET OPEN/.test(status) && /DATA AS OF \d\d:\d\d:\d\d local/.test(status) && !/FOMC|\/199/.test(status), status);
+  ok("[A] top bar: 6/6 live", (await page.textContent("#breadth-top")) === "6/6 live");
   const body = await page.evaluate(() => document.body.innerText);
+  ok("[A] no simulated / model / sample wording anywhere on screen", !FORBIDDEN.test(body), (body.match(new RegExp(".{20}(" + FORBIDDEN.source + ").{20}")) || [])[0]);
   ok("[A] no NaN / undefined rendered anywhere", !/NaN|undefined/.test(body));
   ok("[A] NO browser request to api.twelvedata.com (or any third-party data host)", !requests.some((u) => /twelvedata\.com|finnhub/.test(u)));
   ok("[A] NO apikey/token in any browser URL", !requests.some((u) => /apikey=|token=/i.test(u)));
-  const pageSrc = await page.content();
-  ok("[A] no provider host or key parameter in the page source", !/api\.twelvedata\.com|apikey/i.test(pageSrc + provJs));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
-  if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(600); await page.screenshot({ path: SHOTS + "/e2e-live-mixed.png" }); }
+  if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(600); await page.screenshot({ path: SHOTS + "/e2e-live-only.png" }); }
   await page.close();
 }
 
-// =============== B. provider failure: no fake fallback ===============
+// =============== B. provider failure: no value at all, N/A ===============
 {
   const api = {
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
@@ -144,62 +139,37 @@ const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#
   const { page, errors } = await openTerminal(api);
   await page.waitForFunction(() => /N\/A/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.waitForTimeout(1500);
-  const nv = await winOf(page, "NVDA");
-  ok("[B] live symbol with failed provider shows — not a seed price", !nv.text.includes(SEED.NVDA) && /\n—\n/.test("\n" + nv.text.split("\n").slice(0, 6).join("\n") + "\n"), nv.text.slice(0, 120));
-  ok("[B] failure explained: N/A banner with the reason", /quote unavailable: provider rate limit reached/.test(nv.text) && /NVDA\s+N\/A/.test(nv.text));
-  ok("[B] chart: real history unavailable, no simulated substitute", /real history unavailable — provider rate limit reached \(no simulated substitute\)/.test(nv.text), nv.text.match(/real history[^\n]*/)?.[0]);
   const body = await page.evaluate(() => document.body.innerText);
-  ok("[B] no seed price of any live symbol anywhere on screen", !Object.values(SEED).some((p) => body.includes(p)), Object.values(SEED).filter((p) => body.includes(p)).join());
-  const badge = await page.textContent("#dataBadge");
-  ok("[B] badge never claims LIVE: reports N/A and SIM", !/^● LIVE/.test(badge) && /6 N\/A/.test(badge) && /SIM/.test(badge), badge);
-  const wl = await winOf(page, "WATCHLIST");
-  ok("[B] watchlist: live rows N/A with —, simulated rows still labelled SIM", /AAPL\s+N\/A\s*—/.test(wl.text) && /XOM\s+SIM/.test(wl.text), wl.text.slice(0, 200));
+  ok("[B] no price anywhere on screen (no fallback value)", !/\$\d/.test(body), (body.match(/.{20}\$\d.{10}/) || [])[0]);
+  const nv = await winOf(page, "NVDA");
+  ok("[B] failure explained: N/A banner with the reason", /quote unavailable: provider rate limit reached/.test(nv.text) && /NVDA\s+N\/A/.test(nv.text));
+  ok("[B] chart: real history unavailable, nothing drawn in its place", /real history unavailable — provider rate limit reached/.test(nv.text));
+  ok("[B] badge = N/A for all 6", (await page.textContent("#dataBadge")) === "● N/A · 6 N/A", await page.textContent("#dataBadge"));
+  ok("[B] heatmap and movers show no invented values", (await winOf(page, "SECTOR HEATMAP")).pill === "N/A" && /Waiting for live quotes/.test((await winOf(page, "MARKET MOVERS")).text));
   ok("[B] no NaN rendered", !/NaN/.test(body));
   ok("[B] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/e2e-provider-down.png" });
   await page.close();
 }
 
-// =============== C. stale data served by the Worker ===============
+// =============== C. one stale instrument: the mix is indicated ===============
 {
   const api = {
     quote: (syms) => ({ body: { quotes: Object.fromEntries(syms.map((s) => [s, instrument(s, { stale: s === "NVDA" })])), errors: {}, meta: {} } }),
     history: (sym, range) => ({ body: historyBody(sym, range, sym === "NVDA" ? { status: "STALE", staleReason: "provider_timeout" } : {}) }),
   };
   const { page, errors } = await openTerminal(api);
-  await page.waitForFunction(() => /STALE/.test(document.querySelector("#dataBadge")?.title || ""), null, { timeout: 15000 });
+  await page.waitForFunction(() => /STALE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.waitForTimeout(1500);
+  ok("[C] global badge = STALE · 5 LIVE · 1 STALE", (await page.textContent("#dataBadge")) === "● STALE · 5 LIVE · 1 STALE", await page.textContent("#dataBadge"));
   const nv = await winOf(page, "NVDA");
   ok("[C] stale quote shown with its real value and a STALE label", nv.text.includes("$190.50") && /NVDA\s+STALE/.test(nv.text) && /refresh failed: provider rate limit reached/.test(nv.text));
   ok("[C] stale fields are STALE, not LIVE/PARTIAL", /VOLUME\s*STALE/.test(nv.text) && /PREV CLOSE\s*STALE/.test(nv.text));
   ok("[C] stale history labelled STALE with reason", /STALE\s+daily closes[^\n]*refresh failed: provider timed out/.test(nv.text), nv.text.match(/daily closes[^\n]*/)?.[0]);
-  ok("[C] NVDA window pill = STALE", nv.pill === "STALE", nv.pill);
-  ok("[C] global badge counts the stale instrument", /1 STALE/.test(await page.textContent("#dataBadge")));
+  const wl = await winOf(page, "WATCHLIST");
+  ok("[C] mixed view indicated: watchlist pill STALE, rows LIVE + STALE", wl.pill === "STALE" && /NVDA\s+STALE/.test(wl.text) && /AAPL\s+LIVE/.test(wl.text), wl.pill);
   ok("[C] no JavaScript errors", errors.length === 0, errors.join(" | "));
   await page.close();
-}
-
-// =============== D. offline "sim" configuration: everything SIMULATED, no network ===============
-{
-  const simHtml = html.replace('provider:"twelvedata_proxy"', 'provider:"sim"');
-  if (simHtml === html) { ok("[D] sim config switch found", false); } else {
-    const page = await browser.newPage({ viewport: { width: 1300, height: 850 } });
-    const requests = [], errors = [];
-    page.on("request", (r) => requests.push(r.url()));
-    page.on("pageerror", (e) => errors.push(String(e)));
-    await page.route("**/*", (route) => { const u = new URL(route.request().url());
-      if (u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
-      if (u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: simHtml });
-      return route.abort(); });
-    await page.goto(ORIGIN + "/terminal/");
-    await page.waitForTimeout(1500);
-    const badge = await page.textContent("#dataBadge");
-    ok("[D] sim config: badge SIMULATED for all 18 instruments", /^● SIMULATED · 18 SIM/.test(badge), badge);
-    ok("[D] sim config: no /api calls at all", !requests.some((u) => u.includes("/api/")));
-    ok("[D] sim config: fundamentals still N/A", /MKT CAP\s*N\/A\s*N\/A/.test((await winOf(page, "NVDA")).text));
-    ok("[D] sim config: no JavaScript errors", errors.length === 0, errors.join(" | "));
-    await page.close();
-  }
 }
 
 await browser.close();

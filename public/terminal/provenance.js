@@ -1,32 +1,26 @@
 /* Alessandro Terminal — data provenance rules (T04).
    Pure functions, no DOM: loaded by the page (window.Provenance) and by the Node tests.
 
-   Status vocabulary (what the user sees next to a number):
-     LIVE       real, from the provider, inside its freshness window
-     PARTIAL    real but incomplete (e.g. volume from a venue subset)
-     STALE      real but old: the provider failed or the value is past `staleAt`
-     N/A        no source for this value; nothing is estimated or invented
-     SIMULATED  generated locally for the demo universe — never real
-     DERIVED    computed by the terminal from real inputs (e.g. a correlation)
-     MIXED      a view that combines real and simulated values
-     LOADING    real data requested, not arrived yet                                   */
+   Policy: the terminal shows ONLY real data. There is no status for invented values: a value
+   without a real source is N/A (or the field is removed). Status vocabulary shown next to a number:
+     LIVE     real, from the provider, inside its freshness window
+     PARTIAL  real but incomplete (e.g. volume from a venue subset)
+     STALE    real but old: the provider failed or the value is past `staleAt`
+     DERIVED  computed by the terminal from real inputs (e.g. a correlation, breadth)
+     N/A      no real value available: nothing is estimated or invented
+     LOADING  real data requested, not arrived yet                                          */
 (function (root) {
   "use strict";
-  var S = Object.freeze({
-    LIVE: "LIVE", PARTIAL: "PARTIAL", STALE: "STALE", NA: "N/A",
-    SIMULATED: "SIMULATED", DERIVED: "DERIVED", MIXED: "MIXED", LOADING: "LOADING"
-  });
+  var S = Object.freeze({ LIVE: "LIVE", PARTIAL: "PARTIAL", STALE: "STALE", NA: "N/A", DERIVED: "DERIVED", LOADING: "LOADING" });
   var REAL = [S.LIVE, S.PARTIAL, S.STALE, S.DERIVED];
   var MAX_AGE_MS = 24 * 3600 * 1000; // older than this, a real value is not shown at all
 
   function ms(x) { var v = Date.parse(x); return isFinite(v) ? v : null; }
   function isReal(s) { return REAL.indexOf(s) >= 0; }
 
-  /* One instrument. q = InstrumentData from /api/quote, or null.
-     o = { live: is this symbol served by the real provider?, now, error } */
+  /* One instrument. q = InstrumentData from /api/quote, or null. o = { now, error } */
   function instrumentStatus(q, o) {
     o = o || {};
-    if (!o.live) return S.SIMULATED;
     var now = o.now != null ? o.now : Date.now();
     if (!q) return o.error ? S.NA : S.LOADING;
     var fetched = ms(q.fetchedAt);
@@ -39,7 +33,7 @@
 
   /* One displayed field of an instrument (price, volume, marketCap…). */
   function fieldStatus(q, key, inst) {
-    if (inst === S.SIMULATED || inst === S.LOADING || inst === S.NA) return inst;
+    if (inst === S.LOADING || inst === S.NA) return inst;
     var f = q && q.fields && q.fields[key];
     if (!f || f.value == null || f.status === S.NA) return S.NA;
     if (inst === S.STALE) return S.STALE;
@@ -52,10 +46,9 @@
     return f && f.value != null && f.status !== S.NA ? f.value : null;
   }
 
-  /* Price history (from /api/history). meta = the response envelope, or null. */
+  /* Price history (from /api/history). meta = the response envelope, or null. o = { now, error } */
   function historyStatus(meta, o) {
     o = o || {};
-    if (!o.live) return S.SIMULATED;
     if (!meta) return o.error ? S.NA : S.LOADING;
     var now = o.now != null ? o.now : Date.now();
     if (meta.status === S.STALE) return S.STALE;
@@ -64,28 +57,25 @@
     return S.LIVE;
   }
 
-  /* A value the terminal computes from other values. */
+  /* A value the terminal computes from other (real) values. */
   function derivedStatus(inputs) {
     if (!inputs || !inputs.length) return S.NA;
     if (inputs.indexOf(S.NA) >= 0) return S.NA;
     if (inputs.indexOf(S.LOADING) >= 0) return S.LOADING;
-    var sim = inputs.filter(function (s) { return s === S.SIMULATED; }).length;
-    if (sim === inputs.length) return S.SIMULATED;
-    if (sim || inputs.indexOf(S.MIXED) >= 0) return S.MIXED;
     if (inputs.indexOf(S.STALE) >= 0) return S.STALE;
     return S.DERIVED;
   }
 
-  /* Label for a view (window) or the whole screen, from the statuses of what it shows. */
+  /* Label for a view (window) or the whole screen, from the statuses of what it shows.
+     A view whose items differ (e.g. 5 LIVE + 1 STALE) is labelled by its worst real state
+     and the text counts each state, so the mix is always visible. */
   function summarize(statuses) {
     statuses = (statuses || []).filter(Boolean);
     var c = {};
     statuses.forEach(function (s) { c[s] = (c[s] || 0) + 1; });
-    var real = statuses.filter(isReal).length, sim = c[S.SIMULATED] || 0;
+    var real = statuses.filter(isReal).length;
     var label;
     if (!statuses.length) label = null;
-    else if (c[S.MIXED] || (real && sim)) label = S.MIXED;
-    else if (sim) label = S.SIMULATED;
     else if (real) label = c[S.STALE] ? S.STALE : (c[S.LIVE] || c[S.PARTIAL]) ? S.LIVE : S.DERIVED;
     else if (c[S.LOADING]) label = S.LOADING;
     else label = S.NA;
@@ -97,13 +87,12 @@
     if (live) parts.push(live + " LIVE");
     if (c[S.DERIVED]) parts.push(c[S.DERIVED] + " DERIVED");
     if (c[S.STALE]) parts.push(c[S.STALE] + " STALE");
-    if (c[S.SIMULATED]) parts.push(c[S.SIMULATED] + " SIM");
     if (c[S.NA]) parts.push(c[S.NA] + " N/A");
     if (c[S.LOADING]) parts.push(c[S.LOADING] + " LOADING");
     return parts.length > 1 ? label + " · " + parts.join(" · ") : label;
   }
 
-  var SHORT = { LIVE: "LIVE", PARTIAL: "PART", STALE: "STALE", "N/A": "N/A", SIMULATED: "SIM", DERIVED: "DRV", MIXED: "MIX", LOADING: "…" };
+  var SHORT = { LIVE: "LIVE", PARTIAL: "PART", STALE: "STALE", "N/A": "N/A", DERIVED: "DRV", LOADING: "…" };
   function short(s) { return SHORT[s] || s; }
 
   var ERRORS = {
@@ -115,7 +104,8 @@
     provider_auth: "provider rejected the server key",
     provider_error: "provider error / empty response",
     no_data: "no data for this range",
-    network: "could not reach /api"
+    network: "could not reach /api",
+    expired: "last real value is older than 24 h"
   };
   function errorText(code) { return ERRORS[code] || code || "unavailable"; }
 
