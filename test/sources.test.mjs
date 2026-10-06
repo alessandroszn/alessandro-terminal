@@ -1,6 +1,6 @@
 // T05 — real-data sources: parsers + handlers with a mocked network/cache/model (test fixtures only).
 //   node test/sources.test.mjs
-import worker from "../src/worker.mjs";
+import { app as worker } from "../src/worker.mjs";
 import { parseTreasuryXml, parseEcbCsv, buildCurve } from "../src/yields.mjs";
 import { parseIcs, buildEvents } from "../src/calendar.mjs";
 import { normalizeGdelt, secCikMap, normalizeSecSubmissions } from "../src/news.mjs";

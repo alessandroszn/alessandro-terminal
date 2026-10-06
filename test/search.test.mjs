@@ -2,7 +2,7 @@
 // Provider responses below are test fixtures with the provider's real response shape
 // (copied from live /symbol_search answers, trimmed). Mocked fetch + cache.
 //   node test/search.test.mjs
-import worker, { mapProviderError, buildHistoryQuery, buildInstrument, normalizeQuote, __resetForTests } from "../src/worker.mjs";
+import { app as worker,  mapProviderError, buildHistoryQuery, buildInstrument, normalizeQuote, __resetForTests } from "../src/worker.mjs";
 import { normalizeSearch, instrumentId, splitId } from "../src/search.mjs";
 
 let pass = 0, fail = 0;
@@ -93,12 +93,14 @@ ok("currency is never assumed (missing → null, not USD)", normalizeQuote("X", 
 const KEY = "TESTKEY_never_returned";
 const env = { TWELVEDATA_KEY: KEY, ALLOWED_ORIGIN: "https://alessandrozanichelli.com" };
 const ctx = { waitUntil: () => {} };
-let urls = [], mode = "ok";
+let urls = [], auths = [], mode = "ok";
 const PLAN_ERR = { code: 403, message: "NOVN is available starting with the Pro plan. Consider upgrading.", status: "error" };
-globalThis.fetch = async (u) => {
+globalThis.fetch = async (u, opts = {}) => {
   urls.push(String(u)); const url = new URL(u);
+  const auth = (opts.headers && (opts.headers.authorization || opts.headers.Authorization)) || null;
+  auths.push(auth);
   if (url.pathname === "/symbol_search") {
-    if (mode === "keyless-refused" && !url.searchParams.get("apikey")) return new Response(JSON.stringify({ code: 429, message: "too many requests", status: "error" }));
+    if (mode === "keyless-refused" && !auth) return new Response(JSON.stringify({ code: 429, message: "too many requests", status: "error" }));
     if (mode === "down") return new Response("", { status: 500 });
     return new Response(JSON.stringify({ data: SEARCH[url.searchParams.get("symbol").toLowerCase()] || [], status: "ok" }));
   }
@@ -117,14 +119,14 @@ const call = async (path) => { const r = await worker.fetch(new Request("https:/
 let r = await call("/api/search?q=Microsoft");
 ok("search: 200 LIVE, results ranked, source + fetchedAt", r.status === 200 && r.j.status === "LIVE" && r.j.results[0].id === "MSFT" && r.j.source === "Twelve Data symbol_search" && !!r.j.fetchedAt && r.j.count === r.j.results.length);
 ok("search: plan of the key and count of quotable listings reported", r.j.plan === "Basic" && r.j.quotable === r.j.results.filter((x) => x.quotable).length);
-ok("search: keyless provider call first (no credit spent)", urls.length === 1 && !urls[0].includes("apikey") && r.j.credits === 0);
+ok("search: keyless provider call first (no credit spent)", urls.length === 1 && !urls[0].includes("apikey") && auths[0] === null && r.j.credits === 0);
 ok("search: metadata only — no price fields", !/"(price|close|open|volume)"/.test(r.text));
 urls = [];
 r = await call("/api/search?q=microsoft");
 ok("search: cached 24 h per query (case-insensitive) — no provider call", r.xc === "HIT" && urls.length === 0);
-mode = "keyless-refused"; urls = []; store = new Map();
+mode = "keyless-refused"; urls = []; auths = []; store = new Map();
 r = await call("/api/search?q=NVIDIA");
-ok("search: keyless refused → one retry with the server key, reported as 1 credit", r.status === 200 && urls.length === 2 && urls[1].includes("apikey=") && r.j.credits === 1 && r.j.results[0].id === "NVDA");
+ok("search: keyless refused → one retry with the server key (header), reported as 1 credit", r.status === 200 && urls.length === 2 && auths[1] === `apikey ${KEY}` && r.j.credits === 1 && r.j.results[0].id === "NVDA");
 ok("search: the key is never in the response", !r.text.includes(KEY));
 mode = "down"; store = new Map();
 r = await call("/api/search?q=Roche");
@@ -136,10 +138,10 @@ r = await call("/api/search?q=");
 ok("search: empty query refused (400)", r.status === 400);
 
 // ---------- quotes: plain batch + venue ids ----------
-__resetForTests(); urls = []; store = new Map();
+__resetForTests(); urls = []; auths = []; store = new Map();
 r = await call("/api/quote?symbols=AAPL,MSFT,NOVN:XSWX");
 const qUrls = urls.filter((u) => u.includes("/quote"));
-ok("quote: plain ids in one batched call, venue id in its own call with mic_code", qUrls.length === 2 && qUrls.some((u) => /symbol=AAPL%2CMSFT&/.test(u)) && qUrls.some((u) => /symbol=NOVN&mic_code=XSWX/.test(u)), qUrls.map((u) => u.replace(KEY, "***")).join(" "));
+ok("quote: plain ids in one batched call, venue id in its own call with mic_code", qUrls.length === 2 && qUrls.some((u) => /symbol=AAPL%2CMSFT$/.test(u)) && qUrls.some((u) => /symbol=NOVN&mic_code=XSWX/.test(u)), qUrls.map((u) => u.replace(KEY, "***")).join(" "));
 ok("quote: listing outside the plan → plan_required N/A, others LIVE", r.status === 200 && r.j.errors["NOVN:XSWX"].error === "plan_required" && r.j.errors["NOVN:XSWX"].status === "N/A" && r.j.quotes.AAPL.status === "LIVE" && !r.j.quotes["NOVN:XSWX"]);
 r = await call("/api/quote?symbols=NOVN:XSWX");
 ok("quote: only a plan-blocked listing → HTTP 403", r.status === 403 && r.j.errors["NOVN:XSWX"].error === "plan_required");
@@ -152,5 +154,6 @@ ok("history: venue id outside the plan → 403 plan_required N/A", r.status === 
 r = await call("/api/history?symbol=AAPL&range=6M");
 ok("history: plain id unchanged", r.status === 200 && r.j.symbol === "AAPL");
 
+ok("key never in any provider URL; sent only as 'Authorization: apikey …' header", urls.length >= 4 && !urls.some((u) => u.includes(KEY) || /apikey/i.test(u)) && auths.filter(Boolean).every((a) => a === `apikey ${KEY}`) && auths.filter((a, i) => /\/(quote|time_series)/.test(urls[i])).every((a) => a === `apikey ${KEY}`));
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

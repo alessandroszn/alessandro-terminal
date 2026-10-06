@@ -1,5 +1,5 @@
 // T03 tests: pure functions + the Worker handler with a mocked provider and cache.
-import worker, { buildHistoryQuery, normalizeHistory, mapProviderError, BadRequest } from "../src/worker.mjs";
+import { app as worker,  buildHistoryQuery, normalizeHistory, mapProviderError, BadRequest } from "../src/worker.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => {

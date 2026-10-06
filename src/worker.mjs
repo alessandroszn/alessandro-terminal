@@ -5,14 +5,16 @@
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
 //                                            "SYMBOL:MIC" ids such as NOVN:XSWX address one venue)
 //   GET /api/history?symbol=AAPL&range=6M   (T03, provenance + stale serving in T04)
-// The Twelve Data API key lives ONLY here (secret TWELVEDATA_KEY), never in the client,
-// never in URLs returned to the client, never logged.
+// The Twelve Data API key lives ONLY here (secret TWELVEDATA_KEY), never in the client, never in
+// any URL (it is sent in the Authorization header), never logged.
+// Every /api request must carry a valid Cloudflare Access token for this app (src/access.mjs).
 
 import { handleYields } from "./yields.mjs";
 import { handleCalendar } from "./calendar.mjs";
 import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
+import { verifyAccess } from "./access.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -160,11 +162,13 @@ export function providerDetail(td, key) {
 }
 const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
 
-async function providerFetchJson(url) {
+// the key travels in the Authorization header (provider's recommended method), never in the URL
+export const tdAuth = (key) => ({ authorization: `apikey ${key}` });
+async function providerFetchJson(url, key) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), PROVIDER_TIMEOUT_MS);
   try {
-    const r = await fetch(url, { signal: ac.signal });
+    const r = await fetch(url, { signal: ac.signal, headers: tdAuth(key) });
     const text = await r.text();
     try { return { json: JSON.parse(text) }; } catch { return { err: "provider_error" }; } // empty / non-JSON response
   } catch {
@@ -206,7 +210,7 @@ async function providerQuoteBatch(syms, key) {
 async function providerQuoteVenue(id, key) {
   __stats.providerQuoteCalls++;
   const { symbol, mic } = splitId(id);
-  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(symbol)}&mic_code=${encodeURIComponent(mic)}&apikey=${key}`);
+  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(symbol)}&mic_code=${encodeURIComponent(mic)}`, key);
   if (err) return new Map([[id, { err }]]);
   if (!json || typeof json !== "object") return new Map([[id, { err: "provider_error" }]]);
   if (json.status === "error") return new Map([[id, { err: mapProviderError(json).error, detail: providerDetail(json, key) }]]);
@@ -217,7 +221,7 @@ async function providerQuoteVenue(id, key) {
 async function providerQuotePlain(syms, key) {
   __stats.providerQuoteCalls++;
   const out = new Map();
-  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(syms.join(","))}&apikey=${key}`);
+  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(syms.join(","))}`, key);
   if (err) { syms.forEach(s => out.set(s, { err })); return out; }
   if (!json || typeof json !== "object") { syms.forEach(s => out.set(s, { err: "provider_error" })); return out; }
   // whole-request error (rate limit, auth, single unknown symbol)
@@ -416,7 +420,7 @@ async function handleHistory(url, env, ctx, H) {
   };
   if (entry && entry.n && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.n, entry.fetchedAt, false), "HIT");
 
-  const { json: td, err } = await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}&apikey=${key}`);
+  const { json: td, err } = await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}`, key);
   let error = err || null, detail = null;
   let n = null;
   if (!error) {
@@ -448,7 +452,8 @@ function json(obj, headers, status = 200, cacheSec = 0) {
   return new Response(JSON.stringify(obj), { status, headers: h });
 }
 
-export default {
+// routing without the access check (unit tests exercise the handlers through this)
+export const app = {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const H = cors(env);
@@ -462,5 +467,21 @@ export default {
     if (url.pathname === "/api/briefing") return handleBriefing(url, env, ctx, H, json);
     if (url.pathname === "/api/search") return handleSearch(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
+  },
+};
+
+// what Cloudflare runs: /api/* only for a valid Cloudflare Access session of this application
+export default {
+  async fetch(req, env, ctx) {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api/")) {
+      const a = await verifyAccess(req, env);
+      if (!a.ok) {
+        const r = json({ error: a.error, status: STATUS.NA }, { "cache-control": "no-store" }, a.status);
+        if (a.status === 401) r.headers.set("www-authenticate", 'Bearer realm="Cloudflare Access"');
+        return r;
+      }
+    }
+    return app.fetch(req, env, ctx);
   },
 };

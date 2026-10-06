@@ -80,7 +80,7 @@ async function providerSearch(q, key) {
   let credits = 0, err = null;
   for (const withKey of [false, true]) {
     if (withKey && !key) break;
-    const f = await fetchText(withKey ? `${base}&apikey=${key}` : base);
+    const f = await fetchText(base, withKey ? { headers: { authorization: `apikey ${key}` } } : {}); // key in the header, never in the URL
     if (withKey) credits = 1;
     if (f.err) { err = f.err; continue; }
     const e = tdError(f.text);

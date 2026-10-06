@@ -16,6 +16,17 @@ The free Twelve Data plan is licensed for internal use only ("Internal non-displ
 external display needs a redistribution agreement), so its quotes are not shown publicly.
 `workers_dev` and preview URLs are disabled so nothing bypasses Access.
 
+Two layers:
+1. **Cloudflare Access** (Zero Trust Free): self-hosted application on `alessandrozanichelli.com/terminal`
+   and `alessandrozanichelli.com/api` (sub-paths included), one Allow policy for the owner's e-mail;
+   everyone else is denied (Access is deny-by-default). Login: one-time PIN by e-mail. Session 24 h.
+2. **Worker check** (`src/access.mjs`): every `/api/*` request must carry the Access JWT of this
+   application — RS256 signature against the team's public keys, audience = the app's AUD tag,
+   issuer, expiry. Missing → `401`; forged / other app / other team → `403`; missing configuration or
+   unreachable keys → `503` (fail closed). The provider is never called for a rejected request.
+
+The Twelve Data key is sent only in the `Authorization: apikey …` header, never in a URL.
+
 ## Data integrity rules (T04–T05)
 - **Only real data.** Every number comes from a real source through `/api/*`; a value without one is
   **N/A** (or the section shows **NO DATA**). No mock, random, estimated or placeholder values.
@@ -115,6 +126,7 @@ node test/integrity.test.mjs    # T04: provenance, shared cache, coalescing, fai
 node test/provenance.test.mjs   # T04: client status rules
 node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
 node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes/history, plan errors
+node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)
 ```

@@ -1,7 +1,7 @@
 // T04 — Data Integrity & Trust Layer: Worker-side tests.
 // Mocked provider (fetch), mocked shared cache (caches.default) and a controllable clock.
 //   node test/integrity.test.mjs
-import worker, { buildInstrument, normalizeQuote, QUOTE_FIELDS, STATUS, __stats, __resetForTests } from "../src/worker.mjs";
+import { app as worker,  buildInstrument, normalizeQuote, QUOTE_FIELDS, STATUS, __stats, __resetForTests } from "../src/worker.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -102,7 +102,7 @@ clock += 31_000;
 r = await call("/api/quote?symbols=AAPL");
 ok("[9 hit] after 60 s the entry is refreshed from the provider", r.xc === "MISS" && __stats.providerQuoteCalls === 2);
 r = await call("/api/quote?symbols=AAPL,MSFT");
-ok("[9 hit] mixed request -> PARTIAL-HIT, only MSFT fetched", r.xc === "PARTIAL-HIT" && providerUrls.at(-1).includes("symbol=MSFT&"), providerUrls.at(-1).replace(KEY, "***"));
+ok("[9 hit] mixed request -> PARTIAL-HIT, only MSFT fetched", r.xc === "PARTIAL-HIT" && /symbol=MSFT$/.test(providerUrls.at(-1)), providerUrls.at(-1).replace(KEY, "***"));
 
 // market closed: 15-minute freshness
 reset(); marketOpen = false;

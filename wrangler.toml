@@ -24,6 +24,10 @@ binding = "AI"
 
 [vars]
 ALLOWED_ORIGIN = "https://alessandrozanichelli.com"
+# Cloudflare Access (Zero Trust): the Worker re-checks the Access JWT on every /api request.
+# Not secrets: the team domain and the application's audience tag only identify which tokens to accept.
+ACCESS_TEAM_DOMAIN = "bitter-sunset-0b31.cloudflareaccess.com"
+ACCESS_AUD = "665e1b22b9f9c6fd946766bc604fcd5e87731182535777b75f835d297666552a"
 
 # TWELVEDATA_KEY is a SECRET (Cloudflare dashboard → Worker → Settings →
 # Variables and Secrets, type "Secret"), never committed to this repo.
