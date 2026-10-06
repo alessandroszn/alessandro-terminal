@@ -2,6 +2,8 @@ name = "alessandro-terminal"
 main = "src/worker.mjs"
 compatibility_date = "2026-01-01"
 workers_dev = true
+# keep variables/secrets set in the dashboard: a deploy must never drop TWELVEDATA_KEY
+keep_vars = true
 
 # Only these two paths of the site go to this Worker; the rest of
 # alessandrozanichelli.com keeps being served by the existing site.
