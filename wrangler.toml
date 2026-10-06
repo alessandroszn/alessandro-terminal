@@ -1,0 +1,21 @@
+name = "alessandro-terminal"
+main = "src/worker.mjs"
+compatibility_date = "2026-01-01"
+workers_dev = true
+
+# Only these two paths of the site go to this Worker; the rest of
+# alessandrozanichelli.com keeps being served by the existing site.
+routes = [
+  { pattern = "alessandrozanichelli.com/terminal*", zone_name = "alessandrozanichelli.com" },
+  { pattern = "alessandrozanichelli.com/api/*", zone_name = "alessandrozanichelli.com" }
+]
+
+# public/terminal/index.html is served at /terminal/
+[assets]
+directory = "./public"
+
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# TWELVEDATA_KEY is a SECRET (Cloudflare dashboard → Worker → Settings →
+# Variables and Secrets, type "Secret"), never committed to this repo.
