@@ -26,7 +26,8 @@ external display needs a redistribution agreement), so its quotes are not shown 
 ## Sections and sources
 | Section | Source | Notes |
 |---|---|---|
-| Watchlist (editable, max 12) | Twelve Data `/quote` via `/api/quote` | US equities (venue subset: volume/OHL PARTIAL), FX, crypto, gold |
+| Symbol search (SRCH) | Twelve Data `/symbol_search` via `/api/search` | name or ticker, every exchange the provider lists; metadata only (no prices) |
+| Watchlist (editable, max 12) | Twelve Data `/quote` via `/api/quote` | US equities (venue subset: volume/OHL PARTIAL), FX, crypto, gold; any searched listing the plan covers |
 | Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
@@ -34,8 +35,25 @@ external display needs a redistribution agreement), so its quotes are not shown 
 | News | GDELT DOC 2.0, SEC EDGAR | headline, source, time, link only |
 | Briefing | Cloudflare Workers AI (Llama 3.3 70B) | summary of the real inputs above, sources listed, every figure checked |
 
+## Symbol discovery (T05)
+search → select → fetch. Nothing is preloaded and no ticker list is maintained by hand.
+1. **Discovery**: `/api/search?q=Novartis` asks the provider's symbol master (name or ticker, all
+   exchanges it lists) and returns listings with exchange, MIC, country, currency, type and the data
+   plan each one needs. Provider call without a key (no credit); cached 24 h per query.
+2. **Quote on demand**: OPEN fetches one quote; listings outside the current plan are shown as N/A at
+   once (no call spent). +WL validates with a real quote before adding.
+3. **History on demand**: requested only when a security window is open.
+4. **Watchlist refresh**: only watchlisted / on-screen ids, in ≤ 7-symbol requests within the credit budget.
+
+Instrument ids: plain ticker for US listings, FX, metals and crypto (`AAPL`, `EUR/USD`);
+`SYMBOL:MIC` for every other venue (`NOVN:XSWX`, `HSBA:XLON`) → sent as `symbol` + `mic_code`.
+Prices are shown in the listing's own currency (`$` only for USD); nothing is converted.
+Limits: the provider returns at most 120 listings per query (a broad name can be crowded out by
+warrants: search the ticker); indices are not in the provider's search.
+
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
+- `GET /api/search?q=Roche` → `{ q, count, results: [{ id, symbol, name, exchange, mic, country, currency, type, planRequired, quotable }], plan, quotable, source, fetchedAt, status, truncated, credits }`
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
 - `GET /api/yields` → `{ curves: { US, EA }, errors, notConnected }`
@@ -62,7 +80,7 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
 - points are **oldest → newest**, deduplicated, only trading days (no interpolation)
 - daily `t` = exchange-local trading date `YYYY-MM-DD`; intraday `t` = ISO UTC instant
 - `adjust`: `splits` (default), `all` (splits + dividends), `none`
-- errors: `400 bad_request|invalid_symbol`, `404 symbol_not_found|no_data`, `429 rate_limited`,
+- errors: `400 bad_request|invalid_symbol`, `403 plan_required` (listed, not in the data plan), `404 symbol_not_found|no_data`, `429 rate_limited`,
   `502 provider_error|provider_auth|provider_unreachable`, `504 provider_timeout`, `500` secret missing
 
 ## Caching and provider usage
@@ -96,6 +114,7 @@ node test/history.test.mjs      # history contract + Worker handler (mocked prov
 node test/integrity.test.mjs    # T04: provenance, shared cache, coalescing, failures, timeout
 node test/provenance.test.mjs   # T04: client status rules
 node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
+node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes/history, plan errors
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)
 ```

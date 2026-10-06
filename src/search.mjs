@@ -68,6 +68,8 @@ export function normalizeSearch(j, q) {
   return out;
 }
 
+const ROW_KEYS = ["symbol", "instrument_name", "exchange", "mic_code", "exchange_timezone", "instrument_type", "country", "currency", "access"];
+const trimRow = (r) => Object.fromEntries(ROW_KEYS.filter((k) => r && r[k] != null).map((k) => [k, r[k]]));
 export const Q_RE = /^[\p{L}\p{N} .&'\-\/:]{1,40}$/u;
 const tdError = (txt) => { try { const j = JSON.parse(txt); return j && j.status === "error" ? j : null; } catch { return null; } };
 
@@ -83,7 +85,8 @@ async function providerSearch(q, key) {
     if (f.err) { err = f.err; continue; }
     const e = tdError(f.text);
     if (e) { err = Number(e.code) === 429 ? "rate_limited" : "provider_error"; continue; }
-    try { const j = JSON.parse(f.text); return { data: { results: normalizeSearch(j, q), raw: Array.isArray(j.data) ? j.data.length : 0, credits } }; } catch { err = "provider_error"; }
+    // the provider's rows are cached as received (trimmed to the fields used); ranking runs on every request
+    try { const j = JSON.parse(f.text); const rows = (Array.isArray(j.data) ? j.data : []).map(trimRow); return { data: { rows, raw: rows.length, credits } }; } catch { err = "provider_error"; }
   }
   return { err: err || "provider_error", credits };
 }
@@ -93,11 +96,11 @@ export async function handleSearch(url, env, ctx, H, json) {
   if (!Q_RE.test(q)) return json({ error: "bad_request", message: "q must be 1-40 letters, digits, spaces or . & ' - / :" }, H, 400);
   let credits = 0;
   const r = await cachedSource({
-    origin: url.origin, key: `search/${encodeURIComponent(q.toLowerCase())}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
+    origin: url.origin, key: `search-rows/${encodeURIComponent(q.toLowerCase())}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
     load: async () => { const x = await providerSearch(q, env.TWELVEDATA_KEY); credits = x.credits || (x.data && x.data.credits) || 0; return x; },
   });
   if (r.err) return json({ q, results: [], error: r.err, status: "N/A", credits }, H, r.err === "rate_limited" ? 429 : 502);
-  const results = r.data.results;
+  const results = normalizeSearch({ data: r.data.rows }, q);
   const resp = json({
     q, count: results.length, results,
     plan: CURRENT_PLAN, quotable: results.filter((x) => x.quotable).length,
