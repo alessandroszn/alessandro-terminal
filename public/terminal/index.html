@@ -426,11 +426,14 @@
     proxyBase:"https://alessandrozanichelli.com",              // URL of your serverless proxy, e.g. https://xxx.workers.dev  (used by "twelvedata_proxy")
     apiKey:"",                 // ONLY for direct "twelvedata"/"finnhub". With the proxy the key stays server-side — leave empty.
     quoteRefreshMs:120000,     // how often to refresh quotes (free tiers are rate-limited)
-    seriesMinGapMs:8000,       // min gap between history calls (rate limit)
+    seriesMinGapMs:9000,       // min gap between history calls (rate limit)
     liveSymbols:["NVDA","AAPL","MSFT","AMZN","GOOGL","JPM"] // trim to fit your plan's rate limit (free = ~8 calls/min)
   };
   const Providers={
-    twelvedata_proxy:{         // T01/T02 slice: quotes via your serverless proxy (key hidden). No series() on purpose → charts stay simulated until the history endpoint (T03) is added.
+    twelvedata_proxy:{         // quotes (/api/quote) + history (/api/history) via your serverless proxy — the key stays server-side.
+      async history(sym,range){const base=(CONFIG.proxyBase||'').replace(/\/+$/,'');if(!base)throw new Error('proxyBase not set');
+        const r=await fetch(`${base}/api/history?symbol=${encodeURIComponent(sym)}&range=${encodeURIComponent(range)}`);let j=null;try{j=await r.json();}catch(e){}
+        if(!r.ok||!j||!Array.isArray(j.points)||j.points.length<2)throw new Error((j&&j.error)||('http '+r.status));return j;},
       async quotes(syms){const base=(CONFIG.proxyBase||'').replace(/\/+$/,'');if(!base)throw new Error('proxyBase not set');
         const j=await (await fetch(`${base}/api/quote?symbols=${encodeURIComponent(syms.join(','))}`)).json();
         if(!j||!j.quotes)throw new Error((j&&j.error)||'proxy error');
@@ -455,14 +458,26 @@
       try{const q=await p.quotes(CONFIG.liveSymbols);if(!q||!Object.keys(q).length)throw new Error('no quotes returned');
         this.provider=p;this.mode='LIVE';applyQuotes(q);this.lastPull=new Date();updateDataBadge();
         setInterval(()=>this.refresh(),Math.max(15000,CONFIG.quoteRefreshMs));
+        // prefetch the rest of the live symbols' history after the first minute (free tier: ~8 credits/min, quotes just used ~6)
+        setTimeout(()=>CONFIG.liveSymbols.forEach(s=>this.ensureSeries(s)),60000);
       }catch(e){this.mode='SIM';updateDataBadge();console.warn('[data] live unavailable, staying simulated:',e&&e.message);}},
     async refresh(){if(this.mode!=='LIVE')return;try{const q=await this.provider.quotes(CONFIG.liveSymbols);applyQuotes(q);this.lastPull=new Date();updateDataBadge();}catch(e){console.warn('[data] quote refresh failed:',e&&e.message);}},
-    ensureSeries(sym){if(this.mode!=='LIVE'||!this.provider.series)return;const t=BY[sym];if(!t||t._real||t._loading||!CONFIG.liveSymbols.includes(sym))return;t._loading=true;
-      const run=async()=>{try{const daily=await this.provider.series(sym,'1day',260);let intra;try{intra=await this.provider.series(sym,'5min',78);}catch(e){}
-        if(daily&&daily.length>5)t.daily=daily;if(intra&&intra.length>5)t.intra=intra;t._real=true;
-        wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});
-      }catch(e){console.warn('[data] history failed for',sym,e&&e.message);}finally{t._loading=false;}};
-      this._q=this._q.then(()=>{const wait=Math.max(0,this._gap-Date.now());this._gap=Date.now()+wait+CONFIG.seriesMinGapMs;return new Promise(r=>setTimeout(r,wait)).then(run);});}
+    // A symbol is "live" when quotes are live for it AND a history source exists: its charts must never show simulated data.
+    isLiveSym(sym){return this.mode==='LIVE'&&!!this.provider&&CONFIG.liveSymbols.includes(sym)&&!!(this.provider.history||this.provider.series);},
+    _enqueue(fn){this._q=this._q.then(()=>{const wait=Math.max(0,this._gap-Date.now());this._gap=Date.now()+wait+CONFIG.seriesMinGapMs;return new Promise(r=>setTimeout(r,wait)).then(fn);});},
+    _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});},
+    ensureSeries(sym){if(!this.isLiveSym(sym))return;const t=BY[sym];if(!t||t._real||t._loading)return;t._loading=true;t._histErr=null;
+      this._enqueue(async()=>{try{
+        if(this.provider.history){const h=await this.provider.history(sym,'1Y');t.daily=h.points.map(p=>p.c);t.dailyDates=h.points.map(p=>p.t);t._histMeta={adjust:h.adjust,count:h.count,asOf:h.asOf,tz:h.exchangeTimezone};}
+        else{const d=await this.provider.series(sym,'1day',260);if(!d||d.length<5)throw new Error('no data');t.daily=d;t.dailyDates=null;}
+        t._real=true;
+      }catch(e){t._histErr=(e&&e.message)||'error';console.warn('[data] history failed for',sym,t._histErr);}finally{t._loading=false;this._repaintFor(sym);}});},
+    ensureIntraday(sym){if(!this.isLiveSym(sym))return;const t=BY[sym];if(!t||t._realIntra||t._loadingIntra)return;t._loadingIntra=true;t._intraErr=null;
+      this._enqueue(async()=>{try{
+        if(this.provider.history){const h=await this.provider.history(sym,'1D');t.intra=h.points.map(p=>p.c);}
+        else{const d=await this.provider.series(sym,'5min',78);if(!d||d.length<5)throw new Error('no data');t.intra=d;}
+        t._realIntra=true;
+      }catch(e){t._intraErr=(e&&e.message)||'error';console.warn('[data] intraday failed for',sym,t._intraErr);}finally{t._loadingIntra=false;this._repaintFor(sym);}});}
   };
   function applyQuotes(map){for(const s in map){const t=BY[s],q=map[s];if(!t)continue;
     if(isFinite(q.price))t.px=q.price;if(isFinite(q.prev))t.prev=q.prev;if(isFinite(q.open))t.open=q.open;if(isFinite(q.high))t.dayHigh=q.high;if(isFinite(q.low))t.dayLow=q.low;
@@ -507,7 +522,20 @@
     ctx.beginPath();ctx.moveTo(X(0),Y(pts[0][1]));for(let i=1;i<pts.length;i++)ctx.lineTo(X(i),Y(pts[i][1]));ctx.strokeStyle=C.amber;ctx.lineWidth=1.8;ctx.lineJoin="round";ctx.stroke();
     pts.forEach((p,i)=>{ctx.fillStyle=C.amber;ctx.beginPath();ctx.arc(X(i),Y(p[1]),3,0,7);ctx.fill();});}
   function sparkSVG(data,col){const w=46,h=18,mn=Math.min(...data),mx=Math.max(...data),sp=(mx-mn)||1;const pts=data.map((v,i)=>`${(i/(data.length-1)*w).toFixed(1)},${(h-((v-mn)/sp)*(h-2)-1).toFixed(1)}`).join(' ');return`<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/></svg>`;}
-  function tfData(t,tf){const map={"1D":null,"1W":7,"1M":22,"3M":66,"6M":132,"1Y":260};if(tf==="1D"){const a=t.intra.slice();a[a.length-1]=t.px;return a;}const k=map[tf]||132;const a=t.daily.slice(-k);a[a.length-1]=t.px;return a;}
+  function cutDate(tf){const d=new Date();if(tf==="1W")d.setUTCDate(d.getUTCDate()-7);else d.setUTCMonth(d.getUTCMonth()-({"1M":1,"3M":3,"6M":6,"1Y":12}[tf]||6));return d.toISOString().slice(0,10);}
+  // Live symbols: real points only (null = not loaded yet). Simulated symbols: unchanged behaviour.
+  function tfData(t,tf){
+    if(DATA.isLiveSym(t.sym)){
+      if(tf==="1D")return t._realIntra?t.intra.slice():null;
+      if(!t._real)return null;
+      if(!t.dailyDates)return t.daily.slice(-({"1W":5,"1M":22,"3M":66,"6M":126,"1Y":252}[tf]||126));
+      const cut=cutDate(tf),out=[];for(let i=0;i<t.daily.length;i++){if(t.dailyDates[i]>=cut)out.push(t.daily[i]);}
+      return out.length>=2?out:t.daily.slice(-2);
+    }
+    const map={"1D":null,"1W":7,"1M":22,"3M":66,"6M":132,"1Y":260};if(tf==="1D"){const a=t.intra.slice();a[a.length-1]=t.px;return a;}const k=map[tf]||132;const a=t.daily.slice(-k);a[a.length-1]=t.px;return a;}
+  function drawMsg(cv,text){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);ctx.fillStyle=C.dim;ctx.font="12px "+getComputedStyle(cv).fontFamily;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(text,w/2,h/2);}
+  function drawChart(cv,t,tf){const d=tfData(t,tf);if(d&&d.length>=2)return drawArea(cv,d);
+    const err=tf==="1D"?t._intraErr:t._histErr;drawMsg(cv,err?`Real history unavailable (${err})`:'Loading real history…');}
   function BYC(ten){return (CURVE.find(c=>c[0]===ten)||[,0])[1];}
   function stat(l,v){return`<div class="stat"><div class="l">${l}</div><div class="v num">${v}</div></div>`;}
   function heatColor(chg){const x=Math.max(-1,Math.min(1,chg/3));return x>=0?`rgba(46,194,138,${0.12+x*0.42})`:`rgba(240,85,91,${0.12+(-x)*0.42})`;}
@@ -528,16 +556,16 @@
       </div>
       <div class="des"><b>DES</b> — ${t.desc}</div>`;
     $$('.tfbar .tf',body).forEach(b=>b.onclick=()=>{win.state.tf=b.dataset.tf;paintWin(win);});
-    requestAnimationFrame(()=>drawArea(body.querySelector('canvas'),tfData(t,win.state.tf)));
-    DATA.ensureSeries(t.sym);}
+    requestAnimationFrame(()=>drawChart(body.querySelector('canvas'),t,win.state.tf));
+    DATA.ensureSeries(t.sym);if(win.state.tf==='1D')DATA.ensureIntraday(t.sym);}
   function liveSecurity(win){const b=win.bodyEl,t=BY[win.state.ticker],last=b.querySelector('.last');if(!last)return;
     last.textContent=money(t.px);const chg=b.querySelector('.chg'),chgAbs=t.px-t.prev;chg.className='chg num '+cls(t.chg);chg.textContent=`${sign(fx(chgAbs))} (${pct(t.chg)})`;
-    drawArea(b.querySelector('canvas'),tfData(t,win.state.tf));}
+    drawChart(b.querySelector('canvas'),t,win.state.tf);}
 
   function renderIndicesWin(body){body.style.padding="0";body.innerHTML=INDICES.map(ix=>`<div class="idx-row"><span class="n">${ix.n}</span><span class="cell-v num">${ix.lvl.toLocaleString('en-US',{minimumFractionDigits:ix.sym==='VIX'?2:1,maximumFractionDigits:ix.sym==='VIX'?2:1})}</span><span class="cell-c num ${cls(ix.chg)}">${pct(ix.chg)}</span></div>`).join('');}
   function renderWatchlistWin(body){body.style.padding="0";let adv=0;
     body.innerHTML=`<div class="list-head"><span>SYM</span><span>TREND</span><span style="text-align:right">LAST</span><span style="text-align:right">CHG%</span></div>`+
-      UNI.map(t=>{if(t.chg>=0)adv++;return`<div class="wl-row" data-sym="${t.sym}" tabindex="0" role="button"><span class="sym">${t.sym}</span>${sparkSVG(t.daily.slice(-24),t.chg>=0?C.up:C.down)}<span class="cell-v num">${money(t.px)}</span><span class="cell-c num ${cls(t.chg)}">${pct(t.chg)}</span></div>`;}).join('');
+      UNI.map(t=>{if(t.chg>=0)adv++;return`<div class="wl-row" data-sym="${t.sym}" tabindex="0" role="button"><span class="sym">${t.sym}</span>${(DATA.isLiveSym(t.sym)&&!t._real)?'<svg class="spark" aria-hidden="true"></svg>':sparkSVG(t.daily.slice(-24),t.chg>=0?C.up:C.down)}<span class="cell-v num">${money(t.px)}</span><span class="cell-c num ${cls(t.chg)}">${pct(t.chg)}</span></div>`;}).join('');
     bindFocusRows(body);}
 
   function renderHeat(body){const groups={};UNI.forEach(t=>{(groups[t.sect]=groups[t.sect]||[]).push(t);});
@@ -685,7 +713,7 @@
   function toggleMin(w){w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();}
   function toggleMax(w){w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
   function reflowWin(w){if(!w.bodyEl||w.min)return;const b=w.bodyEl,cv=b.querySelector('canvas');
-    if(w.type==='GP'&&cv)drawArea(cv,tfData(BY[w.state.ticker],w.state.tf));
+    if(w.type==='GP'&&cv)drawChart(cv,BY[w.state.ticker],w.state.tf);
     else if(w.type==='CURV'&&cv)drawCurve(cv,CURVE);
     else if(w.type==='COMP')drawCompareChart(b,w.state);}
   function tileAll(){const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
