@@ -602,7 +602,7 @@
   function chartCaption(t,tf){const intr=tf==='1D',st=histStatus(t,intr);
     const m=intr?t._intraMeta:t._histMeta,err=intr?t._intraErr:t._histErr;
     if(!m)return`${chip(st)} ${err?'real history unavailable — '+esc(P.errorText(err)):'requesting real history…'}`;
-    return`${chip(st,'history: '+st)} ${intr?'5-min bars, latest session':'daily closes, split-adjusted'} · ${m.count} obs · fetched ${fmtTime(m.fetchedAt)}${!intr&&m.lastBarPartial?' · last bar = session in progress':''}${st===S.STALE&&m.staleReason?' · refresh failed: '+esc(P.errorText(m.staleReason)):''}`;}
+    return`${chip(st,'history: '+st)} ${intr?'5-min bars, latest session':'daily closes, split-adjusted'} · ${m.count} obs · fetched ${fmtTime(m.fetchedAt)}${!intr&&m.lastBarPartial?' · last bar = today\'s session (may still change)':''}${st===S.STALE&&m.staleReason?' · refresh failed: '+esc(P.errorText(m.staleReason)):''}`;}
   function stat(l,v,s,title){return`<div class="stat" title="${esc(title||'')}"><div class="l">${l}${chip(s,title)}</div><div class="v num">${v}</div></div>`;}
   function heatColor(chg){if(!fin(chg))return'rgba(115,123,136,.10)';const x=Math.max(-1,Math.min(1,chg/3));return x>=0?`rgba(46,194,138,${0.12+x*0.42})`:`rgba(240,85,91,${0.12+(-x)*0.42})`;}
   function bindFocusRows(root){$$('[data-sym]',root).forEach(el=>{const go=()=>openOrFocus('GP',{ticker:el.dataset.sym,tf:'6M'});el.onclick=go;el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});}
