@@ -1,7 +1,9 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
 //   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
+//   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/health
-//   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04)
+//   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
+//                                            "SYMBOL:MIC" ids such as NOVN:XSWX address one venue)
 //   GET /api/history?symbol=AAPL&range=6M   (T03, provenance + stale serving in T04)
 // The Twelve Data API key lives ONLY here (secret TWELVEDATA_KEY), never in the client,
 // never in URLs returned to the client, never logged.
@@ -10,6 +12,7 @@ import { handleYields } from "./yields.mjs";
 import { handleCalendar } from "./calendar.mjs";
 import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
+import { handleSearch, splitId, US_MICS } from "./search.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -30,6 +33,9 @@ export const STATUS = { LIVE: "LIVE", PARTIAL: "PARTIAL", STALE: "STALE", NA: "N
 const VENUE_NOTE = "real-time venue subset (~5% of US consolidated volume); may differ slightly from consolidated";
 const NA_NOTE = "not provided by the current data plan";
 
+// Venue notes apply to US equities only. FX, crypto, metals and non-US listings carry the
+// provider's own values for that market, labelled as such (no consolidated-tape claim either way).
+const PROVIDER_NOTE = "as reported by the provider for this market (see data time)";
 export const QUOTE_FIELDS = {
   price:            { from: "price",            status: STATUS.LIVE,    note: "last trade (real-time venues)" },
   change:           { from: "change",           status: STATUS.LIVE },
@@ -81,7 +87,8 @@ export function normalizeQuote(sym, q) {
     symbol: sym,
     name: q.name ?? null,
     exchange: q.exchange ?? null,
-    currency: q.currency ?? "USD",
+    currency: q.currency ?? null,                 // never assumed
+    mic: q.mic_code ?? null,
     price,
     change: chg,
     changePct: pct,
@@ -99,11 +106,19 @@ export function normalizeQuote(sym, q) {
 }
 
 // --- flat record + freshness -> InstrumentData with a status on every field ---
+// US equity = a US venue, or a plain ticker (no ":MIC", not a "/" pair) when the provider sent no MIC
+export function isUsEquity(rec) {
+  const s = String(rec.symbol || "");
+  if (s.includes("/")) return false;
+  return rec.mic ? US_MICS.has(rec.mic) : !s.includes(":");
+}
 export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = false, error = null }) {
   const staleAtMs = fetchedAt + quoteStaleAfterMs(rec.marketOpen);
   const isStale = stale || now > staleAtMs;
+  const us = isUsEquity(rec);
   const fields = {};
-  for (const [k, rule] of Object.entries(QUOTE_FIELDS)) {
+  for (const [k, raw] of Object.entries(QUOTE_FIELDS)) {
+    const rule = us || !raw.from ? raw : { from: raw.from, status: STATUS.LIVE, note: PROVIDER_NOTE };
     const value = rule.from ? rec[rule.from] : null;
     let status = value == null ? STATUS.NA : rule.status;
     if (isStale && status !== STATUS.NA) status = STATUS.STALE;
@@ -113,7 +128,8 @@ export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = fals
     symbol: rec.symbol,
     name: rec.name,
     exchange: rec.exchange,
-    currency: rec.currency,
+    mic: rec.mic ?? null,
+    currency: rec.currency ?? null,
     status: isStale ? STATUS.STALE : STATUS.LIVE,
     source: SOURCE,
     timestamp: rec.asOf,                       // market-data time reported by the provider
@@ -129,12 +145,14 @@ export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = fals
 export function mapProviderError(td) {
   const code = Number(td && td.code);
   const msg = String((td && td.message) || "");
+  // the listing exists but the key's data plan does not include it ("available starting with Grow/Pro")
+  if (code !== 401 && code !== 429 && /\bplan\b|upgrad|subscription/i.test(msg)) return { status: 403, error: "plan_required" };
   if (code === 404 || (code === 400 && /symbol|not found|invalid/i.test(msg))) return { status: 404, error: "symbol_not_found" };
   if (code === 429) return { status: 429, error: "rate_limited" };
   if (code === 401 || code === 403) return { status: 502, error: "provider_auth" };
   return { status: 502, error: "provider_error" };
 }
-const ERROR_HTTP = { symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
+const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
 
 async function providerFetchJson(url) {
   const ac = new AbortController();
@@ -172,7 +190,25 @@ const INFLIGHT = new Map();
 export const __stats = { providerQuoteCalls: 0 };
 export function __resetForTests() { INFLIGHT.clear(); __stats.providerQuoteCalls = 0; }
 
+// plain ids (US, FX, crypto) go in one batched call; "SYMBOL:MIC" ids need their own call with
+// mic_code (same credit cost: the provider charges per symbol either way)
 async function providerQuoteBatch(syms, key) {
+  const venue = syms.filter(s => splitId(s).mic), plain = syms.filter(s => !splitId(s).mic);
+  const parts = await Promise.all([plain.length ? providerQuotePlain(plain, key) : new Map(), ...venue.map(s => providerQuoteVenue(s, key))]);
+  return new Map(parts.flatMap(m => [...m]));
+}
+async function providerQuoteVenue(id, key) {
+  __stats.providerQuoteCalls++;
+  const { symbol, mic } = splitId(id);
+  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(symbol)}&mic_code=${encodeURIComponent(mic)}&apikey=${key}`);
+  if (err) return new Map([[id, { err }]]);
+  if (!json || typeof json !== "object") return new Map([[id, { err: "provider_error" }]]);
+  if (json.status === "error") return new Map([[id, { err: mapProviderError(json).error }]]);
+  const rec = normalizeQuote(id, json);
+  if (rec && !rec.mic) rec.mic = mic;
+  return new Map([[id, rec ? { rec } : { err: "provider_error" }]]);
+}
+async function providerQuotePlain(syms, key) {
   __stats.providerQuoteCalls++;
   const out = new Map();
   const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(syms.join(","))}&apikey=${key}`);
@@ -240,7 +276,7 @@ async function handleQuote(url, env, ctx, H) {
         stat.miss++;
       } else {
         const e = entries[s];
-        if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS && r.err !== "symbol_not_found") {
+        if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS && r.err !== "symbol_not_found" && r.err !== "plan_required") {
           quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: r.err });
           stat.stale++;
         } else {
@@ -292,7 +328,8 @@ export function buildHistoryQuery(params, now = new Date()) {
   const adjust = String(params.adjust || "splits");
   if (!ADJUST.has(adjust)) throw new BadRequest("adjust must be one of splits,all,none");
 
-  const q = { symbol, interval, order: "asc", adjust };
+  const { symbol: tdSymbol, mic } = splitId(symbol);
+  const q = { symbol: tdSymbol, ...(mic ? { mic_code: mic } : {}), interval, order: "asc", adjust };
   if (intraday) {
     q.timezone = "UTC";
     q.outputsize = String(BARS_PER_SESSION[interval] * (range === "1W" ? 5 : 1));
@@ -304,7 +341,7 @@ export function buildHistoryQuery(params, now = new Date()) {
     q.outputsize = "5000";
   }
   const ttl = intraday ? 120 : interval === "1week" ? 3600 : 900;
-  return { q, range, interval, adjust, intraday, ttl };
+  return { id: symbol, q, range, interval, adjust, intraday, ttl };
 }
 
 function toIsoUtc(s) {
@@ -346,16 +383,16 @@ async function handleHistory(url, env, ctx, H) {
   const key = env.TWELVEDATA_KEY;
   if (!key) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
 
-  const { q, range, interval, adjust, intraday, ttl } = built;
+  const { id, q, range, interval, adjust, intraday, ttl } = built;
   const cache = cacheFor();
-  const cacheKey = `${url.origin}/__cache/history?${new URLSearchParams({ symbol: q.symbol, range, interval, adjust, d: q.start_date || "intraday" })}`;
+  const cacheKey = `${url.origin}/__cache/history?${new URLSearchParams({ symbol: id, range, interval, adjust, d: q.start_date || "intraday" })}`;
   const entry = await cacheGet(cache, cacheKey);
   const now = Date.now();
   const respond = (body, xc, status = 200) => { const r = json(body, H, status, status === 200 ? ttl : 0); r.headers.set("x-cache", xc); return r; };
   const envelope = (n, fetchedAt, stale, staleReason) => {
     const last = n.points[n.points.length - 1];
     return {
-      symbol: q.symbol, range, interval, adjust,
+      symbol: id, range, interval, adjust,
       timeBasis: intraday ? "utc" : "exchange_local_date",
       currency: n.currency, exchange: n.exchange, exchangeTimezone: n.exchangeTimezone, type: n.type,
       count: n.points.length, points: n.points,
@@ -385,11 +422,11 @@ async function handleHistory(url, env, ctx, H) {
     cachePut(cache, cacheKey, { n, fetchedAt }, ctx);
     return respond(envelope(n, fetchedAt, false), "MISS");
   }
-  if (entry && entry.n && now - entry.fetchedAt < STALE_MAX_MS && error !== "symbol_not_found") {
+  if (entry && entry.n && now - entry.fetchedAt < STALE_MAX_MS && error !== "symbol_not_found" && error !== "plan_required") {
     return respond(envelope(entry.n, entry.fetchedAt, true, error), "STALE");
   }
   const status = error === "no_data" ? 404 : ERROR_HTTP[error] || 502;
-  const r = json({ error, symbol: q.symbol, status: STATUS.NA }, H, status);
+  const r = json({ error, symbol: id, status: STATUS.NA }, H, status);
   r.headers.set("x-cache", "MISS");
   return r;
 }
@@ -416,6 +453,7 @@ export default {
     if (url.pathname === "/api/calendar") return handleCalendar(url, env, ctx, H, json);
     if (url.pathname === "/api/news") return handleNews(url, env, ctx, H, json);
     if (url.pathname === "/api/briefing") return handleBriefing(url, env, ctx, H, json);
+    if (url.pathname === "/api/search") return handleSearch(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };

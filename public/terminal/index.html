@@ -112,6 +112,14 @@
   .wl-btn:hover{color:var(--fg);border-color:var(--amber)}
   .wl-n{color:var(--dim);font-size:10px;white-space:nowrap}
   .wl-msg{padding:0 8px 6px;color:var(--muted);font-size:10.5px;min-height:14px}
+  .sr-in{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-2);color:var(--fg);border-radius:3px;padding:5px 8px;font:inherit;font-size:11.5px}
+  table.pf.sr td{white-space:nowrap}
+  table.pf.sr td.nm{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+  .pl{display:inline-block;font-size:8.5px;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 4px;line-height:13px;border:1px solid var(--line-2);color:var(--muted);white-space:nowrap;cursor:help}
+  .pl.ok{color:var(--up);border-color:rgba(46,194,138,.35);background:rgba(46,194,138,.12)}
+  .sr-b{background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:2px 7px;font:inherit;font-size:10px;cursor:pointer;margin-left:4px}
+  .sr-b:hover:not([disabled]){color:var(--fg);border-color:var(--amber)}
+  .sr-b[disabled]{opacity:.35;cursor:not-allowed}
   .wl-row:hover{background:#151922}
   .idx-row .n{color:var(--muted);font-size:11.5px}
   .wl-row .sym{font-weight:600;font-size:11.5px}
@@ -284,7 +292,7 @@
     <div class="brand">ALESSANDRO<span class="b-dot">°</span>TERMINAL <small>MKTS</small></div>
     <div class="cmd-wrap">
       <input id="cmd" autocomplete="off" spellcheck="false" aria-label="Command line"
-             placeholder="Type a ticker or function  —  e.g. NVDA, HEAT, TILE, HELP">
+             placeholder="Ticker, company name or function  —  e.g. NVDA, Novartis, NESN, WL, HELP">
     </div>
     <div class="status-right">
       <span class="live"><span class="pulse"></span><span id="clk">--:--:--</span></span>
@@ -323,8 +331,10 @@
     <div class="help-grp">COMMAND LINE</div>
     <div class="help-row"><code>NVDA</code><span>Open a security window</span></div>
     <div class="help-row"><code>NVDA GP</code><span>Ticker + function in one line</span></div>
+    <div class="help-row"><code>Novartis</code><span>Anything else searches the provider's symbol master (name or ticker, all exchanges)</span></div>
     <div class="help-grp">FUNCTIONS</div>
     <div class="help-row"><code>GP</code><span>Price graph &amp; security overview</span></div>
+    <div class="help-row"><code>SRCH</code><span>Symbol search: find any listed instrument, open it, add it to the watchlist</span></div>
     <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
     <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
     <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
@@ -385,10 +395,16 @@
   const MARKET_KEYS=['px','prev','chg','open','dayHigh','dayLow','vol','lo52','hi52'];
   const SYMBOL_OK=/^[A-Z0-9][A-Z0-9.\-:\/]{0,19}$/;
   function loadWatchlist(){try{const a=JSON.parse(localStorage.getItem('at-watchlist')||'null');if(Array.isArray(a)&&a.length)return [...new Set(a.filter(x=>typeof x==='string'&&SYMBOL_OK.test(x)))].slice(0,CONFIG.maxWatchlist);}catch(e){}return DEFAULT_WATCHLIST.slice();}
-  function saveWatchlist(){try{localStorage.setItem('at-watchlist',JSON.stringify(WATCH));}catch(e){}}
+  function saveWatchlist(){try{localStorage.setItem('at-watchlist',JSON.stringify(WATCH));}catch(e){}saveMeta();}
+  // reference data from /api/search (provider symbol master: name, venue, country, currency, plan) — no prices
+  const META=(()=>{try{const m=JSON.parse(localStorage.getItem('at-wlmeta')||'{}');return m&&typeof m==='object'&&!Array.isArray(m)?m:{};}catch(e){return{};}})();
+  function saveMeta(){try{const keep={};WATCH.forEach(s=>{if(META[s])keep[s]=META[s];});localStorage.setItem('at-wlmeta',JSON.stringify(keep));}catch(e){}}
   let WATCH=loadWatchlist();
   const BY={};
-  function inst(sym){if(!BY[sym]){const t={sym,name:null,ex:null,sect:SECTOR_OF[sym]||'OTHER',q:null,qErr:null,daily:[],dailyDates:null,intra:[]};MARKET_KEYS.forEach(k=>t[k]=null);BY[sym]=t;}return BY[sym];}
+  function inst(sym){if(!BY[sym]){const t={sym,name:null,ex:null,cur:null,mic:null,country:null,itype:null,sect:SECTOR_OF[sym]||'OTHER',q:null,qErr:null,daily:[],dailyDates:null,intra:[]};MARKET_KEYS.forEach(k=>t[k]=null);BY[sym]=t;}applyMeta(BY[sym]);return BY[sym];}
+  // a listing the provider says the current plan cannot quote is N/A at once: no credit is spent on a call that must fail
+  function applyMeta(t){const m=META[t.sym];if(!m)return;t.name=t.name||m.name||null;t.ex=t.ex||m.exchange||null;t.cur=t.cur||m.currency||null;t.mic=m.mic||null;t.country=m.country||null;t.itype=m.type||null;t.planRequired=m.planRequired||null;
+    if(m.quotable===false&&!t.q){t._planBlocked=true;t.qErr='plan_required';t._histErr='plan_required';t._intraErr='plan_required';}}
   let UNI=[];  // the watchlist: universe of WL, MOV, HEAT, SCR, COMP, CORR, tape
   function rebuildUni(){UNI=WATCH.map(inst);MARKET_SYMS.forEach(inst);}
   rebuildUni();
@@ -433,7 +449,7 @@
     // symbols on screen: watchlist, the markets board when open, open security windows
     needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&(w.type==='MKT'||w.type==='BRF')))MARKET_SYMS.forEach(x=>s.add(x));wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
     // quotes in chunks of ≤7 symbols, each waiting for room in the per-minute credit budget
-    async fetchNow(syms){syms=syms.filter(x=>BY[x]&&!BY[x]._pending);syms.forEach(x=>BY[x]._pending=true);
+    async fetchNow(syms){syms=syms.filter(x=>BY[x]&&!BY[x]._pending&&!BY[x]._planBlocked);syms.forEach(x=>BY[x]._pending=true);
       try{for(let i=0;i<syms.length;i+=7){const chunk=syms.slice(i,i+7);await Budget.take(chunk.length);
         try{const j=await this.provider.quotes(chunk);this.lastPull=Date.now();applyQuotes(j,chunk);}
         catch(e){console.warn('[data] quote request failed:',e&&e.message);quoteFailure('network',chunk);}}}
@@ -447,11 +463,11 @@
       wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
-    ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
+    ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
       this._enqueue(async()=>{try{const h=await this.provider.history(sym,'1Y');t.daily=h.points.map(p=>p.c);t.dailyDates=h.points.map(p=>p.t);t._histMeta=histMeta(h);t._real=true;t._histErr=null;}
         catch(e){t._histErr=(e&&e.message)||'error';t._histRetryAt=Date.now()+RETRY_MS;console.warn('[data] history failed for',sym,t._histErr);}
         finally{t._loading=false;this._repaintFor(sym);}});},
-    ensureIntraday(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._loadingIntra||Date.now()<(t._intraRetryAt||0))return;
+    ensureIntraday(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._loadingIntra||Date.now()<(t._intraRetryAt||0))return;
       const fresh=t._realIntra&&t._intraMeta&&Date.now()-Date.parse(t._intraMeta.fetchedAt)<INTRADAY_REFRESH_MS;if(fresh)return;t._loadingIntra=true;
       this._enqueue(async()=>{try{const h=await this.provider.history(sym,'1D');t.intra=h.points.map(p=>p.c);t._intraMeta=histMeta(h);t._realIntra=true;t._intraErr=null;}
         catch(e){t._intraErr=(e&&e.message)||'error';t._intraRetryAt=Date.now()+RETRY_MS;console.warn('[data] intraday failed for',sym,t._intraErr);}
@@ -462,7 +478,7 @@
     for(const s of syms){const t=BY[s];if(!t)continue;const q=quotes[s];
       if(q){const v=k=>P.fieldValue(q,k);t.q=q;t.qErr=null;
         t.px=v('price');t.prev=v('prevClose');t.chg=v('changePct');t.open=v('open');t.dayHigh=v('high');t.dayLow=v('low');t.vol=v('volume');t.lo52=v('fiftyTwoWeekLow');t.hi52=v('fiftyTwoWeekHigh');
-        if(t.px==null)clearMarket(t);if(q.name)t.name=q.name;if(q.exchange)t.ex=q.exchange;}
+        if(t.px==null)clearMarket(t);if(q.name)t.name=q.name;if(q.exchange)t.ex=q.exchange;if(q.currency)t.cur=q.currency;if(q.mic)t.mic=q.mic;}
       else markFailed(t,(errors[s]&&errors[s].error)||'provider_error');}
     repaintAll();}
   // refresh failed: keep the last REAL quote but mark it STALE; with no real quote the symbol is N/A
@@ -476,7 +492,7 @@
   const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news',BRF:'briefing'};
   async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
     let path='/api/'+name;
-    if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')).join(','));
+    if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')&&!x.includes(':')).join(','));
     if(name==='briefing')path+='?symbols='+encodeURIComponent(WATCH.concat(MARKET_SYMS).join(','))+(force?'&refresh=1':'');
     try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
       if(!j)throw new Error('http '+r.status);e.data=j;e.err=null;}
@@ -498,16 +514,21 @@
   function fmtTime(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleTimeString('en-GB'):'—';}
   function fmtDT(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
 
-  // FX / crypto / metals are quoted as plain rates with enough decimals; equities in USD
-  function pxText(t,v){if(v===undefined)v=t.px;if(!fin(v))return'—';if(t.sym.includes('/')){const d=v<10?5:v<1000?3:2;return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}return money(v);}
+  // FX / crypto / metals are quoted as plain rates with enough decimals; every other price in the
+  // currency the provider reports for that listing ($ only for USD) — never converted
+  function pxText(t,v){if(v===undefined)v=t.px;if(!fin(v))return'—';if(t.sym.includes('/')){const d=v<10?5:v<1000?3:2;return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+    const c=t.cur;if(c==='USD')return money(v);const n=v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return c?n+' '+c:n;}
+  // axis labels: decimals follow the range; currency sign only for USD listings
+  function axisFmt(t,mn,mx){const sp=Math.abs(mx-mn),d=sp<0.05?4:sp<5?2:0,usd=t&&!t.sym.includes('/')&&t.cur==='USD';return v=>(usd?'$':'')+v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
   function fmtHM(iso){const d=new Date(iso);if(!isFinite(d))return'—';const today=new Date().toDateString()===d.toDateString();return today?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
   async function addToWatchlist(raw,win){const sym=String(raw||'').trim().toUpperCase();const say=m=>{win.state.msg=m;liveRepaint(win);};
-    if(!sym)return;if(!SYMBOL_OK.test(sym))return say(`"${sym}" is not a valid symbol`);
+    if(!sym)return;if(!SYMBOL_OK.test(sym)){openSearch(raw);return say(`"${String(raw).trim()}" is not a ticker — searching by name`);}
     if(WATCH.includes(sym))return say(`${sym} is already in the watchlist`);
+    if(META[sym]&&META[sym].quotable===false)return say(`${sym} not added: ${planText(inst(sym))}`);
     if(WATCH.length>=CONFIG.maxWatchlist)return say(`Limit ${CONFIG.maxWatchlist} symbols (free plan: 8 credits/min, 800/day)`);
     say(`Checking ${sym} with the provider…`);
     try{await Budget.take(1);const j=await DATA.provider.quotes([sym]);const q=j.quotes&&j.quotes[sym];
-      if(!q){const er=(j.errors&&j.errors[sym]&&j.errors[sym].error)||'provider_error';return say(`${sym} not added: ${P.errorText(er)}`);}
+      if(!q){const er=(j.errors&&j.errors[sym]&&j.errors[sym].error)||'provider_error';if(er==='symbol_not_found'&&win.type!=='SRCH')openSearch(raw);return say(`${sym} not added: ${P.errorText(er)}${er==='symbol_not_found'?' — see SYMBOL SEARCH':''}`);}
       WATCH.push(sym);saveWatchlist();rebuildUni();applyQuotes(j,[sym]);win.state.msg=`${sym} added`;DATA.ensureSeries(sym);repaintAll();}
     catch(e){say(`${sym} not added: ${P.errorText('network')}`);}}
   function removeFromWatchlist(sym,win){WATCH=WATCH.filter(x=>x!==sym);saveWatchlist();rebuildUni();if(win)win.state.msg=`${sym} removed`;repaintAll();}
@@ -518,6 +539,10 @@
   const NA_FUND='No source: the current data plan does not provide fundamentals. Nothing is estimated.';
   const VOL_NOTE='Real-time volume from the provider\'s venue subset (~5% of US consolidated volume). It is real but partial, so it is lower than consolidated volume on other sites.';
   const OHL_NOTE='Real-time open/high/low from the provider\'s venue subset (~5% of US consolidated volume); may differ slightly from consolidated values.';
+  // per-field note sent by the Worker (US venue subset vs provider values for other markets)
+  function fnote(t,k,def){const f=t.q&&t.q.fields&&t.q.fields[k];return(f&&f.note)||def;}
+  const PLAN='Basic';
+  function planText(t){return`listed by the provider${t.ex?' on '+t.ex:''}, but not included in the current data plan (Twelve Data ${PLAN})${t.planRequired?'; it needs the '+t.planRequired+' plan or higher':''}`;}
   function instTitle(t){const st=instStatus(t);
     if(!t.q)return`${t.sym} — ${st}${t.qErr?': '+P.errorText(t.qErr):''}`;
     return`${t.sym} — ${st} · source ${t.q.source} · data time ${fmtDT(t.q.timestamp)} · fetched ${fmtDT(t.q.fetchedAt)}${t.q.staleReason?' · refresh failed: '+P.errorText(t.q.staleReason):''}`;}
@@ -549,12 +574,12 @@
   /* ---------- canvas ---------- */
   function fitCanvas(cv){const dpr=Math.min(window.devicePixelRatio||1,2);const w=cv.clientWidth,h=cv.clientHeight;cv.width=Math.max(1,Math.round(w*dpr));cv.height=Math.max(1,Math.round(h*dpr));const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx,w,h};}
   function hexA(hex,a){hex=hex.replace('#','');if(hex.length===3)hex=hex.split('').map(c=>c+c).join('');const n=parseInt(hex,16);return`rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
-  function drawArea(cv,data){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
+  function drawArea(cv,data,t){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
     const padL=52,padR=12,padT=12,padB=20,iw=w-padL-padR,ih=h-padT-padB;
     let mn=Math.min(...data),mx=Math.max(...data);const span=(mx-mn)||1;mn-=span*0.08;mx+=span*0.08;
-    const X=i=>padL+iw*(i/(data.length-1)),Y=v=>padT+ih*(1-(v-mn)/(mx-mn));
+    const X=i=>padL+iw*(i/(data.length-1)),Y=v=>padT+ih*(1-(v-mn)/(mx-mn)),fmtAx=axisFmt(t,mn,mx);
     ctx.font="10px "+getComputedStyle(cv).fontFamily;ctx.textBaseline="middle";ctx.lineWidth=1;
-    for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(money(v,0),padL-7,y);}
+    for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(fmtAx(v),padL-7,y);}
     const up=data[data.length-1]>=data[0],col=up?C.up:C.down;
     const grad=ctx.createLinearGradient(0,padT,0,padT+ih);grad.addColorStop(0,hexA(col,0.26));grad.addColorStop(1,hexA(col,0));
     ctx.beginPath();ctx.moveTo(X(0),Y(data[0]));for(let i=1;i<data.length;i++)ctx.lineTo(X(i),Y(data[i]));ctx.lineTo(X(data.length-1),padT+ih);ctx.lineTo(X(0),padT+ih);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
@@ -571,7 +596,7 @@
     const cut=cutDate(tf),out=[];for(let i=0;i<t.daily.length;i++){if(t.dailyDates[i]>=cut)out.push(t.daily[i]);}
     return out.length>=2?out:t.daily.slice(-2);}
   function drawMsg(cv,text){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);ctx.fillStyle=C.dim;ctx.font="12px "+getComputedStyle(cv).fontFamily;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(text,w/2,h/2);}
-  function drawChart(cv,t,tf){const d=tfData(t,tf);if(d&&d.length>=2)return drawArea(cv,d);
+  function drawChart(cv,t,tf){const d=tfData(t,tf);if(d&&d.length>=2)return drawArea(cv,d,t);
     const err=tf==="1D"?t._intraErr:t._histErr;drawMsg(cv,err?`Real history unavailable (${P.errorText(err)})`:'Loading real history…');}
   function chartCaption(t,tf){const intr=tf==='1D',st=histStatus(t,intr);
     const m=intr?t._intraMeta:t._histMeta,err=intr?t._intraErr:t._histErr;
@@ -584,19 +609,20 @@
   /* ---------- content renderers (each paints into a window body and declares its provenance) ---------- */
   function renderSecurity(body,win){const t=BY[win.state.ticker],tfv=win.state.tf,ist=instStatus(t),intr=tfv==='1D';
     const chgAbs=fin(t.px)&&fin(t.prev)?t.px-t.prev:null,fs=k=>fStatus(t,k);
-    const failBanner=!t.q&&t.qErr?`<div class="banner warn"><b>N/A</b> — quote unavailable: ${esc(P.errorText(t.qErr))}. No substitute value is shown.</div>`:
+    const failBanner=!t.q&&t.qErr==='plan_required'?`<div class="banner warn"><b>N/A</b> — quote and history unavailable: ${esc(planText(t))}. No substitute value is shown.</div>`:
+      !t.q&&t.qErr?`<div class="banner warn"><b>N/A</b> — quote unavailable: ${esc(P.errorText(t.qErr))}. No substitute value is shown.</div>`:
       ist===S.STALE?`<div class="banner warn"><b>STALE</b> — last real quote from ${fmtDT(t.q.timestamp)}${t.q.staleReason?'; refresh failed: '+esc(P.errorText(t.q.staleReason)):''}.</div>`:'';
     body.innerHTML=`
       <div class="sec-top">
-        <div class="sec-id"><div class="sym">${t.sym} ${chip(ist,instTitle(t),true)}</div><div class="nm">${esc(t.name||'—')}</div><div class="ex">${esc(t.ex||'—')} · <span title="static GICS sector classification">${SECT[t.sect]||'—'}</span></div></div>
+        <div class="sec-id"><div class="sym">${t.sym} ${chip(ist,instTitle(t),true)}</div><div class="nm">${esc(t.name||'—')}</div><div class="ex">${esc(t.ex||'—')}${t.mic?' · '+esc(t.mic):''}${t.country?' · '+esc(t.country):''}${t.cur?' · '+esc(t.cur):''}${t.itype?' · '+esc(t.itype):''} · <span title="static GICS sector classification">${SECT[t.sect]||'—'}</span></div></div>
         <div class="sec-px"><div class="last num" title="${esc(instTitle(t))}">${pxText(t)}</div><div class="chg num ${cls(t.chg)}">${sign(chgAbs)} (${pct(t.chg)})</div></div>
       </div>${failBanner}
       <div class="tfbar">${["1D","1W","1M","3M","6M","1Y"].map(x=>`<button class="tf" data-tf="${x}" aria-pressed="${x===tfv}">${x}</button>`).join('')}</div>
       <div class="chart-box"><canvas aria-label="${t.sym} price chart"></canvas></div>
       <div class="src-line">${chartCaption(t,tfv)}</div>
       <div class="stat-grid">
-        ${stat("OPEN",pxText(t,t.open),fs('open'),OHL_NOTE)}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),OHL_NOTE)}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),OHL_NOTE)}
-        ${stat("VOLUME",fmtVol(t.vol),fs('volume'),VOL_NOTE)}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?pxText(t,t.lo52)+" – "+pxText(t,t.hi52):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
+        ${stat("OPEN",pxText(t,t.open),fs('open'),fnote(t,'open',OHL_NOTE))}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),fnote(t,'high',OHL_NOTE))}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),fnote(t,'low',OHL_NOTE))}
+        ${stat("VOLUME",fmtVol(t.vol),fs('volume'),fnote(t,'volume',VOL_NOTE))}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?pxText(t,t.lo52)+" – "+pxText(t,t.hi52):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
       </div>`;
     setProv(win,{[t.sym]:ist,['chart:'+t.sym]:histStatus(t,intr)});
     $$('.tfbar .tf',body).forEach(b=>b.onclick=()=>{win.state.tf=b.dataset.tf;paintWin(win);});
@@ -607,7 +633,7 @@
     const rows=UNI.map(t=>{const st=instStatus(t);items[t.sym]=st;
         const spark=t._real&&t.daily.length>1?sparkSVG(t.daily.slice(-24),t.daily[t.daily.length-1]>=t.daily[Math.max(0,t.daily.length-24)]?C.up:C.down):'<svg class="spark" aria-hidden="true"></svg>';
         return`<div class="wl-row" data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><span class="sym">${t.sym} ${chip(st,instTitle(t))}<small>${esc(t.name||'')}</small></span>${spark}<span class="cell-v num">${pxText(t)}</span><span class="cell-c num ${cls(t.chg)}">${pct(t.chg)}</span><span class="wl-t">${t.q?fmtHM(t.q.timestamp):'—'}</span><button class="wl-x" data-del="${t.sym}" title="Remove ${t.sym}" aria-label="Remove ${t.sym}">✕</button></div>`;}).join('');
-    body.innerHTML=`<div class="wl-add"><input class="wl-in" placeholder="add symbol — e.g. TSLA, EUR/USD" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Add symbol"><button class="wl-btn">ADD</button><span class="wl-n">${WATCH.length}/${CONFIG.maxWatchlist}</span></div><div class="wl-msg">${esc(win.state.msg||'')}</div>
+    body.innerHTML=`<div class="wl-add"><input class="wl-in" placeholder="add ticker — e.g. TSLA, EUR/USD, NOVN:XSWX" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Add symbol"><button class="wl-btn">ADD</button><span class="wl-n">${WATCH.length}/${CONFIG.maxWatchlist}</span></div><div class="wl-msg">${esc(win.state.msg||'')}</div>
       <div class="list-head wl"><span>SYM · DATA</span><span>TREND</span><span style="text-align:right">LAST</span><span style="text-align:right">CHG%</span><span style="text-align:right">TIME</span><span></span></div>`+(rows||'<div class="empty">Watchlist empty — add a symbol above.</div>');
     const inp=body.querySelector('.wl-in'),add=()=>addToWatchlist(inp.value,win);
     body.querySelector('.wl-btn').onclick=add;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add();}};
@@ -615,7 +641,7 @@
     setProv(win,items);bindFocusRows(body);}
 
   // ---- MARKETS: real quotes grouped by asset class; unavailable classes shown as N/A ----
-  function mktRow(t){const st=instStatus(t);return`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l nm">${esc(t.name||'—')}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td><td class="num">${fin(t.vol)?fmtVol(t.vol)+' '+chip(fStatus(t,'volume'),VOL_NOTE):'<span class="na" title="the provider sends no volume for this instrument">N/A</span>'}</td><td>${t.q?fmtHM(t.q.timestamp):'—'}</td><td>${chip(st,instTitle(t))}</td></tr>`;}
+  function mktRow(t){const st=instStatus(t);return`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l nm">${esc(t.name||'—')}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td><td class="num">${fin(t.vol)?fmtVol(t.vol)+' '+chip(fStatus(t,'volume'),fnote(t,'volume',VOL_NOTE)):'<span class="na" title="the provider sends no volume for this instrument">N/A</span>'}</td><td>${t.q?fmtHM(t.q.timestamp):'—'}</td><td>${chip(st,instTitle(t))}</td></tr>`;}
   function renderMarkets(body,win){const items={};
     const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length)DATA.fetchNow(missing);
     const grp=(title,list)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+(list.length?list.map(t=>{items[t.sym]=instStatus(t);return mktRow(t);}).join(''):'<tr><td colspan="7" class="na">—</td></tr>');
@@ -744,12 +770,12 @@
     if(!series.length){ctx.fillStyle=C.dim;ctx.font="12px "+getComputedStyle(cv).fontFamily;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(all.length?"Loading real history…":"Select instruments below",w/2,h/2);return;}
     let mn=Infinity,mx=-Infinity;series.forEach(s=>s.data.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));const sp=(mx-mn)||1;mn-=sp*0.06;mx+=sp*0.06;
     const Y=v=>padT+ih*(1-(v-mn)/(mx-mn));
-    const fmt=st.mode==='pct'?(v=>(v>=0?'+':'')+v.toFixed(0)+'%'):st.mode==='raw'?(v=>money(v,0)):(v=>v.toFixed(0));
+    const fmt=st.mode==='pct'?(v=>(v>=0?'+':'')+v.toFixed(0)+'%'):st.mode==='raw'?axisFmt(null,mn,mx):(v=>v.toFixed(0));
     ctx.textBaseline="middle";for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(fmt(v),padL-7,y);}
     if(st.mode==='pct'){const y0=Y(0);if(y0>padT&&y0<padT+ih){ctx.strokeStyle=C.line;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(padL,y0);ctx.lineTo(w-padR,y0);ctx.stroke();ctx.setLineDash([]);}}
     series.forEach(s=>{const n=s.data.length,X=i=>padL+iw*(i/(n-1));ctx.beginPath();s.data.forEach((v,i)=>{const x=X(i),y=Y(v);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.strokeStyle=s.col;ctx.lineWidth=1.5;ctx.lineJoin="round";ctx.stroke();const lx=X(n-1),ly=Y(s.data[n-1]);ctx.fillStyle=s.col;ctx.beginPath();ctx.arc(lx,ly,2.6,0,7);ctx.fill();});}
   function renderCompareLegend(body,st){const el=body.querySelector('.cmp-legend');if(!el)return;const series=cmpSeries(st);
-    el.innerHTML=series.map(s=>{const last=s.data?s.data[s.data.length-1]:null,val=last==null?'—':st.mode==='pct'?pct(last):st.mode==='raw'?money(last,0):last.toFixed(1),c=st.mode==='pct'?cls(last):'';return`<span class="leg-item"><i style="background:${s.col}"></i>${s.sym} ${chip(s.status,'real daily closes')} <b class="${c}">${val}</b></span>`;}).join('')||'<span class="scr-count">No instruments selected</span>';}
+    el.innerHTML=series.map(s=>{const last=s.data?s.data[s.data.length-1]:null,val=last==null?'—':st.mode==='pct'?pct(last):st.mode==='raw'?pxText(BY[s.sym],last):last.toFixed(1),c=st.mode==='pct'?cls(last):'';return`<span class="leg-item"><i style="background:${s.col}"></i>${s.sym} ${chip(s.status,'real daily closes')} <b class="${c}">${val}</b></span>`;}).join('')||'<span class="scr-count">No instruments selected</span>';}
   function compareProv(win){const st=win.state,items={};cmpSeries(st).forEach(s=>{items[s.sym]=instStatus(BY[s.sym]);items['chart:'+s.sym]=s.status;});setProv(win,items);}
   function renderCompare(body,win){const st=win.state,tfs=["1M","3M","6M","1Y"],modes=[["rebase","REBASE 100"],["pct","% CHANGE"],["raw","RAW"]];
     st.sel=st.sel.filter(s=>BY[s]);
@@ -799,10 +825,53 @@
     const upd=()=>applyTheme({accent:a.value,up:u.value,down:d.value},true);a.oninput=upd;u.oninput=upd;d.oninput=upd;
     body.querySelector('.set-reset').onclick=()=>{applyTheme(THEMES.amber,true);syncColorInputs(win);};}
 
+  // ---- SYMBOL SEARCH: the provider's symbol master (all exchanges), metadata only; prices are fetched on demand ----
+  const SRCH_RE=/^[\p{L}\p{N} .&'\-\/:]{1,40}$/u, SRCH_CACHE={};let srchSeq=0;
+  function openSearch(q){const w=openOrFocus('SRCH',{q:''});if(q!=null&&String(q).trim())runSearch(w,q);else{const i=w.bodyEl.querySelector('.sr-in');i&&i.focus();}return w;}
+  // open a security window for an id from the search (US/FX/crypto: plain ticker; other venues: SYMBOL:MIC)
+  function openSecurity(id){const t=inst(id);const w=openOrFocus('GP',{ticker:id,tf:'6M'});if(!t.q&&!t._pending&&!t._planBlocked)DATA.fetchNow([id]);return w;}
+  async function runSearch(win,raw,auto){const q=String(raw||'').trim().replace(/\s+/g,' ');const st=win.state;st.q=q;st.all=false;
+    if(!q){st.res=null;st.err=null;return liveRepaint(win);}
+    if(!SRCH_RE.test(q)){st.res=null;st.err='bad_request';return liveRepaint(win);}
+    const k=q.toLowerCase(),seq=++srchSeq,done=j=>{st.res=j;st.err=null;(j.results||[]).forEach(x=>{META[x.id]=x;});
+      // a ticker typed in the command line opens directly when the provider has exactly that symbol on the current plan
+      const top=j.results&&j.results[0];if(auto&&top&&top.symbol.toUpperCase()===q.toUpperCase()&&top.quotable)openSecurity(top.id);};
+    if(SRCH_CACHE[k]){done(SRCH_CACHE[k]);return liveRepaint(win);}
+    st.loading=true;st.err=null;st.res=null;liveRepaint(win);
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/search?q=${encodeURIComponent(q)}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
+      if(!j)throw new Error('http '+r.status);
+      if(j.credits)Budget.log.push({t:Date.now(),n:j.credits}); // a keyed fallback search used a provider credit
+      if(seq!==srchSeq)return;
+      if(j.error||!Array.isArray(j.results)){st.err=j.error||'provider_error';st.res=null;}else{SRCH_CACHE[k]=j;done(j);}}
+    catch(e){if(seq===srchSeq){st.err='network';st.res=null;}}
+    finally{if(seq===srchSeq){st.loading=false;liveRepaint(win);}}}
+  function planChip(x){if(x.quotable===true)return`<span class="pl ok" title="quote and history included in the current data plan (Twelve Data ${PLAN})">${PLAN.toUpperCase()}</span>`;
+    if(x.planRequired)return`<span class="pl" title="needs the Twelve Data ${esc(x.planRequired)} plan or higher: quote and history are N/A on the current plan (${PLAN})">${esc(x.planRequired.toUpperCase())}+</span>`;
+    return'<span class="pl" title="the provider did not say which plan covers this listing">?</span>';}
+  function renderSearch(body,win){const st=win.state,j=st.res;body.style.padding='0';
+    const list=j&&j.results?j.results:[],shown=st.all?list:list.slice(0,40);
+    const rows=shown.map(x=>{const inWl=WATCH.includes(x.id),blocked=x.quotable===false;
+      return`<tr><td class="l"><b>${esc(x.symbol)}</b></td><td class="l nm" title="${esc(x.name||'')}">${esc(x.name||'—')}</td><td class="l">${esc(x.exchange||(x.type||'').replace(/_/g,' '))}${x.mic?' <span class="na">'+esc(x.mic)+'</span>':''}</td><td class="l">${esc(x.country||'—')}</td><td class="l">${esc(x.type||'—')}</td><td>${esc(x.currency||'—')}</td><td>${planChip(x)}</td>
+        <td><button class="sr-b" data-open="${esc(x.id)}" title="${blocked?'open: shown as N/A (not in the current plan)':'open the quote window (real quote + history, fetched now)'}">OPEN</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl||blocked?'disabled':''} title="${inWl?'already in the watchlist':blocked?'not in the current data plan: it would only show N/A':'add to the watchlist (checked with a real quote)'}">${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
+    const msg=st.msg?esc(st.msg):st.loading?`Searching the provider's symbol master for “${esc(st.q)}”…`:
+      st.err?`<b>N/A</b> — search unavailable: ${esc(st.err==='bad_request'?'use 1–40 letters, digits, spaces or . & \' - / :':P.errorText(st.err))}`:
+      j?`${j.count} listing${j.count===1?'':'s'} · ${j.quotable} quotable on the current plan (${PLAN}) · source ${esc(j.source)} · fetched ${fmtDT(j.fetchedAt)}${j.truncated?' · provider limit reached (120 listings): a broad name can be crowded out by warrants — search the ticker instead':''}`:
+      'Search any listed instrument by company name or ticker: US, Europe (UK, CH, DE, FR, IT, NL, ES), Canada, Japan, Hong Kong, ETFs, FX and crypto. Indices are not in the provider\'s search.';
+    body.innerHTML=`<div class="wl-add"><input class="sr-in" value="${esc(st.q||'')}" placeholder="company or ticker — e.g. Apple, Novartis, NESN, EUR/USD" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Search instruments"><button class="wl-btn sr-go">SEARCH</button></div>
+      <div class="wl-msg">${msg}</div>${rows?`<table class="pf sr"><thead><tr><th class="l">SYMBOL</th><th class="l">NAME</th><th class="l">EXCHANGE</th><th class="l">COUNTRY</th><th class="l">TYPE</th><th>CCY</th><th>PLAN</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:(j&&!list.length?'<div class="empty">No listing found at the provider.</div>':'')}
+      ${list.length>shown.length?`<div class="scr-count"><button class="sr-b sr-all">SHOW ALL ${list.length}</button></div>`:''}`;
+    setProv(win,j?{'ds:search':j.status==='STALE'?S.STALE:S.LIVE}:st.err?{'ds:search':S.NA}:{},'symbol master (reference data) — no prices in this window');
+    const inp=body.querySelector('.sr-in'),go=()=>{st.msg='';runSearch(win,inp.value);};
+    body.querySelector('.sr-go').onclick=go;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};
+    const all=body.querySelector('.sr-all');if(all)all.onclick=()=>{st.all=true;liveRepaint(win);};
+    $$('[data-open]',body).forEach(b=>b.onclick=()=>openSecurity(b.dataset.open));
+    $$('[data-add]',body).forEach(b=>b.onclick=()=>{st.msg='';addToWatchlist(b.dataset.add,win);});}
+
   /* ---------- window types ---------- */
   const WINTYPES={
     GP:{tag:'GP',w:560,h:470,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
     WL:{tag:'WL',w:400,h:330,title:()=>'WATCHLIST',render:renderWatchlistWin},
+    SRCH:{tag:'SRCH',w:720,h:470,title:w=>w.state.q?`SYMBOL SEARCH · ${w.state.q}`:'SYMBOL SEARCH',render:renderSearch},
     HEAT:{tag:'HEAT',w:520,h:400,title:()=>'SECTOR HEATMAP',render:renderHeat},
     MOV:{tag:'MOV',w:540,h:400,title:()=>'MARKET MOVERS',render:renderMovers},
     SCR:{tag:'SCR',w:640,h:430,title:()=>'EQUITY SCREENER',render:renderScreener},
@@ -881,12 +950,12 @@
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
       bar.appendChild(c);});}
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
-    [['GP','SECURITY'],['WL','WATCHLIST'],['MKT','MARKETS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
+    [['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['MKT','MARKETS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
       const b=document.createElement('button');b.className='fn';b.textContent=label;
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={GP:"GP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={GP:"GP",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO"]));
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
@@ -897,9 +966,12 @@
     if(type==="GP")openOrFocus('GP',{ticker:ticker||'NVDA',tf:'6M'});
     else openOrFocus(type,defaultState(type));}
   function runCmd(raw){const cmd=raw.trim().toUpperCase();if(!cmd)return false;const parts=cmd.split(/\s+/);
-    if(BY[parts[0]]){if(parts[1]&&FUNCSET.has(parts[1]))applyFunc(parts[1],parts[0]);else openOrFocus('GP',{ticker:parts[0],tf:'6M'});return true;}
-    if(FUNCSET.has(parts[0])){applyFunc(parts[0]);return true;}
-    return false;}
+    if(BY[parts[0]]){if(parts[1]&&FUNCSET.has(parts[1]))applyFunc(parts[1],parts[0]);else openSecurity(parts[0]);return true;}
+    if(FUNCMAP[parts[0]]==='SRCH'){openSearch(raw.trim().split(/\s+/).slice(1).join(' '));return true;}
+    if(FUNCSET.has(parts[0])&&parts.length===1){applyFunc(parts[0]);return true;}
+    // anything else: search the provider's symbol master (a quotable exact ticker opens directly)
+    if(!SRCH_RE.test(raw.trim()))return false;
+    const w=openOrFocus('SRCH',{q:''});runSearch(w,raw,true);return true;}
 
   function toggleHelp(on){$('#help').classList.toggle('on',on);if(on)$('#helpClose').focus();else $('#cmd').focus();}
 

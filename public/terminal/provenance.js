@@ -96,6 +96,7 @@
   function short(s) { return SHORT[s] || s; }
 
   var ERRORS = {
+    plan_required: "listed by the provider, but not included in the current data plan",
     symbol_not_found: "unknown symbol at the provider",
     invalid_symbol: "invalid symbol",
     rate_limited: "provider rate limit reached",

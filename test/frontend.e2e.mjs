@@ -5,6 +5,7 @@
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
 import { normalizeQuote, buildInstrument } from "../src/worker.mjs";
+import { normalizeSearch } from "../src/search.mjs";
 
 const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
@@ -22,10 +23,10 @@ function fixtureDaily() {
   return days.map((t, i) => { const c = +(200 + i * (50 / 251) + Math.sin(i / 3) * 2).toFixed(2); return { t, o: c, h: c + 1, l: c - 1, c, v: 1e6 }; });
 }
 const daily = fixtureDaily();
-const PRICES = { NVDA: 190.5, AAPL: 250, MSFT: 430.25, AMZN: 210.1, GOOGL: 205.75, JPM: 260.4, TSLA: 301.2, "EUR/USD": 1.12601, "GBP/USD": 1.32769, "USD/JPY": 158.148, "BTC/USD": 85650.01, "ETH/USD": 2694.37, "XAU/USD": 4165.235 };
+const PRICES = { "7203:XJPX": 2861, NVS: 120.4, NVDA: 190.5, AAPL: 250, MSFT: 430.25, AMZN: 210.1, GOOGL: 205.75, JPM: 260.4, TSLA: 301.2, "EUR/USD": 1.12601, "GBP/USD": 1.32769, "USD/JPY": 158.148, "BTC/USD": 85650.01, "ETH/USD": 2694.37, "XAU/USD": 4165.235 };
 function instrument(s, { stale = false } = {}) {
-  const now = Date.now(), px = PRICES[s] || 100, fx = s.includes("/");
-  const rec = normalizeQuote(s, { symbol: s, name: s + (fx ? " rate" : " Inc"), exchange: fx ? "Forex" : "NASDAQ", currency: "USD", close: String(px), previous_close: String(px * 0.99), percent_change: "1.0101", change: String(px * 0.01), open: String(px), high: String(px * 1.01), low: String(px * 0.98), volume: fx ? "" : "537842", is_market_open: true, last_quote_at: Math.floor(now / 1000) - 60, fifty_two_week: { low: String(px * 0.7), high: String(px * 1.2) } });
+  const now = Date.now(), px = PRICES[s] || 100, fx = s.includes("/"), jp = s === "7203:XJPX";
+  const rec = normalizeQuote(s, { symbol: s, name: s + (fx ? " rate" : " Inc"), exchange: fx ? "Forex" : jp ? "JPX" : "NASDAQ", mic_code: fx ? undefined : jp ? "XJPX" : "XNGS", currency: jp ? "JPY" : "USD", close: String(px), previous_close: String(px * 0.99), percent_change: "1.0101", change: String(px * 0.01), open: String(px), high: String(px * 1.01), low: String(px * 0.98), volume: fx ? "" : "537842", is_market_open: true, last_quote_at: Math.floor(now / 1000) - 60, fifty_two_week: { low: String(px * 0.7), high: String(px * 1.2) } });
   return buildInstrument(rec, { fetchedAt: now - 5000, now, stale, error: stale ? "rate_limited" : null });
 }
 const historyBody = (sym, range, extra = {}) => {
@@ -47,6 +48,16 @@ const NEWS = { items: [{ title: "Stocks close higher as tech rallies", url: "htt
   sources: [{ id: "GDELT", name: "The GDELT Project", url: "https://www.gdeltproject.org/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "SEC", name: "SEC EDGAR", url: "https://www.sec.gov/edgar/search/", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
 const BRIEF = { status: "DERIVED", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", provider: "Cloudflare Workers AI", generatedAt: new Date().toISOString(), text: "Markets: AAPL last 250 [Twelve Data].\nRates: US 10Y 5.32% [U.S. Department of the Treasury].\nCalendar and news: Consumer Price Index on 2026-10-14 [BLS].", verification: { checked: 1, unverified: [] }, sources: [{ name: "U.S. Department of the Treasury", timestamp: today, url: "https://home.treasury.gov/x" }, { name: "Twelve Data (quotes, Worker cache)", timestamp: new Date().toISOString() }], inputs: {}, inputData: "QUOTE AAPL ...", disclaimer: "AI-generated summary of the listed real data. Not investment advice.", cache: "MISS" };
 
+const srow = (symbol, name, exchange, mic, type, country, currency, plan) => ({ symbol, instrument_name: name, exchange, mic_code: mic, instrument_type: type, country, currency, access: { global: plan, plan } });
+const SEARCH_ROWS = {
+  novartis: [srow("NOVN", "Novartis AG Registered Shares", "SIX", "XSWX", "Common Stock", "Switzerland", "CHF", "Pro"), srow("NVS", "Novartis AG Sponsored ADR", "NYSE", "XNYS", "American Depositary Receipt", "United States", "USD", "Basic"), srow("NOVN", "Novartis AG", "NEO", "NEOE", "Depositary Receipt", "Canada", "CAD", "Grow")],
+  toyota: [srow("7203", "Toyota Motor Corporation", "JPX", "XJPX", "Common Stock", "Japan", "JPY", "Basic"), srow("TM", "Toyota Motor Corporation ADR", "NYSE", "XNYS", "American Depositary Receipt", "United States", "USD", "Basic")],
+  tsla: [srow("TSLA", "Tesla, Inc.", "NASDAQ", "XNGS", "Common Stock", "United States", "USD", "Basic"), srow("TSLA", "Tesla, Inc.", "BMV", "XMEX", "Common Stock", "Mexico", "MXN", "Pro")],
+  apple: [srow("AAPL", "Apple Inc.", "NASDAQ", "XNGS", "Common Stock", "United States", "USD", "Basic"), srow("APC", "Apple Inc.", "XETRA", "XETR", "Common Stock", "Germany", "EUR", "Grow")],
+};
+const searchBody = (q, credits = 0) => { const results = normalizeSearch({ data: SEARCH_ROWS[q.toLowerCase()] || [] }, q);
+  return { q, count: results.length, results, plan: "Basic", quotable: results.filter((x) => x.quotable).length, source: "Twelve Data symbol_search", fetchedAt: new Date().toISOString(), status: "LIVE", truncated: false, credits }; };
+
 // ---------- harness ----------
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
@@ -67,6 +78,7 @@ async function openTerminal(api, html = htmlFast) {
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
+    if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -104,7 +116,7 @@ const OK_API = {
   await wlFill(page, "ZZZZ");
   ok("[A] unknown symbol refused with the provider's reason, nothing added", /ZZZZ not added: unknown symbol/.test((await winOf(page, "WATCHLIST")).text) && !(await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())).includes("ZZZZ"));
   await wlFill(page, "AA PL;");
-  ok("[A] malformed symbol refused locally", /not a valid symbol/.test((await winOf(page, "WATCHLIST")).text));
+  ok("[A] text that is not a ticker goes to the symbol search, nothing added", /is not a ticker — searching by name/.test((await winOf(page, "WATCHLIST")).text) && !!(await winOf(page, "SYMBOL SEARCH")) && (await page.$$eval(".wl-row", (r) => r.length)) === 7);
   await page.click('.wl-x[data-del="TSLA"]'); await page.waitForTimeout(400);
   ok("[A] remove TSLA", !(await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())).includes("TSLA") && !(await page.evaluate(() => localStorage.getItem("at-watchlist"))).includes("TSLA"));
   await page.reload();
@@ -143,7 +155,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
-  ok("[A] launcher has the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,WATCHLIST,MARKETS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
+  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,MARKETS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(800); await page.screenshot({ path: SHOTS + "/e2e-t05.png" }); }
@@ -190,6 +202,56 @@ const OK_API = {
   await page.waitForTimeout(6000);
   const first = quoteBatches.reduce((a, b) => a + b.syms.length, 0);
   ok("[D] with the real budget (8/min) only one ≤7-symbol batch is sent in the first minute", quoteBatches.length === 1 && first <= 7, quoteBatches.map((b) => b.syms.length).join());
+  await page.close();
+}
+
+// =============== E. symbol discovery: search → select → fetch on demand ===============
+{
+  const { page, requests, errors, quoteBatches } = await openTerminal(OK_API);
+  await page.evaluate(() => { localStorage.removeItem("at-watchlist"); localStorage.removeItem("at-wlmeta"); });
+  await page.reload();
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await cmd(page, "Novartis"); await page.waitForTimeout(400);
+  let sr = await winOf(page, "SYMBOL SEARCH");
+  ok("[E] a company name in the command line opens SYMBOL SEARCH with the provider's listings", !!sr && /NOVN\s+Novartis AG Registered Shares\s+SIX XSWX\s+Switzerland/.test(sr.text) && /NVS\s+Novartis AG Sponsored ADR/.test(sr.text), sr && sr.text.slice(0, 400));
+  ok("[E] plan shown per listing (BASIC vs PRO+), source + time, LIVE pill", /BASIC/.test(sr.text) && /PRO\+/.test(sr.text) && /3 listings · 1 quotable on the current plan \(Basic\) · source Twelve Data symbol_search/.test(sr.text) && sr.pill === "LIVE");
+  ok("[E] search costs no quote: no /api/quote for search results", !quoteBatches.some((b) => b.syms.some((x) => /NOVN|NVS/.test(x))));
+  ok("[E] +WL disabled for a listing outside the plan", await page.$eval('[data-add="NOVN:XSWX"]', (b) => b.disabled));
+  await page.click('[data-open="NOVN:XSWX"]'); await page.waitForTimeout(500);
+  const gpCh = await winOf(page, "NOVN:XSWX");
+  ok("[E] OPEN on a listing outside the plan → N/A with the reason, no credit spent", !!gpCh && /N\/A — quote and history unavailable: listed by the provider on SIX, but not included in the current data plan \(Twelve Data Basic\); it needs the Pro plan or higher/.test(gpCh.text) && !requests.some((u) => /NOVN/.test(u) && /\/api\/(quote|history)/.test(u)), gpCh && gpCh.text.slice(0, 300));
+  ok("[E] its window shows venue, country and currency from the symbol master, no price", /SIX · XSWX · Switzerland · CHF · Common Stock/.test(gpCh.text) && !/CHF\s*\d|\d[\d,]*\.\d\d CHF/.test(gpCh.text));
+  await page.click('[data-add="NVS"]'); await page.waitForTimeout(700);
+  ok("[E] +WL on a quotable listing: validated with a real quote, added, metadata saved", (await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())).endsWith(",NVS") && quoteBatches.some((b) => b.syms.join() === "NVS") && JSON.parse(await page.evaluate(() => localStorage.getItem("at-wlmeta"))).NVS.exchange === "NYSE" && /NVS added/.test((await winOf(page, "SYMBOL SEARCH")).text));
+  await page.click('[data-open="NVS"]'); await page.waitForTimeout(800);
+  const gpN = await winOf(page, "NVS");
+  ok("[E] OPEN on a quotable listing: real quote + history fetched on demand", /\$120\.40/.test(gpN.text) && requests.some((u) => /\/api\/history\?symbol=NVS&/.test(u)), gpN.text.slice(0, 200));
+  await cmd(page, "toyota"); await page.waitForTimeout(400);
+  await page.click('[data-open="7203:XJPX"]'); await page.waitForTimeout(900);
+  const gpJ = await winOf(page, "7203:XJPX");
+  ok("[E] non-US listing on the plan: venue id sent as SYMBOL:MIC, price in its own currency (no $, no conversion)", quoteBatches.some((b) => b.syms.includes("7203:XJPX")) && /2,861\.00 JPY/.test(gpJ.text) && !/\$2,861/.test(gpJ.text) && requests.some((u) => u.includes("/api/history?symbol=7203%3AXJPX")), gpJ.text.slice(0, 200));
+  const before = (await winOf(page, "SYMBOL SEARCH")).text;
+  await cmd(page, "TSLA"); await page.waitForTimeout(900);
+  ok("[E] an exact quotable ticker typed in the command line opens its quote window", !!(await winOf(page, "TSLA")) && quoteBatches.some((b) => b.syms.includes("TSLA")) && before !== (await winOf(page, "SYMBOL SEARCH")).text);
+  await cmd(page, "SRCH apple"); await page.waitForTimeout(400);
+  ok("[E] SRCH <query> searches; 'Apple' → AAPL first", /^AAPL\s+Apple Inc\./m.test((await winOf(page, "SYMBOL SEARCH")).text.split("CCY")[1].trim()));
+  await page.reload();
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  ok("[E] watchlist with a searched instrument persists with its name", (await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())).endsWith(",NVS"));
+  ok("[E] news is not asked for venue ids or pairs", requests.filter((u) => u.includes("/api/news?")).every((u) => !/%3A|%2F/.test(u.split("tickers=")[1] || "")));
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[E] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
+  if (SHOTS) { await cmd(page, "Roche"); await page.waitForTimeout(500); await page.screenshot({ path: SHOTS + "/e2e-search.png" }); }
+  await page.close();
+}
+{
+  // search provider down → N/A message, nothing invented
+  const DOWN = { ...OK_API, search: (q) => ({ status: 502, body: { q, results: [], error: "provider_unreachable", status: "N/A", credits: 0 } }) };
+  const { page, errors } = await openTerminal(DOWN);
+  await cmd(page, "Roche"); await page.waitForTimeout(400);
+  const sr = await winOf(page, "SYMBOL SEARCH");
+  ok("[E] search unavailable → N/A with the reason, no rows", /N\/A — search unavailable: provider unreachable/.test(sr.text) && sr.pill === "N/A" && !/SYMBOL\s+NAME/.test(sr.text));
+  ok("[E] no JavaScript errors", errors.length === 0, errors.join(" | "));
   await page.close();
 }
 
