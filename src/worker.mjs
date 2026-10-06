@@ -1,61 +1,273 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
-// GET /api/health, GET /api/quote?symbols=AAPL,MSFT (T01/T02),
-// GET /api/history?symbol=AAPL&range=6M (T03)
-// The Twelve Data API key lives ONLY here (as a secret), never in the client.
-//   Deploy:  wrangler deploy
-//   Secret:  wrangler secret put TWELVEDATA_KEY
-//   (optional) set ALLOWED_ORIGIN to your Pages URL instead of "*"
+//   GET /api/health
+//   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04)
+//   GET /api/history?symbol=AAPL&range=6M   (T03, provenance + stale serving in T04)
+// The Twelve Data API key lives ONLY here (secret TWELVEDATA_KEY), never in the client,
+// never in URLs returned to the client, never logged.
 
 const TD_BASE = "https://api.twelvedata.com";
+const SOURCE = "twelvedata";
+const PROVIDER_TIMEOUT_MS = 8000;
 
-// --- pure normalizer: Twelve Data /quote -> our Quote schema (unit-tested) ---
+// ============================ provenance contract ============================
+// Every number the API returns carries a status:
+//   LIVE     fetched from the provider within its freshness window
+//   PARTIAL  real but incomplete (e.g. venue-subset volume, not consolidated)
+//   STALE    real but past its freshness window (served because the provider failed)
+//   N/A      not available from the current data source — never estimated, never invented
+// (SIMULATED and DERIVED are assigned by the client: the API never returns simulated data.)
+export const STATUS = { LIVE: "LIVE", PARTIAL: "PARTIAL", STALE: "STALE", NA: "N/A" };
+
+// Twelve Data real-time US equities come from venues that cover ~5% of US volume;
+// historical / end-of-day data is consolidated (100%). Source: Twelve Data support,
+// "US equities market data".
+const VENUE_NOTE = "real-time venue subset (~5% of US consolidated volume); may differ slightly from consolidated";
+const NA_NOTE = "not provided by the current data plan";
+
+export const QUOTE_FIELDS = {
+  price:            { from: "price",            status: STATUS.LIVE,    note: "last trade (real-time venues)" },
+  change:           { from: "change",           status: STATUS.LIVE },
+  changePct:        { from: "changePct",        status: STATUS.LIVE },
+  prevClose:        { from: "prevClose",        status: STATUS.LIVE,    note: "previous session close (consolidated)" },
+  open:             { from: "open",             status: STATUS.PARTIAL, note: VENUE_NOTE },
+  high:             { from: "high",             status: STATUS.PARTIAL, note: VENUE_NOTE },
+  low:              { from: "low",              status: STATUS.PARTIAL, note: VENUE_NOTE },
+  volume:           { from: "volume",           status: STATUS.PARTIAL, note: "venue subset only — roughly 5% of consolidated US volume" },
+  fiftyTwoWeekLow:  { from: "fiftyTwoWeekLow",  status: STATUS.LIVE,    note: "from consolidated daily history" },
+  fiftyTwoWeekHigh: { from: "fiftyTwoWeekHigh", status: STATUS.LIVE,    note: "from consolidated daily history" },
+  marketCap:        { from: null, status: STATUS.NA, note: NA_NOTE },
+  pe:               { from: null, status: STATUS.NA, note: NA_NOTE },
+  eps:              { from: null, status: STATUS.NA, note: NA_NOTE },
+  dividendYield:    { from: null, status: STATUS.NA, note: NA_NOTE },
+  sharesOutstanding:{ from: null, status: STATUS.NA, note: NA_NOTE },
+};
+
+// Two separate clocks:
+//  - cache freshness: how long the shared Worker cache answers without calling the provider
+//    (60 s while the market is open or unknown, 15 min when it is closed);
+//  - staleAt: after this instant the value must be DISPLAYED as STALE. It is longer than the
+//    client refresh cadence (5 min open / 30 min closed), so a value only turns STALE when
+//    refreshing it actually failed.
+export const QUOTE_FRESH_OPEN_MS = 60_000;
+export const QUOTE_FRESH_CLOSED_MS = 15 * 60_000;
+export const QUOTE_STALE_AFTER_OPEN_MS = 10 * 60_000;
+export const QUOTE_STALE_AFTER_CLOSED_MS = 60 * 60_000;
+export const STALE_MAX_MS = 24 * 3600_000;      // serve STALE data up to 24 h when the provider fails
+export function quoteFreshMs(marketOpen) { return marketOpen === false ? QUOTE_FRESH_CLOSED_MS : QUOTE_FRESH_OPEN_MS; }
+export function quoteStaleAfterMs(marketOpen) { return marketOpen === false ? QUOTE_STALE_AFTER_CLOSED_MS : QUOTE_STALE_AFTER_OPEN_MS; }
+
+const num = v => (v == null || v === "" ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
+const unixIso = s => (s == null || !Number.isFinite(Number(s)) ? null : new Date(Number(s) * 1000).toISOString());
+
+// --- pure normalizer: Twelve Data /quote -> flat internal record (unit-tested) ---
 export function normalizeQuote(sym, q) {
-  if (!q || q.status === "error" || q.close == null) return null;
-  const price = Number(q.close);
-  const prev = q.previous_close != null ? Number(q.previous_close) : null;
-  const pct = q.percent_change != null
-    ? Number(q.percent_change)
-    : (prev ? (price / prev - 1) * 100 : null);
-  let asOf;
-  try {
-    asOf = q.timestamp ? new Date(q.timestamp * 1000).toISOString()
-         : q.datetime  ? new Date(q.datetime).toISOString()
-         : new Date().toISOString();
-  } catch { asOf = new Date().toISOString(); }
+  if (!q || typeof q !== "object" || q.status === "error" || q.close == null) return null;
+  const price = num(q.close);
+  if (price == null) return null;
+  const prev = num(q.previous_close);
+  let pct = num(q.percent_change);
+  if (pct == null && prev) pct = (price / prev - 1) * 100;
+  let chg = num(q.change);
+  if (chg == null && prev != null) chg = price - prev;
+  // last_quote_at = last minute candle (the real data time); `timestamp` is only the bar's opening time
+  const asOf = unixIso(q.last_quote_at) || unixIso(q.timestamp) || (q.datetime ? new Date(q.datetime).toISOString() : null);
   return {
     symbol: sym,
     name: q.name ?? null,
-    price,
-    prevClose: Number.isFinite(prev) ? prev : null,
-    changePct: pct != null && Number.isFinite(pct) ? pct : null,
-    open: q.open != null ? Number(q.open) : null,
-    high: q.high != null ? Number(q.high) : null,
-    low:  q.low  != null ? Number(q.low)  : null,
-    volume: q.volume != null ? Number(q.volume) : null,
+    exchange: q.exchange ?? null,
     currency: q.currency ?? "USD",
-    fiftyTwoWeekLow:  q.fifty_two_week ? Number(q.fifty_two_week.low)  : null,
-    fiftyTwoWeekHigh: q.fifty_two_week ? Number(q.fifty_two_week.high) : null,
+    price,
+    change: chg,
+    changePct: pct,
+    prevClose: prev,
+    open: num(q.open),
+    high: num(q.high),
+    low: num(q.low),
+    volume: num(q.volume),
+    fiftyTwoWeekLow: q.fifty_two_week ? num(q.fifty_two_week.low) : null,
+    fiftyTwoWeekHigh: q.fifty_two_week ? num(q.fifty_two_week.high) : null,
+    marketOpen: typeof q.is_market_open === "boolean" ? q.is_market_open : null,
     asOf,
-    provider: "twelvedata",
+    provider: SOURCE,
   };
 }
 
-// ======================= T03 — historical market data =======================
-// GET /api/history?symbol=AAPL&range=6M[&interval=1day][&adjust=splits]
-// Daily points carry the EXCHANGE-LOCAL trading date ("YYYY-MM-DD"): Twelve Data
-// ignores `timezone` for daily+ intervals, so we never invent a UTC instant for them.
-// Intraday points are requested in UTC and returned as ISO instants ("...Z").
+// --- flat record + freshness -> InstrumentData with a status on every field ---
+export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = false, error = null }) {
+  const staleAtMs = fetchedAt + quoteStaleAfterMs(rec.marketOpen);
+  const isStale = stale || now > staleAtMs;
+  const fields = {};
+  for (const [k, rule] of Object.entries(QUOTE_FIELDS)) {
+    const value = rule.from ? rec[rule.from] : null;
+    let status = value == null ? STATUS.NA : rule.status;
+    if (isStale && status !== STATUS.NA) status = STATUS.STALE;
+    fields[k] = { value, status, ...(value == null ? { note: rule.note || "not returned by provider" } : rule.note ? { note: rule.note } : {}) };
+  }
+  return {
+    symbol: rec.symbol,
+    name: rec.name,
+    exchange: rec.exchange,
+    currency: rec.currency,
+    status: isStale ? STATUS.STALE : STATUS.LIVE,
+    source: SOURCE,
+    timestamp: rec.asOf,                       // market-data time reported by the provider
+    fetchedAt: new Date(fetchedAt).toISOString(), // when this Worker fetched it from the provider
+    staleAt: new Date(staleAtMs).toISOString(),   // after this, the value must be shown as STALE
+    marketOpen: rec.marketOpen,
+    ...(error ? { staleReason: error } : {}),
+    fields,
+  };
+}
 
+// ======================= provider errors =======================
+export function mapProviderError(td) {
+  const code = Number(td && td.code);
+  const msg = String((td && td.message) || "");
+  if (code === 404 || (code === 400 && /symbol|not found|invalid/i.test(msg))) return { status: 404, error: "symbol_not_found" };
+  if (code === 429) return { status: 429, error: "rate_limited" };
+  if (code === 401 || code === 403) return { status: 502, error: "provider_auth" };
+  return { status: 502, error: "provider_error" };
+}
+const ERROR_HTTP = { symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
+
+async function providerFetchJson(url) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), PROVIDER_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { signal: ac.signal });
+    const text = await r.text();
+    try { return { json: JSON.parse(text) }; } catch { return { err: "provider_error" }; } // empty / non-JSON response
+  } catch {
+    return { err: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ======================= shared cache (Cloudflare Cache API) =======================
+function cacheFor() { return typeof caches !== "undefined" ? caches.default : null; }
+async function cacheGet(cache, key) {
+  if (!cache) return null;
+  const r = await cache.match(new Request(key));
+  if (!r) return null;
+  try { return await r.json(); } catch { return null; }
+}
+function cachePut(cache, key, obj, ctx) {
+  if (!cache) return;
+  const resp = new Response(JSON.stringify(obj), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${STALE_MAX_MS / 1000}` } });
+  const p = cache.put(new Request(key), resp);
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+  return p;
+}
+
+// ======================= quotes: batch + in-flight coalescing =======================
+// Concurrent requests for the same symbol inside this isolate share ONE provider call.
+const INFLIGHT = new Map();
+export const __stats = { providerQuoteCalls: 0 };
+export function __resetForTests() { INFLIGHT.clear(); __stats.providerQuoteCalls = 0; }
+
+async function providerQuoteBatch(syms, key) {
+  __stats.providerQuoteCalls++;
+  const out = new Map();
+  const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(syms.join(","))}&apikey=${key}`);
+  if (err) { syms.forEach(s => out.set(s, { err })); return out; }
+  if (!json || typeof json !== "object") { syms.forEach(s => out.set(s, { err: "provider_error" })); return out; }
+  // whole-request error (rate limit, auth, single unknown symbol)
+  if (json.status === "error" && json.code != null) {
+    const m = mapProviderError(json);
+    syms.forEach(s => out.set(s, { err: m.error }));
+    return out;
+  }
+  for (const s of syms) {
+    const q = syms.length === 1 ? json : json[s];
+    if (!q) { out.set(s, { err: "provider_error" }); continue; }
+    if (q.status === "error") { out.set(s, { err: mapProviderError(q).error }); continue; }
+    const rec = normalizeQuote(s, q);
+    out.set(s, rec ? { rec } : { err: "provider_error" });
+  }
+  return out;
+}
+
+function fetchQuotesCoalesced(syms, key) {
+  const need = syms.filter(s => !INFLIGHT.has(s));
+  if (need.length) {
+    const batch = providerQuoteBatch(need, key);
+    for (const s of need) {
+      const p = batch.then(m => m.get(s) || { err: "provider_error" }).finally(() => INFLIGHT.delete(s));
+      INFLIGHT.set(s, p);
+    }
+  }
+  return Promise.all(syms.map(s => INFLIGHT.get(s).then(r => [s, r])));
+}
+
+export const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-:\/^]{0,19}$/;
+
+async function handleQuote(url, env, ctx, H) {
+  const raw = (url.searchParams.get("symbols") || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+  const symbols = [...new Set(raw)].slice(0, 20);
+  if (!symbols.length) return json({ error: "no symbols" }, H, 400);
+  const key = env.TWELVEDATA_KEY;
+  if (!key) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
+
+  const cache = cacheFor();
+  const now = Date.now();
+  const quotes = {}, errors = {}, stat = { hit: 0, miss: 0, stale: 0 };
+  const entries = {}, misses = [];
+  const valid = symbols.filter(s => SYMBOL_RE.test(s));
+  for (const s of symbols) if (!valid.includes(s)) errors[s] = { error: "invalid_symbol", status: STATUS.NA };
+  const cached = await Promise.all(valid.map(s => cacheGet(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`)));
+  for (const [i, s] of valid.entries()) {
+    const e = cached[i];
+    entries[s] = e;
+    if (e && e.rec && now - e.fetchedAt < quoteFreshMs(e.rec.marketOpen)) {
+      quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now });
+      stat.hit++;
+    } else misses.push(s);
+  }
+  if (misses.length) {
+    const results = await fetchQuotesCoalesced(misses, key);
+    for (const [s, r] of results) {
+      if (r.rec) {
+        const fetchedAt = Date.now();
+        cachePut(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`, { rec: r.rec, fetchedAt }, ctx);
+        quotes[s] = buildInstrument(r.rec, { fetchedAt, now: fetchedAt });
+        stat.miss++;
+      } else {
+        const e = entries[s];
+        if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS && r.err !== "symbol_not_found") {
+          quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: r.err });
+          stat.stale++;
+        } else {
+          errors[s] = { error: r.err, status: STATUS.NA }; // never a fallback value
+        }
+      }
+    }
+  }
+  const xc = stat.stale ? "STALE" : stat.miss && stat.hit ? "PARTIAL-HIT" : stat.miss ? "MISS" : stat.hit ? "HIT" : "NONE";
+  const body = { quotes, errors, meta: { source: SOURCE, generatedAt: new Date().toISOString(), cache: stat } };
+  let status = 200;
+  if (!Object.keys(quotes).length) {
+    const first = Object.values(errors)[0];
+    status = (first && ERROR_HTTP[first.error]) || (first && first.error === "invalid_symbol" ? 400 : 502);
+  }
+  const resp = json(body, H, status);
+  resp.headers.set("cache-control", "no-store"); // freshness is decided by the Worker cache, not the browser
+  resp.headers.set("x-cache", xc);
+  return resp;
+}
+
+// ======================= T03 — historical market data =======================
+// Daily points carry the EXCHANGE-LOCAL trading date ("YYYY-MM-DD"): Twelve Data ignores
+// `timezone` for daily+ intervals. Intraday points are requested in UTC ("...Z").
+// Historical/EOD data is consolidated; an in-progress session's bar is a venue-subset aggregate.
 export const HISTORY_RANGES = ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"];
 const RANGE_MONTHS = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "5Y": 60 };
 const DEFAULT_INTERVAL = { "1D": "5min", "1W": "1day", "1M": "1day", "3M": "1day", "6M": "1day", "1Y": "1day", "5Y": "1week" };
 const INTRADAY = new Set(["5min", "15min", "1h"]);
 const BARS_PER_SESSION = { "5min": 78, "15min": 26, "1h": 7 };
 const ADJUST = new Set(["splits", "all", "none"]);
-const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-:\/^]{0,19}$/;
 
 export class BadRequest extends Error {}
-
 function isoDate(d) { return d.toISOString().slice(0, 10); }
 
 export function buildHistoryQuery(params, now = new Date()) {
@@ -64,7 +276,9 @@ export function buildHistoryQuery(params, now = new Date()) {
   if (!SYMBOL_RE.test(symbol)) throw new BadRequest("invalid symbol");
   const range = String(params.range || "6M").toUpperCase();
   if (!HISTORY_RANGES.includes(range)) throw new BadRequest(`range must be one of ${HISTORY_RANGES.join(",")}`);
-  const interval = params.interval ? String(params.interval) : DEFAULT_INTERVAL[range];
+  let interval = params.interval ? String(params.interval) : DEFAULT_INTERVAL[range];
+  if (interval === "1d") interval = "1day";      // accept the common short form
+  if (interval === "1w" || interval === "1wk") interval = "1week";
   const intraday = INTRADAY.has(interval);
   if (!intraday && !["1day", "1week"].includes(interval)) throw new BadRequest("interval must be one of 5min,15min,1h,1day,1week");
   if (intraday && !["1D", "1W"].includes(range)) throw new BadRequest("intraday intervals are only allowed for range 1D or 1W");
@@ -88,11 +302,9 @@ export function buildHistoryQuery(params, now = new Date()) {
 }
 
 function toIsoUtc(s) {
-  // "2026-10-06 15:55:00" (requested in UTC) -> "2026-10-06T15:55:00Z"
   const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/.exec(String(s));
   return m ? `${m[1]}T${m[2].length === 5 ? m[2] + ":00" : m[2]}Z` : null;
 }
-const num = v => (v == null || v === "" ? null : Number(v));
 
 export function normalizeHistory(td, { intraday }) {
   const values = Array.isArray(td && td.values) ? td.values : [];
@@ -101,94 +313,84 @@ export function normalizeHistory(td, { intraday }) {
   for (const v of values) {
     const t = intraday ? toIsoUtc(v.datetime) : (/^\d{4}-\d{2}-\d{2}$/.test(v.datetime) ? v.datetime : null);
     const c = num(v.close);
-    if (!t || !Number.isFinite(c) || seen.has(t)) continue;
+    if (!t || c == null || seen.has(t)) continue;
     seen.add(t);
     points.push({ t, o: num(v.open), h: num(v.high), l: num(v.low), c, v: num(v.volume) });
   }
   points.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   const meta = (td && td.meta) || {};
-  return {
-    currency: meta.currency ?? null,
-    exchange: meta.exchange ?? null,
-    exchangeTimezone: meta.exchange_timezone ?? null,
-    type: meta.type ?? null,
-    points,
-  };
+  return { currency: meta.currency ?? null, exchange: meta.exchange ?? null, exchangeTimezone: meta.exchange_timezone ?? null, type: meta.type ?? null, points };
 }
 
-export function mapProviderError(td) {
-  const code = Number(td && td.code);
-  const msg = String((td && td.message) || "");
-  if (code === 404 || (code === 400 && /symbol|not found|invalid/i.test(msg))) return { status: 404, error: "symbol_not_found" };
-  if (code === 429) return { status: 429, error: "rate_limited" };
-  if (code === 401 || code === 403) return { status: 502, error: "provider_auth" };
-  return { status: 502, error: "provider_error" };
+// display staleness of a history response: intraday bars age quickly; completed daily/weekly
+// bars do not change, only the newest one does (see lastBarPartial)
+export function historyStaleAfterMs(intraday, interval) {
+  return intraday ? 15 * 60_000 : interval === "1week" ? 7 * 24 * 3600_000 : 24 * 3600_000;
+}
+
+// today's date at the exchange (for flagging an in-progress, venue-subset last bar)
+export function exchangeToday(tz, now = new Date()) {
+  try { return now.toLocaleDateString("en-CA", { timeZone: tz || "America/New_York" }); } catch { return isoDate(now); }
 }
 
 async function handleHistory(url, env, ctx, H) {
   let built;
-  try {
-    built = buildHistoryQuery(Object.fromEntries(url.searchParams));
-  } catch (e) {
-    if (e instanceof BadRequest) return json({ error: "bad_request", message: e.message }, H, 400);
-    throw e;
-  }
+  try { built = buildHistoryQuery(Object.fromEntries(url.searchParams)); }
+  catch (e) { if (e instanceof BadRequest) return json({ error: "bad_request", message: e.message }, H, 400); throw e; }
   const key = env.TWELVEDATA_KEY;
   if (!key) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
 
   const { q, range, interval, adjust, intraday, ttl } = built;
-  const keyParams = new URLSearchParams({ symbol: q.symbol, range, interval, adjust, d: q.start_date || "intraday" });
-  const cacheKey = new Request(`${url.origin}/__cache/history?${keyParams}`);
-  const cache = typeof caches !== "undefined" ? caches.default : null;
-  if (cache) {
-    const hit = await cache.match(cacheKey);
-    if (hit) {
-      const r = new Response(hit.body, hit);
-      r.headers.set("x-cache", "HIT");
-      return r;
-    }
-  }
-
-  const tdUrl = `${TD_BASE}/time_series?${new URLSearchParams(q)}&apikey=${key}`;
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 8000);
-  let td;
-  try {
-    const r = await fetch(tdUrl, { signal: ac.signal });
-    td = await r.json();
-  } catch (e) {
-    return json({ error: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" }, H, ac.signal.aborted ? 504 : 502);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!td || td.status === "error") {
-    const m = mapProviderError(td);
-    return json({ error: m.error, symbol: q.symbol }, H, m.status);
-  }
-  const n = normalizeHistory(td, { intraday });
-  if (!n.points.length) return json({ error: "no_data", symbol: q.symbol }, H, 404);
-
-  const body = {
-    symbol: q.symbol, range, interval, adjust,
-    timeBasis: intraday ? "utc" : "exchange_local_date",
-    currency: n.currency, exchange: n.exchange, exchangeTimezone: n.exchangeTimezone, type: n.type,
-    count: n.points.length,
-    points: n.points,
-    asOf: new Date().toISOString(),
-    provider: "twelvedata",
+  const cache = cacheFor();
+  const cacheKey = `${url.origin}/__cache/history?${new URLSearchParams({ symbol: q.symbol, range, interval, adjust, d: q.start_date || "intraday" })}`;
+  const entry = await cacheGet(cache, cacheKey);
+  const now = Date.now();
+  const respond = (body, xc, status = 200) => { const r = json(body, H, status, status === 200 ? ttl : 0); r.headers.set("x-cache", xc); return r; };
+  const envelope = (n, fetchedAt, stale, staleReason) => {
+    const last = n.points[n.points.length - 1];
+    return {
+      symbol: q.symbol, range, interval, adjust,
+      timeBasis: intraday ? "utc" : "exchange_local_date",
+      currency: n.currency, exchange: n.exchange, exchangeTimezone: n.exchangeTimezone, type: n.type,
+      count: n.points.length, points: n.points,
+      status: stale ? STATUS.STALE : STATUS.LIVE,
+      source: SOURCE,
+      fetchedAt: new Date(fetchedAt).toISOString(),
+      staleAt: new Date(fetchedAt + historyStaleAfterMs(intraday, interval)).toISOString(),
+      // completed sessions are consolidated; a bar for today (session in progress) is a venue-subset aggregate
+      lastBarPartial: !intraday && !!last && last.t === exchangeToday(n.exchangeTimezone),
+      ...(stale ? { staleReason } : {}),
+      // kept for backward compatibility with T03 clients
+      asOf: new Date(fetchedAt).toISOString(), provider: SOURCE,
+    };
   };
-  const resp = json(body, H, 200, ttl);
-  resp.headers.set("x-cache", "MISS");
-  if (cache && ctx && ctx.waitUntil) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
-  return resp;
+  if (entry && entry.n && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.n, entry.fetchedAt, false), "HIT");
+
+  const { json: td, err } = await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}&apikey=${key}`);
+  let error = err || null;
+  let n = null;
+  if (!error) {
+    if (!td || typeof td !== "object") error = "provider_error";
+    else if (td.status === "error") error = mapProviderError(td).error;
+    else { n = normalizeHistory(td, { intraday }); if (!n.points.length) error = "no_data"; }
+  }
+  if (!error) {
+    const fetchedAt = Date.now();
+    cachePut(cache, cacheKey, { n, fetchedAt }, ctx);
+    return respond(envelope(n, fetchedAt, false), "MISS");
+  }
+  if (entry && entry.n && now - entry.fetchedAt < STALE_MAX_MS && error !== "symbol_not_found") {
+    return respond(envelope(entry.n, entry.fetchedAt, true, error), "STALE");
+  }
+  const status = error === "no_data" ? 404 : ERROR_HTTP[error] || 502;
+  const r = json({ error, symbol: q.symbol, status: STATUS.NA }, H, status);
+  r.headers.set("x-cache", "MISS");
+  return r;
 }
 
+// ======================= HTTP plumbing =======================
 function cors(env) {
-  return {
-    "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "*",
-  };
+  return { "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || "*", "Access-Control-Allow-Methods": "GET,OPTIONS", "Access-Control-Allow-Headers": "*" };
 }
 function json(obj, headers, status = 200, cacheSec = 0) {
   const h = { ...headers, "content-type": "application/json" };
@@ -201,36 +403,9 @@ export default {
     const url = new URL(req.url);
     const H = cors(env);
     if (req.method === "OPTIONS") return new Response(null, { headers: H });
-
-    if (url.pathname === "/api/health") {
-      return json({ ok: true, ts: Date.now() }, H);
-    }
-
-    if (url.pathname === "/api/history") {
-      return handleHistory(url, env, ctx, H);
-    }
-
-    if (url.pathname === "/api/quote") {
-      const symbols = (url.searchParams.get("symbols") || "")
-        .split(",").map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 20);
-      if (!symbols.length) return json({ error: "no symbols" }, H, 400);
-      const key = env.TWELVEDATA_KEY;
-      if (!key) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
-
-      const quotes = {};
-      let stale = false;
-      for (const s of symbols) {
-        try {
-          const r = await fetch(`${TD_BASE}/quote?symbol=${encodeURIComponent(s)}&apikey=${key}`);
-          const q = await r.json();
-          const n = normalizeQuote(s, q);
-          if (n) quotes[s] = n; else stale = true;
-        } catch { stale = true; }
-      }
-      // 45s edge cache; on provider trouble, response still returns what we have (stale flag)
-      return json({ quotes, asOf: new Date().toISOString(), provider: "twelvedata", stale }, H, 200, 45);
-    }
-
+    if (url.pathname === "/api/health") return json({ ok: true, ts: Date.now() }, H);
+    if (url.pathname === "/api/quote") return handleQuote(url, env, ctx, H);
+    if (url.pathname === "/api/history") return handleHistory(url, env, ctx, H);
     return json({ error: "not found" }, H, 404);
   },
 };
