@@ -152,6 +152,12 @@ export function mapProviderError(td) {
   if (code === 401 || code === 403) return { status: 502, error: "provider_auth" };
   return { status: 502, error: "provider_error" };
 }
+// the provider's own explanation, shortened; anything that could carry the key is removed
+export function providerDetail(td, key) {
+  let m = String((td && td.message) || "").replace(/https?:\/\/\S+/g, "").replace(/apikey\S*/gi, "");
+  if (key) m = m.split(key).join("");
+  return m.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
+}
 const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
 
 async function providerFetchJson(url) {
@@ -203,7 +209,7 @@ async function providerQuoteVenue(id, key) {
   const { json, err } = await providerFetchJson(`${TD_BASE}/quote?symbol=${encodeURIComponent(symbol)}&mic_code=${encodeURIComponent(mic)}&apikey=${key}`);
   if (err) return new Map([[id, { err }]]);
   if (!json || typeof json !== "object") return new Map([[id, { err: "provider_error" }]]);
-  if (json.status === "error") return new Map([[id, { err: mapProviderError(json).error }]]);
+  if (json.status === "error") return new Map([[id, { err: mapProviderError(json).error, detail: providerDetail(json, key) }]]);
   const rec = normalizeQuote(id, json);
   if (rec && !rec.mic) rec.mic = mic;
   return new Map([[id, rec ? { rec } : { err: "provider_error" }]]);
@@ -217,13 +223,14 @@ async function providerQuotePlain(syms, key) {
   // whole-request error (rate limit, auth, single unknown symbol)
   if (json.status === "error" && json.code != null) {
     const m = mapProviderError(json);
-    syms.forEach(s => out.set(s, { err: m.error }));
+    const detail = providerDetail(json, key);
+    syms.forEach(s => out.set(s, { err: m.error, detail }));
     return out;
   }
   for (const s of syms) {
     const q = syms.length === 1 ? json : json[s];
     if (!q) { out.set(s, { err: "provider_error" }); continue; }
-    if (q.status === "error") { out.set(s, { err: mapProviderError(q).error }); continue; }
+    if (q.status === "error") { out.set(s, { err: mapProviderError(q).error, detail: providerDetail(q, key) }); continue; }
     const rec = normalizeQuote(s, q);
     out.set(s, rec ? { rec } : { err: "provider_error" });
   }
@@ -280,7 +287,7 @@ async function handleQuote(url, env, ctx, H) {
           quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: r.err });
           stat.stale++;
         } else {
-          errors[s] = { error: r.err, status: STATUS.NA }; // never a fallback value
+          errors[s] = { error: r.err, status: STATUS.NA, ...(r.detail ? { detail: r.detail } : {}) }; // never a fallback value
         }
       }
     }
@@ -410,11 +417,11 @@ async function handleHistory(url, env, ctx, H) {
   if (entry && entry.n && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.n, entry.fetchedAt, false), "HIT");
 
   const { json: td, err } = await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}&apikey=${key}`);
-  let error = err || null;
+  let error = err || null, detail = null;
   let n = null;
   if (!error) {
     if (!td || typeof td !== "object") error = "provider_error";
-    else if (td.status === "error") error = mapProviderError(td).error;
+    else if (td.status === "error") { error = mapProviderError(td).error; detail = providerDetail(td, key); }
     else { n = normalizeHistory(td, { intraday }); if (!n.points.length) error = "no_data"; }
   }
   if (!error) {
@@ -426,7 +433,7 @@ async function handleHistory(url, env, ctx, H) {
     return respond(envelope(entry.n, entry.fetchedAt, true, error), "STALE");
   }
   const status = error === "no_data" ? 404 : ERROR_HTTP[error] || 502;
-  const r = json({ error, symbol: id, status: STATUS.NA }, H, status);
+  const r = json({ error, symbol: id, status: STATUS.NA, ...(detail ? { detail } : {}) }, H, status);
   r.headers.set("x-cache", "MISS");
   return r;
 }

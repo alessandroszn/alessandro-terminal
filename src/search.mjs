@@ -24,13 +24,18 @@ export function splitId(id) {
   return i > 0 && !s.includes("/") ? { symbol: s.slice(0, i), mic: s.slice(i + 1) } : { symbol: s, mic: null };
 }
 
-// relevance: exact ticker > name starting with the query > listings the plan can quote > common stock > home markets
+const OTC_MICS = new Set(["OTCQ", "OTCM", "PINX", "XOTC", "EXPM", "PSGM"]);
+const fold = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase(); // "Nestlé" ~ "Nestle"
+const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// relevance: exact ticker > name starting with the query as a word ("Roche" ≠ "Rochester") >
+// listings the plan can quote > common stock > regulated exchanges before OTC > home markets
 function score(r, Q) {
-  const name = String(r.instrument_name || "").toUpperCase();
+  const name = fold(r.instrument_name), q = reEsc(fold(Q));
   let s = 0;
   if (String(r.symbol).toUpperCase() === Q || String(r.symbol).replace("/", "") === Q.replace("/", "")) s -= 100;
-  if (name.startsWith(Q)) s -= 40; else if (new RegExp(`\\b${Q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(name)) s -= 20;
+  if (new RegExp(`^${q}(?![A-Z0-9])`).test(name)) s -= 40; else if (new RegExp(`(^|[^A-Z0-9])${q}(?![A-Z0-9])`).test(name)) s -= 20;
   s += TYPE_COST[r.instrument_type] ?? 40;            // warrants, certificates, structured products last
+  if (OTC_MICS.has(r.mic_code)) s += 15;
   if (r.quotable) s -= 12;
   const c = COUNTRY_RANK.indexOf(r.country);
   s += isCcy(r) ? 0 : c < 0 ? 25 : (c * 3) / 2; // ranking weight, not market data
