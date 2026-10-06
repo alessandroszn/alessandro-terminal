@@ -16,7 +16,9 @@ The free Twelve Data plan is licensed for internal use only ("Internal non-displ
 external display needs a redistribution agreement), so its quotes are not shown publicly.
 `workers_dev` and preview URLs are disabled so nothing bypasses Access.
 
-Two layers:
+Three layers:
+0. **WAF custom rule** (free plan): a request to `/api/*` without the Access session cookie is blocked
+   with `403` before anything else runs.
 1. **Cloudflare Access** (Zero Trust Free): self-hosted application on `alessandrozanichelli.com/terminal`
    and `alessandrozanichelli.com/api` (sub-paths included), one Allow policy for the owner's e-mail;
    everyone else is denied (Access is deny-by-default). Login: one-time PIN by e-mail. Session 24 h.
