@@ -5,7 +5,7 @@
 import { fetchText, cachedSource, iso } from "./lib.mjs";
 
 export const GDELT_QUERY = "theme:ECON_STOCKMARKET sourcelang:english";
-export const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&format=json&maxrecords=50&sort=datedesc&timespan=24h`;
+export const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&format=json&maxrecords=30&sort=datedesc&timespan=24h`;
 export const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json";
 export const SEC_SUBMISSIONS_URL = (cik10) => `https://data.sec.gov/submissions/CIK${cik10}.json`;
 export const SEC_FORMS = new Set(["8-K", "10-Q", "10-K", "20-F", "6-K", "DEF 14A", "S-1", "S-3", "SC 13D", "SC 13G"]);
@@ -56,7 +56,7 @@ const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,9}$/;
 export function getHeadlines(origin, ctx) {
   return cachedSource({
     origin, key: "news/gdelt", ttlMs: 10 * 60_000, staleMaxMs: 24 * 3600_000, ctx,
-    load: async () => { const p = parseJson(await fetchText(GDELT_URL, { timeoutMs: 10000 })); if (p.err) return p; const items = normalizeGdelt(p.j); return items.length ? { data: items } : { err: "no_data" }; },
+    load: async () => { const p = parseJson(await fetchText(GDELT_URL, { timeoutMs: 25000 })); if (p.err) return p; const items = normalizeGdelt(p.j); return items.length ? { data: items } : { err: "no_data" }; },
   });
 }
 

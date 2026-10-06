@@ -76,12 +76,14 @@ export function buildCurve(rows, { id, name, source, sourceUrl, kind, maxAgeDays
 
 function monthKey(d) { return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`; }
 
+const TREASURY_HEADERS = { accept: "application/atom+xml,application/xml;q=0.9,*/*;q=0.8", "accept-language": "en-US,en;q=0.8" };
 async function loadTreasury(now) {
   const cur = new Date(now), prev = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - 1, 1));
-  const a = await fetchText(TREASURY_URL(monthKey(cur)));
+  const a = await fetchText(TREASURY_URL(monthKey(cur)), { headers: TREASURY_HEADERS, timeoutMs: 15000 });
   let rows = a.text ? parseTreasuryXml(a.text) : [];
   if (rows.length < 2) { // early in the month: add the previous month's publications
-    const b = await fetchText(TREASURY_URL(monthKey(prev)));
+    if (a.err === "provider_timeout") return { err: a.err };
+    const b = await fetchText(TREASURY_URL(monthKey(prev)), { headers: TREASURY_HEADERS, timeoutMs: 15000 });
     if (b.text) rows = parseTreasuryXml(b.text).concat(rows);
     else if (!rows.length) return { err: b.err || a.err };
   }
