@@ -37,10 +37,14 @@ export function cacheWrite(origin, key, obj, ctx, maxAgeSec = 7 * 86400) {
 }
 
 // fresh entry → HIT; else load() → MISS; load failed → last real entry as STALE (bounded); else error.
-export async function cachedSource({ origin, key, ttlMs, staleMaxMs, ctx, load, now = Date.now() }) {
+// failTtlMs: after a failure, report the same error for this long instead of waiting on the source again
+export async function cachedSource({ origin, key, ttlMs, staleMaxMs, ctx, load, failTtlMs = 0, now = Date.now() }) {
   const e = await cacheRead(origin, key);
   if (e && e.data && now - e.fetchedAt < ttlMs) return { data: e.data, fetchedAt: e.fetchedAt, cache: "HIT" };
-  const r = await load();
+  const f = failTtlMs ? await cacheRead(origin, key + "@fail") : null;
+  const recentFail = f && now - f.at < failTtlMs;
+  const r = recentFail ? { err: f.err } : await load();
+  if (!recentFail && r && !r.data && failTtlMs) cacheWrite(origin, key + "@fail", { err: r.err || "provider_error", at: Date.now() }, ctx, Math.ceil(failTtlMs / 1000));
   if (r && r.data) {
     const fetchedAt = Date.now();
     cacheWrite(origin, key, { data: r.data, fetchedAt }, ctx);

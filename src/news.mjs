@@ -16,11 +16,12 @@ export function normalizeGdelt(j) {
   const arts = (j && Array.isArray(j.articles)) ? j.articles : [];
   const seen = new Set(), out = [];
   for (const a of arts) {
-    const title = String(a.title || "").replace(/\s+/g, " ").trim();
+    // GDELT tokenizes titles ("Avantor ( NYSE : AVTR )", "£2 . 2bn"): restore the original spacing only
+    const title = String(a.title || "").replace(/\s+/g, " ").replace(/(\d) \. (\d)/g, "$1.$2").replace(/ ([,.;!?)\]%])/g, "$1").replace(/([(\[$£€]) /g, "$1").replace(/ : /g, ": ").replace(/ ' s\b/g, "'s").trim();
     const ts = gdeltTime(a.seendate), url = String(a.url || "");
     if (!title || !ts || !/^https?:\/\//.test(url)) continue;
     const k = title.toLowerCase(); if (seen.has(k)) continue; seen.add(k);
-    out.push({ title, url, source: a.domain || new URL(url).hostname, timestamp: ts, topic: "Stock market", language: a.language || null, country: a.sourcecountry || null, provider: "GDELT" });
+    out.push({ title, url, source: a.domain || new URL(url).hostname, timestamp: ts, timeBasis: "seen by GDELT", topic: "Stock market", language: a.language || null, country: a.sourcecountry || null, provider: "GDELT" });
   }
   return out;
 }
@@ -56,6 +57,7 @@ const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,9}$/;
 export function getHeadlines(origin, ctx) {
   return cachedSource({
     origin, key: "news/gdelt", ttlMs: 10 * 60_000, staleMaxMs: 24 * 3600_000, ctx,
+    failTtlMs: 5 * 60_000,
     load: async () => { const p = parseJson(await fetchText(GDELT_URL, { timeoutMs: 25000 })); if (p.err) return p; const items = normalizeGdelt(p.j); return items.length ? { data: items } : { err: "no_data" }; },
   });
 }

@@ -101,8 +101,8 @@ export async function getYieldCurves(origin, ctx, now = Date.now()) {
   const today = easternDate(new Date(now));
   const curves = {}, errors = {};
   const [us, ea] = await Promise.all([
-    cachedSource({ origin, key: "yields/us", ttlMs: 30 * 60_000, staleMaxMs: 7 * 86400_000, ctx, load: () => loadTreasury(now) }),
-    cachedSource({ origin, key: "yields/ea", ttlMs: 30 * 60_000, staleMaxMs: 7 * 86400_000, ctx, load: () => loadEcb() }),
+    cachedSource({ origin, key: "yields/us", ttlMs: 30 * 60_000, staleMaxMs: 7 * 86400_000, failTtlMs: 10 * 60_000, ctx, load: () => loadTreasury(now) }),
+    cachedSource({ origin, key: "yields/ea", ttlMs: 30 * 60_000, staleMaxMs: 7 * 86400_000, failTtlMs: 10 * 60_000, ctx, load: () => loadEcb() }),
   ]);
   if (us.data) curves.US = buildCurve(us.data, { id: "US", name: "United States — Treasury par yield curve", kind: "par yield, end of day", source: "U.S. Department of the Treasury", sourceUrl: "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve", maxAgeDays: 4, today, fetchedAt: us.fetchedAt, cache: us.cache, staleReason: us.staleReason });
   else errors.US = { error: us.err, status: "N/A" };

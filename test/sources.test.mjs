@@ -55,6 +55,7 @@ ok("Calendar: window = past 7 / next 35 days", events.length === 2 && events[0].
 ok("Calendar: actual/forecast/previous/importance are N/A with a reason (never estimated)", ["actual", "forecast", "previous", "importance"].every((k) => events[0][k].status === "N/A" && events[0][k].value === null && events[0][k].note));
 ok("Calendar: country, source and official page on every event", events[0].country === "US" && events[0].source === "BLS" && /bls\.gov/.test(events[0].sourceUrl));
 
+ok("GDELT: tokenized spacing restored, words unchanged", normalizeGdelt({ articles: [{ url: "https://x.example/a", title: "Avantor ( NYSE : AVTR ) to buy rival for £2 . 2bn , shares up 3 %", seendate: "20261006T083000Z", domain: "x.example" }] })[0].title === "Avantor (NYSE: AVTR) to buy rival for £2.2bn, shares up 3%");
 const news = normalizeGdelt(GDELT);
 ok("GDELT: real headline, source, ISO time, URL; duplicates and bad URLs dropped", news.length === 1 && news[0].timestamp === "2026-10-06T20:15:00.000Z" && news[0].source === "example-news.com" && news[0].provider === "GDELT");
 const cik = secCikMap(SEC_TICKERS);
@@ -120,10 +121,12 @@ store = new Map(); mode = "down";
 r = await call("/api/yields");
 ok("failure, empty cache: /api/yields → 502, no curves, errors N/A", r.res.status === 502 && Object.keys(r.body.curves).length === 0 && r.body.errors.US.status === "N/A");
 r = await call("/api/news");
+ok("failure is remembered briefly: the next call does not wait on the source again", await (async () => { const n = seen.length; await call("/api/yields"); return !seen.slice(n).some((x) => x.u.includes("treasury.gov")); })());
 ok("failure, empty cache: /api/news → 502, no headlines", r.res.status === 502 && r.body.items.length === 0 && r.body.errors.GDELT.status === "N/A");
 r = await call("/api/calendar");
 ok("failure, empty cache: /api/calendar → 502, no events", r.res.status === 502 && r.body.events.length === 0);
 // fill the cache, age it past the TTL, then fail: STALE with the real values
+for (const k of [...store.keys()]) if (k.includes("@fail")) store.delete(k); // source recovered: forget the remembered failures
 mode = "ok"; await call("/api/yields"); await call("/api/calendar");
 for (const [k, v] of store) { const o = JSON.parse(v); if (o.fetchedAt) { o.fetchedAt -= 7 * 3600_000; store.set(k, JSON.stringify(o)); } }
 mode = "ratelimit";
