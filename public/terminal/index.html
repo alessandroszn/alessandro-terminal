@@ -114,7 +114,8 @@
   .wl-msg{padding:0 8px 6px;color:var(--muted);font-size:10.5px;min-height:14px}
   .sr-in{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line-2);color:var(--fg);border-radius:3px;padding:5px 8px;font:inherit;font-size:11.5px}
   table.pf.sr td{white-space:nowrap}
-  table.pf.sr td.nm{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+  table.pf.sr td.nm{max-width:200px;overflow:hidden;text-overflow:ellipsis}
+  table.pf.sr td,table.pf.sr th{padding:5px 6px}
   .pl{display:inline-block;font-size:8.5px;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 4px;line-height:13px;border:1px solid var(--line-2);color:var(--muted);white-space:nowrap;cursor:help}
   .pl.ok{color:var(--up);border-color:rgba(46,194,138,.35);background:rgba(46,194,138,.12)}
   .sr-b{background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:2px 7px;font:inherit;font-size:10px;cursor:pointer;margin-left:4px}
@@ -643,7 +644,8 @@
   // ---- MARKETS: real quotes grouped by asset class; unavailable classes shown as N/A ----
   function mktRow(t){const st=instStatus(t);return`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l nm">${esc(t.name||'—')}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td><td class="num">${fin(t.vol)?fmtVol(t.vol)+' '+chip(fStatus(t,'volume'),fnote(t,'volume',VOL_NOTE)):'<span class="na" title="the provider sends no volume for this instrument">N/A</span>'}</td><td>${t.q?fmtHM(t.q.timestamp):'—'}</td><td>${chip(st,instTitle(t))}</td></tr>`;}
   function renderMarkets(body,win){const items={};
-    const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length)DATA.fetchNow(missing);
+    // (not during boot: the first refresh fetches the watchlist first, then the board)
+    const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length&&DATA.provider)DATA.fetchNow(missing);
     const grp=(title,list)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+(list.length?list.map(t=>{items[t.sym]=instStatus(t);return mktRow(t);}).join(''):'<tr><td colspan="7" class="na">—</td></tr>');
     const na=(title,names,why)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+names.map(n=>`<tr><td class="na">${n}</td><td class="l na" colspan="5">N/A — ${why}</td><td>${chip(S.NA,why)}</td></tr>`).join('');
     body.innerHTML=`<table class="pf mkt"><thead><tr><th>SYM</th><th class="l">NAME</th><th>LAST</th><th>CHG%</th><th>VOLUME</th><th>TIME</th><th>DATA</th></tr></thead><tbody>
@@ -845,13 +847,14 @@
       if(j.error||!Array.isArray(j.results)){st.err=j.error||'provider_error';st.res=null;}else{SRCH_CACHE[k]=j;done(j);}}
     catch(e){if(seq===srchSeq){st.err='network';st.res=null;}}
     finally{if(seq===srchSeq){st.loading=false;liveRepaint(win);}}}
+  const TYPE_ABBR={"Common Stock":"Stock","American Depositary Receipt":"ADR","Depositary Receipt":"DR","Global Depositary Receipt":"GDR","Physical Currency":"FX","Digital Currency":"Crypto","Precious Metal":"Metal","Mutual Fund":"Fund","Preferred Stock":"Pref."};
   function planChip(x){if(x.quotable===true)return`<span class="pl ok" title="quote and history included in the current data plan (Twelve Data ${PLAN})">${PLAN.toUpperCase()}</span>`;
     if(x.planRequired)return`<span class="pl" title="needs the Twelve Data ${esc(x.planRequired)} plan or higher: quote and history are N/A on the current plan (${PLAN})">${esc(x.planRequired.toUpperCase())}+</span>`;
     return'<span class="pl" title="the provider did not say which plan covers this listing">?</span>';}
   function renderSearch(body,win){const st=win.state,j=st.res;body.style.padding='0';
     const list=j&&j.results?j.results:[],shown=st.all?list:list.slice(0,40);
     const rows=shown.map(x=>{const inWl=WATCH.includes(x.id),blocked=x.quotable===false;
-      return`<tr><td class="l"><b>${esc(x.symbol)}</b></td><td class="l nm" title="${esc(x.name||'')}">${esc(x.name||'—')}</td><td class="l">${esc(x.exchange||(x.type||'').replace(/_/g,' '))}${x.mic?' <span class="na">'+esc(x.mic)+'</span>':''}</td><td class="l">${esc(x.country||'—')}</td><td class="l">${esc(x.type||'—')}</td><td>${esc(x.currency||'—')}</td><td>${planChip(x)}</td>
+      return`<tr><td class="l"><b>${esc(x.symbol)}</b></td><td class="l nm" title="${esc(x.name||'')}">${esc(x.name||'—')}</td><td class="l">${esc(x.exchange||(x.type||'').replace(/_/g,' '))}${x.mic?' <span class="na">'+esc(x.mic)+'</span>':''}</td><td class="l">${esc(x.country||'—')}</td><td class="l" title="${esc(x.type||'')}">${esc(TYPE_ABBR[x.type]||x.type||'—')}</td><td>${esc(x.currency||'—')}</td><td>${planChip(x)}</td>
         <td><button class="sr-b" data-open="${esc(x.id)}" title="${blocked?'open: shown as N/A (not in the current plan)':'open the quote window (real quote + history, fetched now)'}">OPEN</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl||blocked?'disabled':''} title="${inWl?'already in the watchlist':blocked?'not in the current data plan: it would only show N/A':'add to the watchlist (checked with a real quote)'}">${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
     const msg=st.msg?esc(st.msg):st.loading?`Searching the provider's symbol master for “${esc(st.q)}”…`:
       st.err?`<b>N/A</b> — search unavailable: ${esc(st.err==='bad_request'?'use 1–40 letters, digits, spaces or . & \' - / :':P.errorText(st.err))}`:
@@ -871,7 +874,7 @@
   const WINTYPES={
     GP:{tag:'GP',w:560,h:470,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
     WL:{tag:'WL',w:400,h:330,title:()=>'WATCHLIST',render:renderWatchlistWin},
-    SRCH:{tag:'SRCH',w:720,h:470,title:w=>w.state.q?`SYMBOL SEARCH · ${w.state.q}`:'SYMBOL SEARCH',render:renderSearch},
+    SRCH:{tag:'SRCH',w:860,h:480,title:w=>w.state.q?`SYMBOL SEARCH · ${w.state.q}`:'SYMBOL SEARCH',render:renderSearch},
     HEAT:{tag:'HEAT',w:520,h:400,title:()=>'SECTOR HEATMAP',render:renderHeat},
     MOV:{tag:'MOV',w:540,h:400,title:()=>'MARKET MOVERS',render:renderMovers},
     SCR:{tag:'SCR',w:640,h:430,title:()=>'EQUITY SCREENER',render:renderScreener},

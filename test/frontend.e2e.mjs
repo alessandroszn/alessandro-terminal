@@ -202,6 +202,7 @@ const OK_API = {
   await page.waitForTimeout(6000);
   const first = quoteBatches.reduce((a, b) => a + b.syms.length, 0);
   ok("[D] with the real budget (8/min) only one ≤7-symbol batch is sent in the first minute", quoteBatches.length === 1 && first <= 7, quoteBatches.map((b) => b.syms.length).join());
+  ok("[D] that first batch is the watchlist (priority over the markets board)", WL.every((s) => quoteBatches[0].syms.includes(s)), quoteBatches[0] && quoteBatches[0].syms.join());
   await page.close();
 }
 
