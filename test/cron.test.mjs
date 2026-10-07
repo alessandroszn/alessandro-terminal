@@ -90,12 +90,12 @@ ok("staged in KV (not in the per-location cache): universe, closes, curves, cale
 ok("heartbeat: first run of the pipeline recorded", JSON.parse(kv.get("cron/last")).at === "2026-10-07T05:16:00.000Z");
 let r = await tick("2026-10-07T05:30:00Z");
 const ed = JSON.parse(kv.get("brief/daily-2026-10-07") || "null");
-ok("07:30 Rome: edition written by the schedule, archived and indexed", !!ed && ed.writtenBy === "schedule" && JSON.parse(kv.get("index/daily"))[0].id === "daily-2026-10-07" && aiCalls === 1);
+ok("07:30 Rome: edition written by the schedule in English and Italian (two model calls on the same DATA), archived and indexed", !!ed && ed.writtenBy === "schedule" && JSON.parse(kv.get("index/daily"))[0].id === "daily-2026-10-07" && aiCalls === 2 && !!ed.i18n.it);
 ok("07:30: no source is called while writing (staged data only)", r.calls.length === 0, r.calls.join());
 ok("write: DATA from the staged inputs — S&P 500 summary, FX quote, world event, headlines from the top sources", /EQUITY S&P 500/.test(ed.inputData) && /\+3\.00|NVDA/.test(ed.inputData) && /QUOTE `EUR\/USD`/.test(ed.inputData) && /CPI m\/m/.test(ed.inputData) && /ft test headline/.test(ed.inputData) && /cb test headline/.test(ed.inputData) && !ed.inputErrors.equity, ed.inputData.slice(0, 400));
 ok("write: the US curve that could not be fetched is absent, not filled in", !/YIELDS US/.test(ed.inputData) && /YIELDS EA/.test(ed.inputData));
 r = await tick("2026-10-07T05:35:00Z");
-ok("07:35 retry slot: edition exists → not written again", aiCalls === 1 && r.calls.length === 0);
+ok("07:35 retry slot: edition exists → not written again", aiCalls === 2 && r.calls.length === 0);
 
 // terminal hand-off: GET shows the schedule; POST before the scheduled window ends → 409, REWRITE still works
 const call = async (path, method = "GET") => { const res = await app.fetch(new Request("https://alessandrozanichelli.com" + path, { method }), env, { waitUntil: () => {} }); return { status: res.status, j: await res.json() }; };
@@ -104,10 +104,10 @@ let g = await call("/api/briefs?period=daily");
 ok("index: due edition carries its scheduled write time and window; last scheduled run reported", g.j.due.auto.writeAt === "2026-10-07T05:30:00.000Z" && g.j.due.auto.until === "2026-10-07T05:42:00.000Z" && g.j.automatic.lastRun === "2026-10-07T05:16:00.000Z" && g.j.dueWritten === true);
 kv.delete("brief/daily-2026-10-07"); kv.set("index/daily", "[]");
 let w = await call("/api/briefs/write?period=daily", "POST");
-ok("terminal write while the schedule is writing → 409 scheduled_write, model not called", w.status === 409 && w.j.error === "scheduled_write" && aiCalls === 1);
+ok("terminal write while the schedule is writing → 409 scheduled_write, model not called", w.status === 409 && w.j.error === "scheduled_write" && aiCalls === 2);
 Date.now = () => at("2026-10-07T05:43:00Z");
 w = await call("/api/briefs/write?period=daily", "POST");
-ok("after the scheduled window, the terminal writes a missing edition itself (fallback)", w.status === 201 && w.j.writtenBy === "terminal" && aiCalls === 2);
+ok("after the scheduled window, the terminal writes a missing edition itself (fallback)", w.status === 201 && w.j.writtenBy === "terminal" && aiCalls === 4);
 
 // evening: no Alpaca call before the session is final; the 22:30 run reads the closes
 const evRuns = [];

@@ -345,6 +345,7 @@ tr.cal-row{cursor:pointer}tr.cal-row.open td{background:var(--panel-2)}
 .cal-react span{margin-right:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
 tr.cal-det td{background:var(--panel-2);padding:6px 10px}.cal-det-in{display:flex;flex-direction:column;gap:6px;font-size:11px}
 table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a623);color:var(--bg);font-size:9px;padding:0 4px;border-radius:2px}
+.lang{display:inline-flex;border:1px solid var(--line-2);margin-right:8px}.lang button{background:transparent;color:var(--muted);border:0;font:inherit;font-size:10px;letter-spacing:.06em;padding:1px 6px;cursor:pointer}.lang button[aria-pressed="true"]{background:var(--amber,#f5a623);color:var(--bg)}
 </style>
 
 <div id="app">
@@ -355,6 +356,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
              placeholder="Ticker, company name or function  —  e.g. NVDA, Novartis, NESN, WL, HELP">
     </div>
     <div class="status-right">
+      <span class="lang notranslate" role="group" aria-label="Language"><button type="button" data-lang="en">EN</button><button type="button" data-lang="it">IT</button></span>
       <span class="live"><span class="pulse"></span><span id="clk">--:--:--</span></span>
       <span id="breadth-top">—</span>
     </div>
@@ -364,7 +366,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
 
   <div id="desk" aria-label="Workspace"></div>
 
-  <div id="strip"><span class="lbl">TAPE</span><div class="track-wrap"><div class="track" id="tape"></div></div></div>
+  <div id="strip"><span class="lbl">TAPE</span><div class="track-wrap notranslate"><div class="track" id="tape"></div></div></div>
 
   <div id="status">
     <span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span>
@@ -428,6 +430,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 
 <script src="/terminal/provenance.js"></script>
+<script src="/terminal/i18n.js"></script>
 <script>
 "use strict";
 (function(){
@@ -576,6 +579,8 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
   /* =============== end data layer =============== */
 
   /* ---------- formatting (null-safe: a missing value prints "—", never 0) ---------- */
+  // a label whose Italian depends on context (the translator handles the rest of the interface)
+  const tl=(en,it)=>I18N.lang()==='it'?it:en;
   function fin(v){return v!=null&&isFinite(v);}
   function money(v,d=2){if(!fin(v))return'—';return'$'+v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
   function sign(v,d=2){if(!fin(v))return'—';return(v>=0?"+":"")+v.toFixed(d);}
@@ -583,8 +588,8 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
   function cls(v){return fin(v)?(v>=0?"up":"down"):"";}
   function fmtVol(v){if(!fin(v))return'—';return v>=1e9?(v/1e9).toFixed(2)+'B':v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(1)+'K':String(Math.round(v));}
   function esc(x){return String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-  function fmtTime(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleTimeString('en-GB'):'—';}
-  function fmtDT(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
+  function fmtTime(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleTimeString(I18N.locale()):'—';}
+  function fmtDT(iso){const d=new Date(iso);return isFinite(d)?d.toLocaleString(I18N.locale(),{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
 
   // FX / crypto / metals are quoted as plain rates with enough decimals; every other price in the
   // currency the provider reports for that listing ($ only for USD) — never converted
@@ -592,7 +597,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const c=t.cur;if(c==='USD')return money(v);const n=v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return c?n+' '+c:n;}
   // axis labels: decimals follow the range; currency sign only for USD listings
   function axisFmt(t,mn,mx){const sp=Math.abs(mx-mn),d=sp<0.05?4:sp<5?2:0,usd=t&&!t.sym.includes('/')&&t.cur==='USD';return v=>(usd?'$':'')+v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
-  function fmtHM(iso){const d=new Date(iso);if(!isFinite(d))return'—';const today=new Date().toDateString()===d.toDateString();return today?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+  function fmtHM(iso){const d=new Date(iso);if(!isFinite(d))return'—';const today=new Date().toDateString()===d.toDateString();return today?d.toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString(I18N.locale(),{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'});}
   async function addToWatchlist(raw,win){const sym=String(raw||'').trim().toUpperCase();const say=m=>{win.state.msg=m;liveRepaint(win);};
     if(!sym)return;if(!SYMBOL_OK.test(sym)){openSearch(raw);return say(`"${String(raw).trim()}" is not a ticker — searching by name`);}
     if(WATCH.includes(sym))return say(`${sym} is already in the watchlist`);
@@ -634,7 +639,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
   function updateStatusBar(){
     const live=UNI.filter(t=>t.q&&fin(t.px));
     const mo=live.map(t=>t.q.marketOpen).filter(x=>typeof x==='boolean');
-    $('#sess').textContent=!mo.length?'—':mo.some(Boolean)?'OPEN':'CLOSED';
+    $('#sess').textContent=!mo.length?'—':mo.some(Boolean)?tl('OPEN','APERTO'):tl('CLOSED','CHIUSO');
     const adv=live.filter(t=>t.chg>=0).length,dec=live.filter(t=>t.chg<0).length;
     $('#breadth').textContent=live.length?`${adv} ▲  /  ${dec} ▼ · ${live.length} live`:'—';
     $('#breadth-top').textContent=`${live.length}/${UNI.length} live`;
@@ -693,7 +698,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
       <div class="chart-box"><canvas aria-label="${t.sym} price chart"></canvas></div>
       <div class="src-line">${chartCaption(t,tfv)}</div>
       <div class="stat-grid">
-        ${stat("OPEN",pxText(t,t.open),fs('open'),fnote(t,'open',OHL_NOTE))}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),fnote(t,'high',OHL_NOTE))}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),fnote(t,'low',OHL_NOTE))}
+        ${stat(tl("OPEN","APERTURA"),pxText(t,t.open),fs('open'),fnote(t,'open',OHL_NOTE))}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),fnote(t,'high',OHL_NOTE))}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),fnote(t,'low',OHL_NOTE))}
         ${stat("VOLUME",fmtVol(t.vol),fs('volume'),fnote(t,'volume',VOL_NOTE))}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?pxText(t,t.lo52)+" – "+pxText(t,t.hi52):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
       </div>`;
     setProv(win,{[t.sym]:ist,['chart:'+t.sym]:histStatus(t,intr)});
@@ -801,7 +806,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const impChip=i=>`<span class="imp imp-${esc(i)}" title="impact: ${esc(i)} (Forex Factory)">${i==='High'?'HIGH':i==='Medium'?'MED':i==='Low'?'LOW':'HOL'}</span>`;
     const short=x=>x==='USD vs EUR'?'USD':x.replace(' vs USD','');
     const reactCell=ev=>{const t=Date.parse(ev.datetime);if(ev.impact!=='High'||!REACT_CCY.has(ev.currency))return'<span class="k">—</span>';if(t>now)return'<span class="k">—</span>';
-      if(now-t<=16*60000)return`<span class="k" title="computed from 1-minute prices 15 minutes after the time">at ${new Date(t+16*60000).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>`;
+      if(now-t<=16*60000)return`<span class="k" title="computed from 1-minute prices 15 minutes after the time">at ${new Date(t+16*60000).toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'})}</span>`;
       const r=CALX.react[ev.id];if(!r)return CALX.rErr?'<span class="na" title="'+esc(P.errorText(CALX.rErr))+'">N/A</span>':'<span class="k">…</span>';
       if(!r.items||!r.items.length)return`<span class="na" title="no 1-minute prices around the time${r.fxError?' ('+esc(P.errorText(r.fxError))+')':''}">N/A</span>`;
       return r.items.map(i=>`<span class="${cls(i.m15.chg)}" title="${esc(i.symbol)}${i.pair?' ('+esc(i.pair)+')':''} · 15 min ${pct(i.m15.chg)}${i.m60?' · 60 min '+pct(i.m60.chg):''} · ${esc(i.source)} · DERIVED">${esc(short(i.symbol))} ${(i.m15.chg>=0?'+':'')+i.m15.chg.toFixed(2)}</span>`).join(' ')+(r.final?'':' <span class="k" title="60-minute window not complete yet">·</span>');};
@@ -809,13 +814,13 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
       const rt=r&&r.items&&r.items.length?`<table class="pf cal-sub"><thead><tr><th class="l">REACTION</th><th>BEFORE</th><th>+15 MIN</th><th>+60 MIN</th><th class="l">SOURCE</th></tr></thead><tbody>${r.items.map(i=>`<tr><td class="l">${esc(i.symbol)}${i.pair?' <span class="k">'+esc(i.pair)+'</span>':''}</td><td class="num">${num6(+i.before.toPrecision(7))}</td><td class="num ${cls(i.m15.chg)}">${pct(i.m15.chg)}</td><td class="num ${i.m60?cls(i.m60.chg):''}">${i.m60?pct(i.m60.chg):'—'}</td><td class="l k">${esc(i.source)}</td></tr>`).join('')}</tbody></table>`:'';
       const ht=!h||h.loading?'<div class="k">Loading past releases…</div>':h.error||!Array.isArray(h.releases)?`<div class="na">Past releases N/A (${esc(P.errorText(h.error||'no_data'))})</div>`:!h.releases.length?'<div class="k">No past releases archived yet — the archive started on 7 Oct 2026 and grows every week.</div>'
         :`<table class="pf cal-sub"><thead><tr><th class="l">RELEASE (LOCAL)</th><th>FORECAST</th><th>PREVIOUS</th></tr></thead><tbody>${h.releases.slice(0,12).map(x=>`<tr><td class="l">${fmtDT(x.datetime)}</td><td class="num">${esc(x.forecast||'—')}</td><td class="num">${esc(x.previous||'—')}</td></tr>`).join('')}</tbody></table><div class="k">${esc(h.note||'')}</div>`;
-      return`<tr class="cal-det"><td colspan="9"><div class="cal-det-in"><div><b>${esc(ev.region)}</b> · ${esc(ev.indicator)} · ${fmtDT(ev.datetime)} local · ${esc(ev.dateET)} ${esc(ev.timeET||'')} New York · impact ${esc(ev.impact)}${ev.archived?' · from the archive':''} · <a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">Forex Factory</a></div>${rt}<div class="set-grp" style="margin-top:6px">PAST RELEASES</div>${ht}</div></td></tr>`;};
+      return`<tr class="cal-det"><td colspan="9"><div class="cal-det-in"><div><b>${esc(ev.region)}</b> · <span class="notranslate">${esc(ev.indicator)}</span> · ${fmtDT(ev.datetime)} local · ${esc(ev.dateET)} ${esc(ev.timeET||'')} New York · impact ${esc(ev.impact)}${ev.archived?' · from the archive':''} · <a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">Forex Factory</a></div>${rt}<div class="set-grp" style="margin-top:6px">PAST RELEASES</div>${ht}</div></td></tr>`;};
     let html;
     if(st.view==='world'){const list=calWorld(imp,sel),nx=nextHigh();let lastDay='';calReactions();
-      const rows=list.map(ev=>{const t=Date.parse(ev.datetime),day=new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});const sep=day!==lastDay?`<tr class="grp"><td colspan="9">${day.toUpperCase()}${new Date(t).toDateString()===new Date(now).toDateString()?' · TODAY':''}</td></tr>`:'';lastDay=day;
+      const rows=list.map(ev=>{const t=Date.parse(ev.datetime),day=new Date(t).toLocaleDateString(I18N.locale(),{weekday:'short',day:'2-digit',month:'short'});const sep=day!==lastDay?`<tr class="grp"><td colspan="9">${day.toUpperCase()}${new Date(t).toDateString()===new Date(now).toDateString()?' · TODAY':''}</td></tr>`:'';lastDay=day;
         const soon=t>now&&t-now<86400000?` <span class="k">in ${fmtIn(t-now)}</span>`:t<=now&&now-t<15*60000?' <span class="cal-live">JUST OUT</span>':'';
-        return sep+`<tr data-ev="${esc(ev.id)}" class="cal-row ${t<now?'past':''}${nx&&ev.id===nx.id?' next':''}${CALX.open===ev.id?' open':''}" tabindex="0"><td class="l">${new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}${soon}</td><td class="l" title="${esc(ev.region)}">${esc(ev.currency)}</td><td class="l">${esc(ev.indicator)}</td><td>${impChip(ev.impact)}</td><td>${na(ev.actual)}</td><td>${vv(ev.forecast)}</td><td>${vv(ev.previous)}</td><td class="l cal-react">${reactCell(ev)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">FF</a></td></tr>`+(CALX.open===ev.id?detail(ev):'');}).join('');
-      html=`<div class="src-line">${extSources(d)}</div>${nx?`<div class="banner" style="margin-top:8px"><b>NEXT HIGH-IMPACT</b> · ${esc(nx.region)} · ${esc(nx.indicator)} · ${fmtDT(nx.datetime)} local · in ${fmtIn(Date.parse(nx.datetime)-now)}${nx.forecast.value?` · forecast ${esc(nx.forecast.value)}`:''}${nx.previous.value?` · previous ${esc(nx.previous.value)}`:''}</div>`:''}
+        return sep+`<tr data-ev="${esc(ev.id)}" class="cal-row ${t<now?'past':''}${nx&&ev.id===nx.id?' next':''}${CALX.open===ev.id?' open':''}" tabindex="0"><td class="l">${new Date(t).toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'})}${soon}</td><td class="l" title="${esc(ev.region)}">${esc(ev.currency)}</td><td class="l notranslate">${esc(ev.indicator)}</td><td>${impChip(ev.impact)}</td><td>${na(ev.actual)}</td><td>${vv(ev.forecast)}</td><td>${vv(ev.previous)}</td><td class="l cal-react">${reactCell(ev)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">FF</a></td></tr>`+(CALX.open===ev.id?detail(ev):'');}).join('');
+      html=`<div class="src-line">${extSources(d)}</div>${nx?`<div class="banner" style="margin-top:8px"><b>NEXT HIGH-IMPACT</b> · ${esc(nx.region)} · <span class="notranslate">${esc(nx.indicator)}</span> · ${fmtDT(nx.datetime)} local · in ${fmtIn(Date.parse(nx.datetime)-now)}${nx.forecast.value?` · forecast ${esc(nx.forecast.value)}`:''}${nx.previous.value?` · previous ${esc(nx.previous.value)}`:''}</div>`:''}
         <table class="pf cal"><thead><tr><th class="l">TIME (LOCAL)</th><th class="l">CCY</th><th class="l">EVENT</th><th>IMPACT</th><th>ACTUAL</th><th>FCST</th><th>PREV</th><th class="l" title="price move 15 minutes after the time (hover: 60 minutes)">REACTION 15M</th><th class="l">SRC</th></tr></thead><tbody>${rows||'<tr><td colspan="9" class="na">NO DATA</td></tr>'}</tbody></table>
         <div class="scr-count">World calendar: Forex Factory weekly export (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), this week plus the last ${d.backDays||4} days from the archive; impact, forecast and previous as published there. Actual: N/A — not in the export. Reaction: price just before the time vs 15 / 60 minutes after, from 1-minute data (FX: Twelve Data; USD events also SPY / TLT ETFs, Alpaca) — DERIVED, high-impact events only. Click an event for details and past releases. Times in your local time zone.</div>`;}
     else html=`<div class="src-line">${extSources(d)}</div>
@@ -842,12 +847,12 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     if(!d&&!e.err){setProv(win,{'ds:EXCH':S.LOADING});body.innerHTML=tabs+'<div class="empty">Loading exchange status…</div>';bind();return;}
     if(!d||d.error||!Array.isArray(d.exchanges)){setProv(win,{'ds:EXCH':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — exchange status unavailable (${esc(P.errorText((d&&d.error)||e.err||'network'))}). No open/closed state is guessed.</div>`;bind();return;}
     const now=Date.now(),L=d.exchanges.filter(x=>st.scope==='all'||x.major);
-    const local=x=>x.tz?new Date(now).toLocaleTimeString('en-GB',{timeZone:x.tz,hour:'2-digit',minute:'2-digit'})+' <span class="k">'+new Date(now).toLocaleDateString('en-GB',{timeZone:x.tz,weekday:'short'})+'</span>':'<span class="na" title="no time zone on file for this exchange">—</span>';
-    const yours=t=>{const dt=new Date(t),same=new Date(now).toDateString()===dt.toDateString();return(same?'':dt.toLocaleDateString('en-GB',{weekday:'short'})+' ')+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});};
-    const row=x=>{const n=exchNow(x,now),stc=n.open?'OPEN':'CLOSED';
+    const local=x=>x.tz?new Date(now).toLocaleTimeString(I18N.locale(),{timeZone:x.tz,hour:'2-digit',minute:'2-digit'})+' <span class="k">'+new Date(now).toLocaleDateString(I18N.locale(),{timeZone:x.tz,weekday:'short'})+'</span>':'<span class="na" title="no time zone on file for this exchange">—</span>';
+    const yours=t=>{const dt=new Date(t),same=new Date(now).toDateString()===dt.toDateString();return(same?'':dt.toLocaleDateString(I18N.locale(),{weekday:'short'})+' ')+dt.toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'});};
+    const row=x=>{const n=exchNow(x,now),stc=n.open?'OPEN':'CLOSED',stl=n.open?tl('OPEN','APERTA'):tl('CLOSED','CHIUSA');
       const next=n.moved?'<span class="k">updating…</span>':n.open?(x.closesAt?`closes in <b>${fmtIn2(x.closesAt-now)}</b> <span class="k">(${yours(x.closesAt)})</span>`:'<span class="k">close time not given</span>'):(x.opensAt?`opens in <b>${fmtIn2(x.opensAt-now)}</b> <span class="k">(${yours(x.opensAt)})</span>`:'<span class="k">next open not given</span>');
       const sess=n.open&&!n.moved&&x.openedAt&&x.closesAt?`${yours(x.openedAt)}–${yours(x.closesAt)}`:'—';
-      return`<tr class="${n.open?'ex-open':''}"><td class="l">${local(x)}</td><td class="l" title="${esc(x.name)}${x.country?' · '+esc(x.country):''}"><b>${esc(x.label||x.name)}</b>${x.city?` <span class="k">${esc(x.city)}</span>`:''}</td><td class="l"><span class="ex-st ex-${stc}">${stc}</span></td><td class="l">${next}</td><td class="l">${sess}</td><td class="l k">${esc(x.code)}</td></tr>`;};
+      return`<tr class="${n.open?'ex-open':''}"><td class="l">${local(x)}</td><td class="l" title="${esc(x.name)}${x.country?' · '+esc(x.country):''}"><b>${esc(x.label||x.name)}</b>${x.city?` <span class="k">${esc(x.city)}</span>`:''}</td><td class="l"><span class="ex-st ex-${stc}">${stl}</span></td><td class="l">${next}</td><td class="l">${sess}</td><td class="l k">${esc(x.code)}</td></tr>`;};
     const groups=st.scope==='major'?['Americas','Europe & Africa','Asia-Pacific']:[null];
     const order=(a,b)=>(exchNow(b,now).open-exchNow(a,now).open)||String(a.label||a.name).localeCompare(String(b.label||b.name));
     const tbody=groups.map(g=>{const list=L.filter(x=>!g||x.region===g).sort(order);return(g?`<tr class="grp"><td colspan="6">${g.toUpperCase()} · ${list.filter(x=>exchNow(x,now).open).length}/${list.length} OPEN</td></tr>`:'')+list.map(row).join('');}).join('');
@@ -904,7 +909,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const closed=d.positions.filter(p=>!p.open);
     const ctab=closed.length?`<div class="set-grp" style="margin-top:12px">CLOSED POSITIONS</div><table class="pf"><thead><tr><th>SYM</th><th class="l">FIRST TRADE</th><th>TRADES</th><th>REALISED</th><th>REALISED €</th></tr></thead><tbody>${closed.map(p=>`<tr><td>${esc(p.sym)}</td><td class="l">${esc(p.firstDate)}</td><td class="num">${p.txCount}</td><td class="num ${cls(p.realized)}">${num6(+p.realized.toFixed(2))} <span class="k">${esc(p.ccy)}</span></td><td class="num ${cls(p.realizedEur)}">${fin(p.realizedEur)?eur(p.realizedEur):'N/A'}</td></tr>`).join('')}</tbody></table>`:'';
     const today=new Date().toISOString().slice(0,10),ccyOpts=['','USD','EUR','GBP','GBp','CHF','JPY','CAD','AUD','HKD','SEK','NOK','DKK','PLN','CNY','INR','KRW','BRL','MXN','ZAR'];
-    const form=`<form class="pf-form" autocomplete="off"><select name="side" aria-label="side"><option ${f.side==='BUY'?'selected':''}>BUY</option><option ${f.side==='SELL'?'selected':''}>SELL</option></select>
+    const form=`<form class="pf-form" autocomplete="off"><select name="side" aria-label="side"><option value="BUY" ${f.side==='BUY'?'selected':''}>BUY</option><option value="SELL" ${f.side==='SELL'?'selected':''}>SELL</option></select>
       <input name="sym" placeholder="SYMBOL (e.g. AAPL, NOVN:XSWX)" value="${esc(f.sym||'')}" aria-label="symbol" style="width:170px"><button type="button" class="tf pf-chk">CHECK</button>
       <input name="qty" type="number" step="any" min="0" placeholder="QTY" value="${esc(f.qty||'')}" aria-label="quantity" style="width:90px">
       <input name="price" type="number" step="any" min="0" placeholder="PRICE" value="${esc(f.price||'')}" aria-label="price" style="width:110px">
@@ -949,7 +954,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const pressItems=press.flatMap(p=>p.items.map(n=>Object.assign({},n,{tag:p.id==='CB'?String(n.section||'').toUpperCase():lab[p.id]+(n.section?' · '+n.section.toUpperCase():''),pid:p.id})));
     const pool=st.src==='ALL'?pressItems:pressItems.filter(n=>n.pid===st.src);
     const isNew=n=>NEWS_NEW[n.url]&&Date.now()-NEWS_NEW[n.url]<1800000;
-    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,80).map(n=>`<div class="news-item${isNew(n)?' fresh':''}"><span class="tm">${fmtHM(n.timestamp)}</span>${isNew(n)?'<span class="newtag" title="arrived since you opened the terminal">NEW</span>':''}<a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source||n.tag)}">${esc(n.tag)}</span></div>`).join('');
+    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,80).map(n=>`<div class="news-item${isNew(n)?' fresh':''}"><span class="tm">${fmtHM(n.timestamp)}</span>${isNew(n)?'<span class="newtag" title="arrived since you opened the terminal">NEW</span>':''}<a class="h notranslate" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source||n.tag)}">${esc(n.tag)}</span></div>`).join('');
     const fil=(d.filings||[]).slice(0,24).map(f=>`<div class="news-item"><span class="tm">${f.filingDate||'—'}</span><a class="h" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.ticker)} · ${esc(f.form)} · ${esc(f.company||'')}${f.description&&f.description!==f.form&&!/^form\s/i.test(f.description)?' — '+esc(f.description):''}</a><span class="src">SEC</span></div>`).join('');
     const shown=st.src==='ALL'?press:st.src==='SEC'?[]:press.filter(p=>p.id===st.src);
     const pressLine=shown.map(p=>`${chip(p.status,p.err?P.errorText(p.err):p.feeds.map(f=>f.section+': '+f.status).join(' · '))} ${p.home?`<a href="${esc(p.home)}" target="_blank" rel="noopener">${p.name}</a>`:p.name}${p.fetchedAt?' · fetched '+fmtTime(p.fetchedAt):p.err?' · '+esc(P.errorText(p.err)):''}`).join(' · ');
@@ -970,9 +975,14 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs?period=${period}`,{cache:'no-store'});const j=await r.json();BRF.idx[period]=j;BRF.fail['i:'+period]=j.error||null;}
     catch(e){BRF.fail['i:'+period]='network';}
     finally{BRF.loading['i:'+period]=false;BRF.at[period]=Date.now();brfRepaint();}}
-  async function brfItem(id){if(BRF.items[id]||BRF.loading[id])return;BRF.loading[id]=true;
-    try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs/item?id=${encodeURIComponent(id)}`,{cache:'no-store'});const j=await r.json();if(j&&j.body)BRF.items[id]=j;else BRF.fail[id]=(j&&j.error)||'not_found';}
-    catch(e){BRF.fail[id]='network';}finally{BRF.loading[id]=false;brfRepaint();}}
+  // editions are cached per language: the Italian version is written by the model from the same data
+  const brfKey=id=>id+'|'+I18N.lang();
+  async function brfItem(id){const k=brfKey(id);if(BRF.items[k]||BRF.loading[k])return;BRF.loading[k]=true;
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs/item?id=${encodeURIComponent(id)}&lang=${I18N.lang()}`,{cache:'no-store'});const j=await r.json();if(j&&j.body)BRF.items[k]=j;else BRF.fail[k]=(j&&j.error)||'not_found';}
+    catch(e){BRF.fail[k]='network';}finally{BRF.loading[k]=false;brfRepaint();}}
+  async function brfWriteLang(id){const k=id+'|it';BRF.loading['L:'+k]=true;BRF.fail['L:'+k]=null;brfRepaint();
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs/lang?id=${encodeURIComponent(id)}&lang=it`,{method:'POST',cache:'no-store'});const j=await r.json();if(j&&j.body&&j.lang==='it'){BRF.items[k]=j;}else BRF.fail['L:'+k]=(j&&j.error)||('http '+r.status);}
+    catch(e){BRF.fail['L:'+k]='network';}finally{BRF.loading['L:'+k]=false;Object.keys(BRF.at).forEach(p=>BRF.at[p]=0);brfRepaint();}}
   // write the edition that is due: warm the real inputs first (each in its own request), then ask the Worker to write it
   async function brfWrite(period,force){if(BRF.writing[period])return;BRF.writing[period]=true;BRF.fail['w:'+period]=null;brfRepaint();
     try{const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x]._pending);
@@ -983,7 +993,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
         if(r.status===202){await new Promise(z=>setTimeout(z,15000));force=false;continue;}
         if(r.status===409&&j&&j.error==='scheduled_write')break; // the scheduled run is writing it
         if(!j||!j.body){BRF.fail['w:'+period]=(j&&j.error)||('http '+r.status);break;}
-        BRF.items[j.id]=j;wins.forEach(w=>{if(w.type==='BRF'&&(w.state.period||'daily')===period)w.state.id=j.id;});break;}}
+        BRF.items[j.id+'|en']=j;wins.forEach(w=>{if(w.type==='BRF'&&(w.state.period||'daily')===period)w.state.id=j.id;});break;}}
     catch(e){BRF.fail['w:'+period]='network';}
     finally{BRF.writing[period]=false;await brfIndex(period,true);}}
   function brfMd(text,symbols,tf){const ok=new Set(symbols||[]);
@@ -1008,8 +1018,8 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const pendNote=pending?`<div class="banner" style="margin-bottom:8px"><b>SCHEDULED</b> · the ${esc(ix.label.toLowerCase())} edition for ${esc(ix.due.d)} is written automatically at ${fmtHM(ix.due.auto.writeAt)} from real data; it appears here within a few minutes.</div>`:'';
     const autoLine=`<div class="scr-count" style="margin-top:8px">Automatic writing: ${ix.automatic&&ix.automatic.lastRun?'last scheduled run '+fmtDT(ix.automatic.lastRun):'no scheduled run recorded yet'}.</div>`;
     const curId=st.id||(briefs[0]&&briefs[0].id)||null;if(curId)brfItem(curId);
-    const b=curId?BRF.items[curId]:null;
-    const list=`<div class="brf-list">${BRF.writing[period]?`<button class="on"><span class="dt">${esc(ix.due?ix.due.d:'')}</span>writing…</button>`:pending?`<button class="on" disabled><span class="dt">${esc(ix.due.d)}</span>scheduled · ${fmtHM(ix.due.auto.writeAt)}</button>`:''}${briefs.map(x=>`<button data-id="${esc(x.id)}" class="${x.id===curId?'on':''}"><span class="dt">${esc(x.d)}</span>${esc(x.title)}</button>`).join('')||(BRF.writing[period]||pending?'':`<div class="scr-count">No ${esc(ix.label.toLowerCase())} edition yet.</div>`)}${autoLine}</div>`;
+    const b=curId?BRF.items[brfKey(curId)]:null,itMissing=b&&I18N.lang()==='it'&&b.lang!=='it',lk=curId+'|it';
+    const list=`<div class="brf-list">${BRF.writing[period]?`<button class="on"><span class="dt">${esc(ix.due?ix.due.d:'')}</span>writing…</button>`:pending?`<button class="on" disabled><span class="dt">${esc(ix.due.d)}</span>scheduled · ${fmtHM(ix.due.auto.writeAt)}</button>`:''}${briefs.map(x=>`<button data-id="${esc(x.id)}" class="${x.id===curId?'on':''}"><span class="dt">${esc(x.d)}</span><span class="notranslate">${esc(I18N.lang()==='it'&&x.title_it?x.title_it:x.title)}</span></button>`).join('')||(BRF.writing[period]||pending?'':`<div class="scr-count">No ${esc(ix.label.toLowerCase())} edition yet.</div>`)}${autoLine}</div>`;
     let art='';
     if(BRF.writing[period]&&!b)art=`<div class="empty">Writing the ${esc(ix.label)} briefing for ${esc(ix.due?ix.due.d:'')} from real data… (model: Workers AI, about 20 s)</div>`;
     else if(BRF.fail['w:'+period]&&!b)art=`<div class="banner warn"><b>N/A</b> — the ${esc(ix.label.toLowerCase())} briefing could not be written: ${esc(P.errorText(BRF.fail['w:'+period]))}. No text is produced without real inputs and a working model.</div><button class="set-reset brf-retry">RETRY</button>`;
@@ -1018,8 +1028,8 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     else{const v=b.verification||{checked:0,unverified:[]},tf=ix.chipTf||'1M';
       const wl=(b.windows||[]).map((w,i)=>`<button data-win="${i}" title="${esc(w.why||'')}">${esc(w.label)}</button>`).join('');
       const issues=[];if(v.unverified&&v.unverified.length)issues.push(`${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`);if(v.removedLinks&&v.removedLinks.length)issues.push(`${v.removedLinks.length} link(s) not in the source data removed`);if(v.missingSections&&v.missingSections.length)issues.push(`missing section(s): ${esc(v.missingSections.join(', '))}`);
-      art=`<article class="brf-art"><h2>${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())}${b.writtenBy==='schedule'?' (scheduled)':''} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
-        ${brfMd(b.body,b.symbols,tf)}
+      art=(itMissing?`<div class="banner" style="margin-bottom:8px">The Italian version of this edition has not been written yet. ${BRF.loading['L:'+lk]?'<b>writing…</b>':`<button class="set-reset brf-it">WRITE IN ITALIAN</button>`}${BRF.fail['L:'+lk]?' '+esc(P.errorText(BRF.fail['L:'+lk])):''}</div>`:'')+`<article class="brf-art"><h2 class="notranslate">${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())}${b.writtenBy==='schedule'?' (scheduled)':''} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
+        <div class="brf-body notranslate">${brfMd(b.body,b.symbols,tf)}</div>
         ${wl?`<div class="brf-open"><button class="all" data-allwin="1" title="Open these windows and tile them next to the briefing">▦ Open all ${b.windows.length} as a view</button>${wl}</div>`:''}
         <div class="${issues.length?'banner warn':'scr-count'}">${issues.length?'<b>CHECK</b> — '+issues.join(' · '):`Number check: all ${v.checked} figures match the source data.`}</div>
         <div class="set-grp" style="margin-top:10px">SOURCES</div>${(b.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
@@ -1032,7 +1042,8 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     $$('[data-win]',body).forEach(x=>x.onclick=()=>brfOpenWindow(b.windows[+x.dataset.win]));
     const all=body.querySelector('[data-allwin]');if(all)all.onclick=()=>{b.windows.forEach(brfOpenWindow);bringFront(win);if(!isMobile())tileAll();};
     const rt=body.querySelector('.brf-retry');if(rt)rt.onclick=()=>{BRF.fail['w:'+period]=null;brfWrite(period);};
-    const rw=body.querySelector('.brf-rewrite');if(rw)rw.onclick=()=>{delete BRF.items[b.id];brfWrite(period,true);};}
+    const rw=body.querySelector('.brf-rewrite');if(rw)rw.onclick=()=>{delete BRF.items[b.id+'|en'];delete BRF.items[b.id+'|it'];brfWrite(period,true);};
+    const wi=body.querySelector('.brf-it');if(wi)wi.onclick=()=>brfWriteLang(b.id);}
 
   function renderHeat(body,win){const groups={},items={};UNI.forEach(t=>{(groups[t.sect]=groups[t.sect]||[]).push(t);items[t.sym]=instStatus(t);});
     let html='<div class="heat-wrap">';
@@ -1159,7 +1170,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     const list=j&&j.results?j.results:[],shown=st.all?list:list.slice(0,40);
     const rows=shown.map(x=>{const inWl=WATCH.includes(x.id),blocked=x.quotable===false;
       return`<tr><td class="l"><b>${esc(x.symbol)}</b></td><td class="l nm" title="${esc(x.name||'')}">${esc(x.name||'—')}</td><td class="l">${esc(x.exchange||(x.type||'').replace(/_/g,' '))}${x.mic?' <span class="na">'+esc(x.mic)+'</span>':''}</td><td class="l">${esc(x.country||'—')}</td><td class="l" title="${esc(x.type||'')}">${esc(TYPE_ABBR[x.type]||x.type||'—')}</td><td>${esc(x.currency||'—')}</td><td>${planChip(x)}</td>
-        <td><button class="sr-b" data-open="${esc(x.id)}" title="${blocked?'open: shown as N/A (not in the current plan)':'open the quote window (real quote + history, fetched now)'}">OPEN</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl||blocked?'disabled':''} title="${inWl?'already in the watchlist':blocked?'not in the current data plan: it would only show N/A':'add to the watchlist (checked with a real quote)'}">${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
+        <td><button class="sr-b" data-open="${esc(x.id)}" title="${blocked?'open: shown as N/A (not in the current plan)':'open the quote window (real quote + history, fetched now)'}">${tl('OPEN','APRI')}</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl||blocked?'disabled':''} title="${inWl?'already in the watchlist':blocked?'not in the current data plan: it would only show N/A':'add to the watchlist (checked with a real quote)'}">${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
     const msg=st.msg?esc(st.msg):st.loading?`Searching the provider's symbol master for “${esc(st.q)}”…`:
       st.err?`<b>N/A</b> — search unavailable: ${esc(st.err==='bad_request'?'use 1–40 letters, digits, spaces or . & \' - / :':P.errorText(st.err))}`:
       j?`${j.count} listing${j.count===1?'':'s'} · ${j.quotable} quotable on the current plan (${PLAN}) · source ${esc(j.source)} · fetched ${fmtDT(j.fetchedAt)}${j.truncated?' · provider limit reached (120 listings): a broad name can be crowded out by warrants — search the ticker instead':''}`:
@@ -1341,7 +1352,7 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
   function bringFront(w){activeId=w.id;w.z=++zTop;if(w.el)w.el.style.zIndex=w.z;$$('.tb-win').forEach(c=>c.classList.toggle('active',+c.dataset.id===activeId));}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><span class="w-tag"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
+    el.innerHTML=`<div class="win-head"><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
     deskEl.appendChild(el);w.el=el;w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
@@ -1443,6 +1454,10 @@ table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a62
     openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
     renderTape();tickClock();setInterval(tickClock,1000);setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
+    // interface language: EN / IT (remembered in this browser); data and AI briefings follow their own language
+    const paintLang=()=>$$('#cmdbar [data-lang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===I18N.lang())));
+    $$('#cmdbar [data-lang]').forEach(b=>b.onclick=()=>{if(b.dataset.lang===I18N.lang())return;I18N.set(b.dataset.lang);paintLang();renderLauncher();renderTaskbar();BRF.at={};repaintAll();updateMktsOpen();updateNextEvent();});
+    paintLang();I18N.attach();
     setTimeout(()=>loadExt('exchanges'),2500);setInterval(()=>{updateMktsOpen();if(!document.hidden)wins.forEach(w=>{if(!w.min&&w.type==='EXCH')liveRepaint(w);});},30000);
     // news: while a News window is open and the tab visible, check the sources every 5 minutes (Worker cache 5 min)
     setInterval(()=>{if(document.hidden||!wins.some(w=>w.type==='N'&&!w.min))return;loadPress();loadExt('news');},60000);

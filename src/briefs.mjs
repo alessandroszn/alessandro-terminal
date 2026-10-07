@@ -19,6 +19,16 @@ export const PERIODS = {
   weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "450 to 700", schedule: "Written automatically on Saturday mornings at 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
   monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "450 to 700", schedule: "Written automatically on the first Saturday of each month at 08:00 (Rome time).", chipTf: "6M", eq: "1M" },
 };
+// the same editions in Italian: written by the model from the same DATA (numbers keep the decimal point, so the
+// number check is the same); section names in Italian
+export const PERIODS_IT = {
+  daily: { label: "Giornaliero", sections: ["In una riga", "Azioni", "Tassi e valute", "Materie prime e cripto", "Oggi"], schedule: "Scritto automaticamente nei giorni feriali alle 07:30 (ora di Roma)." },
+  evening: { label: "Serale", sections: ["In una riga", "Com'è andata la giornata", "Cosa è cambiato da stamattina", "Domani"], schedule: "Scritto automaticamente nei giorni feriali alle 22:30 (ora di Roma), dopo la chiusura USA." },
+  weekly: { label: "Settimanale", sections: ["La settimana in un paragrafo", "Azioni", "Tassi", "Valute", "Materie prime e cripto", "Cosa l'ha mossa", "La prossima settimana"], schedule: "Scritto automaticamente il sabato alle 08:00 (ora di Roma)." },
+  monthly: { label: "Mensile", sections: ["Il mese in un paragrafo", "Azioni", "Tassi", "Valute", "Materie prime e cripto", "Cosa l'ha mosso", "Il prossimo mese"], schedule: "Scritto automaticamente il primo sabato di ogni mese alle 08:00 (ora di Roma)." },
+};
+export const LANGS = ["en", "it"];
+const DISCLAIMER = { en: "AI-written summary of the real data listed below. Not investment advice.", it: "Sintesi scritta dall'AI dai dati reali elencati sotto. Non è una consulenza finanziaria." };
 export const SLOT_MIN = { daily: 450, evening: 1350, weekly: 480, monthly: 480 }; // minutes after midnight, Rome
 export const MARKET_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD", "XAU/USD"];
 
@@ -135,19 +145,21 @@ export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, cu
   return { text: L.join("\n"), sources, symbols: [...symbols] };
 }
 
-export function systemPrompt(period) {
-  const p = PERIODS[period];
+export function systemPrompt(period, lang = "en") {
+  const p = PERIODS[period], it = lang === "it", secs = it ? PERIODS_IT[period].sections : p.sections;
   return [
-    `You write the ${p.label} markets briefing of a personal market terminal, in English, in Markdown.`,
-    "First line exactly: 'TITLE: ' followed by a headline of at most 12 words.",
-    `Then exactly these level-2 sections, in this order: ${p.sections.map((s) => "'## " + s + "'").join(", ")}.`,
+    it ? `You write the ${p.label} markets briefing of a personal market terminal, in Italian (natural, professional financial Italian, as in Il Sole 24 Ore), in Markdown.`
+      : `You write the ${p.label} markets briefing of a personal market terminal, in English, in Markdown.`,
+    it ? "First line exactly: 'TITLE: ' followed by a headline in Italian of at most 12 words." : "First line exactly: 'TITLE: ' followed by a headline of at most 12 words.",
+    `Then exactly these level-2 sections, in this order: ${secs.map((s) => "'## " + s + "'").join(", ")}.`,
+    ...(it ? ["Write every number exactly as in DATA, with the decimal point (e.g. 0.70%, 4.13%), not the decimal comma. Write 'è salito dello 0.58%' / 'è sceso dello 0.61%'. Keep tickers, instrument codes and headline titles as they are; you may describe a headline in Italian but link it with its exact URL."] : []),
     `The first section is a single sentence. Total length ${p.words} words. Short paragraphs; bullets only for lists of events.`,
     "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round numbers as written in DATA.",
     "The S&P 500 figure in DATA is an IVV-weighted average of constituent prices, not the index level: never call it the index level or give a level for it.",
     "Write tickers in backticks exactly as in DATA, e.g. `NVDA`, `EUR/USD`.",
     "When you mention a headline, link it with Markdown using its exact URL from DATA, e.g. [FT](https://www.ft.com/...). Use no other URL.",
     "If DATA has nothing for a section, write one sentence saying that data is not available. Lines starting with MORNING are the morning edition's data, for comparison.",
-    "Style: a concise note by a markets editor. Plain, varied sentences; never write 'respectively'; at most three tickers per sentence; write 'fell 0.61%' or 'rose 0.58%' (no sign after rose/fell).",
+    it ? "Style: a concise note by a markets editor. Plain, varied sentences; never write 'rispettivamente'; at most three tickers per sentence; no sign after salito/sceso." : "Style: a concise note by a markets editor. Plain, varied sentences; never write 'respectively'; at most three tickers per sentence; write 'fell 0.61%' or 'rose 0.58%' (no sign after rose/fell).",
     "Name instruments plainly: `EUR/USD` is the euro against the dollar, `BTC/USD` bitcoin, `ETH/USD` ether, `XAU/USD` gold, all in dollars.",
     "Say that something led or drove a move only when DATA shows it (CONTRIBUTION lines); otherwise just report it.",
     "Describe what happened; never predict, never recommend, no investment advice.",
@@ -160,28 +172,28 @@ export function sanitize(markdown, dataText) {
   const body = String(markdown).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => { if (dataText.includes(u)) return m; removed.push(u); return t; });
   return { body, removedLinks: removed };
 }
-export function parseOutput(text, period) {
+export function parseOutput(text, period, lang = "en") {
   const lines = String(text || "").trim().split("\n");
   let title = null;
   const i = lines.findIndex((l) => /^\s*\**TITLE:\**/i.test(l));
   if (i >= 0) { title = lines[i].replace(/^\s*\**TITLE:\**\s*/i, "").replace(/\*\*/g, "").trim(); lines.splice(i, 1); }
   const body = lines.join("\n").trim();
-  const missing = PERIODS[period].sections.filter((s) => !new RegExp(`^##\\s+${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "mi").test(body));
-  if (!title) { const first = /^##\s+[^\n]+\n+([^\n#][^\n]*)/m.exec(body); title = first ? first[1].replace(/[`*]/g, "").split(/(?<=[.!?])\s/)[0].slice(0, 160) : `${PERIODS[period].label} briefing`; }
+  const missing = (lang === "it" ? PERIODS_IT[period] : PERIODS[period]).sections.filter((s) => !new RegExp(`^##\\s+${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "mi").test(body));
+  if (!title) { const first = /^##\s+[^\n]+\n+([^\n#][^\n]*)/m.exec(body); title = first ? first[1].replace(/[`*]/g, "").split(/(?<=[.!?])\s/)[0].slice(0, 160) : lang === "it" ? `Briefing ${PERIODS_IT[period].label.toLowerCase()}` : `${PERIODS[period].label} briefing`; }
   return { title, body, missingSections: missing };
 }
 
 // windows attached to an edition (chosen by code, from the data actually used)
-export function attachWindows(period, eq) {
-  const tf = PERIODS[period].chipTf, metric = PERIODS[period].eq, w = [];
-  w.push({ type: "MAP", state: { metric, size: "weight", view: "map" }, label: `S&P 500 heat map · ${metric}`, why: "Where the moves were, by sector and index weight." });
+export function attachWindows(period, eq, lang = "en") {
+  const tf = PERIODS[period].chipTf, metric = PERIODS[period].eq, w = [], it = lang === "it";
+  w.push({ type: "MAP", state: { metric, size: "weight", view: "map" }, label: it ? `Heat map S&P 500 · ${metric}` : `S&P 500 heat map · ${metric}`, why: it ? "Dove sono stati i movimenti, per settore e peso nell'indice." : "Where the moves were, by sector and index weight." });
   if (eq && eq.n) {
     const up = eq.topContrib[0], dn = eq.bottomContrib[0];
-    if (up) w.push({ type: "GP", state: { ticker: up.sym, tf }, label: `${up.sym} · largest positive contribution`, why: `${up.name}: ${f2(up.chg)}%` });
-    if (dn) w.push({ type: "GP", state: { ticker: dn.sym, tf }, label: `${dn.sym} · largest negative contribution`, why: `${dn.name}: ${f2(dn.chg)}%` });
+    if (up) w.push({ type: "GP", state: { ticker: up.sym, tf }, label: it ? `${up.sym} · maggior contributo positivo` : `${up.sym} · largest positive contribution`, why: `${up.name}: ${f2(up.chg)}%` });
+    if (dn) w.push({ type: "GP", state: { ticker: dn.sym, tf }, label: it ? `${dn.sym} · maggior contributo negativo` : `${dn.sym} · largest negative contribution`, why: `${dn.name}: ${f2(dn.chg)}%` });
   }
-  if (period !== "evening") w.push({ type: "YLD", state: {}, label: "Government curves", why: "Levels and change of the published curves." });
-  w.push({ type: period === "evening" ? "CAL" : "MKT", state: {}, label: period === "evening" ? "Calendar" : "FX, crypto, gold", why: period === "evening" ? "What is scheduled next." : "Currencies, crypto and gold quotes." });
+  if (period !== "evening") w.push({ type: "YLD", state: {}, label: it ? "Curve dei titoli di Stato" : "Government curves", why: it ? "Livelli e variazioni delle curve pubblicate." : "Levels and change of the published curves." });
+  w.push({ type: period === "evening" ? "CAL" : "MKT", state: {}, label: period === "evening" ? (it ? "Calendario" : "Calendar") : (it ? "Valute, cripto, oro" : "FX, crypto, gold"), why: period === "evening" ? (it ? "Cosa è in programma." : "What is scheduled next.") : (it ? "Quotazioni di valute, cripto e oro." : "Currencies, crypto and gold quotes.") });
   return w;
 }
 
@@ -255,6 +267,30 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
 const IDX = (period) => `index/${period}`;
 export async function kvJson(env, key) { try { const t = await env.BRIEFS.get(key); return t ? JSON.parse(t) : null; } catch { return null; } }
 
+// one language version of an edition from the DATA lines: model → sections → links kept only if in DATA → number check
+async function compose(env, period, dataText, lang) {
+  let out = null;
+  try {
+    const r = await env.AI.run(BRIEF_MODEL, { messages: [{ role: "system", content: systemPrompt(period, lang) }, { role: "user", content: `DATA:\n${dataText}` }], max_tokens: period === "weekly" || period === "monthly" ? 1400 : 1000, temperature: 0.2 });
+    out = r && (r.response || (r.result && r.result.response));
+  } catch { /* reported by the caller */ }
+  if (!out) return null;
+  const p = parseOutput(out, period, lang), s = sanitize(p.body, dataText);
+  return { title: p.title, body: s.body, n: s.body.length, verification: { ...verifyNumbers(s.body, dataText), removedLinks: s.removedLinks, missingSections: p.missingSections }, disclaimer: DISCLAIMER[lang] };
+}
+// window labels of an edition in Italian (the windows themselves are the same)
+export function localizeWindows(windows, lang) {
+  if (lang !== "it" || !Array.isArray(windows)) return windows;
+  const T = { "Where the moves were, by sector and index weight.": "Dove sono stati i movimenti, per settore e peso nell'indice.", "Government curves": "Curve dei titoli di Stato", "Levels and change of the published curves.": "Livelli e variazioni delle curve pubblicate.", "Calendar": "Calendario", "What is scheduled next.": "Cosa è in programma.", "FX, crypto, gold": "Valute, cripto, oro", "Currencies, crypto and gold quotes.": "Quotazioni di valute, cripto e oro." };
+  return windows.map((w) => ({ ...w, label: T[w.label] || String(w.label).replace(/^S&P 500 heat map · /, "Heat map S&P 500 · ").replace(/ · largest positive contribution$/, " · maggior contributo positivo").replace(/ · largest negative contribution$/, " · maggior contributo negativo"), why: T[w.why] || w.why }));
+}
+// the edition as served in a language (falls back to English when that version does not exist)
+export function inLang(brief, lang) {
+  const v = lang === "it" && brief.i18n && brief.i18n.it;
+  if (!v) return { ...brief, lang: "en", ...(lang === "it" ? { langMissing: "it" } : {}) };
+  return { ...brief, ...v, windows: localizeWindows(brief.windows, "it"), lang: "it" };
+}
+
 export async function writeEdition(origin, env, ctx, period, edition, symbols, now, force, by = "terminal") {
   const lockKey = `lock/${edition.id}`;
   if (await env.BRIEFS.get(lockKey)) return { status: 202, body: { writing: true, id: edition.id } };
@@ -263,26 +299,43 @@ export async function writeEdition(origin, env, ctx, period, edition, symbols, n
     const g = await gather(origin, env, ctx, period, edition, symbols, now);
     const morning = period === "evening" ? (await kvJson(env, `brief/daily-${edition.d}`))?.inputData || null : null;
     const data = buildData({ period, edition, now, eq: g.eq, eqMode: g.eqMode, quotes: g.quotes, fxHist: g.fxHist, curves: g.curves, events: g.events, headlines: g.headlines, morning });
-    let out = null;
-    try {
-      const r = await env.AI.run(BRIEF_MODEL, { messages: [{ role: "system", content: systemPrompt(period) }, { role: "user", content: `DATA:\n${data.text}` }], max_tokens: period === "weekly" || period === "monthly" ? 1400 : 1000, temperature: 0.2 });
-      out = r && (r.response || (r.result && r.result.response));
-    } catch { /* reported below */ }
-    if (!out) return { status: 502, body: { error: "model_error", status: "N/A" } };
-    const p = parseOutput(out, period), s = sanitize(p.body, data.text);
+    // English and Italian from the same DATA, in parallel; the edition exists if the English one was written
+    const [en, it] = await Promise.all([compose(env, period, data.text, "en"), compose(env, period, data.text, "it")]);
+    if (!en) return { status: 502, body: { error: "model_error", status: "N/A" } };
     const brief = {
-      id: edition.id, period, d: edition.d, title: p.title, body: s.body, created: Math.floor(now / 1000), n: s.body.length,
+      id: edition.id, period, d: edition.d, title: en.title, body: en.body, created: Math.floor(now / 1000), n: en.n,
       status: "DERIVED", model: BRIEF_MODEL, provider: "Cloudflare Workers AI",
-      verification: { ...verifyNumbers(s.body, data.text), removedLinks: s.removedLinks, missingSections: p.missingSections }, writtenBy: by,
+      verification: en.verification, writtenBy: by,
       symbols: data.symbols, windows: attachWindows(period, g.eq), sources: data.sources, inputData: data.text, inputErrors: g.errors,
-      disclaimer: "AI-written summary of the real data listed below. Not investment advice.",
+      disclaimer: en.disclaimer, ...(it ? { i18n: { it } } : {}),
     };
     const idx = (await kvJson(env, IDX(period))) || [];
-    const meta = { id: brief.id, period, d: brief.d, title: brief.title, created: brief.created, n: brief.n, writtenBy: by };
+    const meta = { id: brief.id, period, d: brief.d, title: brief.title, ...(it ? { title_it: it.title } : {}), created: brief.created, n: brief.n, writtenBy: by };
     const next = [meta, ...idx.filter((x) => x.id !== brief.id)].sort((a, b) => (a.d < b.d ? 1 : -1)).slice(0, 60);
     await env.BRIEFS.put(`brief/${brief.id}`, JSON.stringify(brief));
     await env.BRIEFS.put(IDX(period), JSON.stringify(next));
     return { status: force ? 200 : 201, body: brief };
+  } finally {
+    ctx && ctx.waitUntil ? ctx.waitUntil(env.BRIEFS.delete(lockKey)) : await env.BRIEFS.delete(lockKey);
+  }
+}
+
+// a language version for an edition that has none yet: written from the edition's own stored DATA (never newer data)
+async function writeLang(env, ctx, id, lang) {
+  const brief = await kvJson(env, `brief/${id}`);
+  if (!brief) return { status: 404, body: { error: "not_found", status: "N/A" } };
+  if (brief.i18n && brief.i18n[lang]) return { status: 200, body: inLang(brief, lang) };
+  const lockKey = `lock/${id}/${lang}`;
+  if (await env.BRIEFS.get(lockKey)) return { status: 202, body: { writing: true, id } };
+  await env.BRIEFS.put(lockKey, "1", { expirationTtl: 120 });
+  try {
+    const v = await compose(env, brief.period, brief.inputData || "", lang);
+    if (!v) return { status: 502, body: { error: "model_error", status: "N/A" } };
+    brief.i18n = { ...(brief.i18n || {}), [lang]: v };
+    await env.BRIEFS.put(`brief/${id}`, JSON.stringify(brief));
+    const idx = (await kvJson(env, IDX(brief.period))) || [];
+    await env.BRIEFS.put(IDX(brief.period), JSON.stringify(idx.map((x) => (x.id === id ? { ...x, [`title_${lang}`]: v.title } : x))));
+    return { status: 201, body: inLang(brief, lang) };
   } finally {
     ctx && ctx.waitUntil ? ctx.waitUntil(env.BRIEFS.delete(lockKey)) : await env.BRIEFS.delete(lockKey);
   }
@@ -297,7 +350,15 @@ export async function handleBriefs(url, env, ctx, H, json, req) {
     const id = url.searchParams.get("id") || "";
     if (!/^(daily|evening|weekly|monthly)-\d{4}-\d{2}-\d{2}$/.test(id)) return send({ error: "bad_request" }, 400);
     const b = await kvJson(env, `brief/${id}`);
-    return b ? send(b) : send({ error: "not_found", status: "N/A" }, 404);
+    return b ? send(inLang(b, url.searchParams.get("lang") === "it" ? "it" : "en")) : send({ error: "not_found", status: "N/A" }, 404);
+  }
+  if (sub === "lang") {
+    if (req && req.method !== "POST") return send({ error: "method_not_allowed" }, 405);
+    const id = url.searchParams.get("id") || "", lang = url.searchParams.get("lang") || "";
+    if (!/^(daily|evening|weekly|monthly)-\d{4}-\d{2}-\d{2}$/.test(id) || !LANGS.includes(lang) || lang === "en") return send({ error: "bad_request" }, 400);
+    if (!env.AI || typeof env.AI.run !== "function") return send({ error: "model_unavailable", status: "N/A" }, 503);
+    const r = await writeLang(env, ctx, id, lang);
+    return send(r.body, r.status);
   }
   const period = url.searchParams.get("period") || "daily";
   if (!PERIODS[period]) return send({ error: "bad_request", message: `period must be one of ${Object.keys(PERIODS).join(",")}` }, 400);

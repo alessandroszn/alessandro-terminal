@@ -12,6 +12,7 @@ const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
 const htmlFast = html0.replace("creditsPerMin:8,", "creditsPerMin:60,");
 const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.meta.url), "utf8");
+const i18nJs = readFileSync(new URL("../public/terminal/i18n.js", import.meta.url), "utf8");
 const ORIGIN = "https://alessandrozanichelli.com";
 const SHOTS = process.env.SHOTS_DIR || null;
 const WL = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "JPM"];
@@ -125,7 +126,10 @@ const BRIEF_ITEM = (id, d, title) => ({ id, period: "daily", d, title, created: 
   sources: [{ name: "European Central Bank", timestamp: BRF_TODAY, url: "https://data.ecb.europa.eu/x" }], inputData: "EQUITY S&P 500 constituents ... +0.41%", disclaimer: "AI-written summary of the real data listed below. Not investment advice." });
 const briefsApi = (u, method, state) => {
   if (u.pathname === "/api/briefs/write") { state.writes.push(u.search); state.written = true; return { status: 201, body: BRIEF_ITEM(`daily-${BRF_TODAY}`, BRF_TODAY, "Constituents edge up while the euro slips") }; }
-  if (u.pathname === "/api/briefs/item") { const id = u.searchParams.get("id"); return { body: BRIEF_ITEM(id, id.slice(6), id.endsWith(BRF_TODAY) ? "Constituents edge up while the euro slips" : "Yesterday's edition") }; }
+  if (u.pathname === "/api/briefs/lang") { state.langPosts = (state.langPosts || 0) + 1; state.itWritten = true; const id = u.searchParams.get("id"); return { status: 201, body: { ...BRIEF_ITEM(id, id.slice(6), "Edizione di ieri"), lang: "it", body: "## In una riga\nL'euro è sceso dello 0.52%.\n## Azioni\nDati non disponibili." } }; }
+  if (u.pathname === "/api/briefs/item") { const id = u.searchParams.get("id"), it = u.searchParams.get("lang") === "it", today = id.endsWith(BRF_TODAY);
+    if (it && (today || state.itWritten)) return { body: { ...BRIEF_ITEM(id, id.slice(6), today ? "I componenti salgono mentre l'euro cede" : "Edizione di ieri"), lang: "it", body: "## In una riga\nI componenti dell'S&P 500 sono saliti dello 0.41%.\n## Azioni\n`NVDA` è salito dello 0.14%.\n## Tassi e valute\n`EUR/USD` è sceso dello 0.52%.\n## Materie prime e cripto\nDati non disponibili.\n## Oggi\n- Consumer Price Index alle 08:30 ET.", disclaimer: "Sintesi scritta dall'AI dai dati reali elencati sotto. Non è una consulenza finanziaria." } };
+    return { body: { ...BRIEF_ITEM(id, id.slice(6), today ? "Constituents edge up while the euro slips" : "Yesterday's edition"), lang: "en", ...(it ? { langMissing: "it" } : {}) } }; }
   const period = u.searchParams.get("period");
   const list = period === "daily" ? [...(state.written ? [{ id: `daily-${BRF_TODAY}`, period, d: BRF_TODAY, title: "Constituents edge up while the euro slips", created: 1, n: 400 }] : []), { id: `daily-${BRF_PREV}`, period, d: BRF_PREV, title: "Yesterday's edition", created: 1, n: 400 }] : [];
   return { body: { period, label: period[0].toUpperCase() + period.slice(1), schedule: period === "weekly" ? "Written automatically on Saturday mornings at 08:00 (Rome time)." : "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "1W",
@@ -142,7 +146,7 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 // (the owner's own PORTFOLIO is allowed: it starts empty and holds only what is entered on the site)
 const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b|\bDES\b/i;
 
-async function openTerminal(api, html = htmlFast) {
+async function openTerminal(api, html = htmlFast, init = null) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] };
   page.on("request", (r) => requests.push(r.url()));
@@ -152,6 +156,7 @@ async function openTerminal(api, html = htmlFast) {
     const u = new URL(route.request().url());
     const send = (r) => route.fulfill({ status: r.status || 200, contentType: "application/json", body: JSON.stringify(r.body) });
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
+    if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
@@ -166,6 +171,7 @@ async function openTerminal(api, html = htmlFast) {
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
   });
+  if (init) await page.addInitScript(init);
   await page.goto(ORIGIN + "/terminal/");
   return { page, requests, errors, quoteBatches, spxCalls, brfState, pfState };
 }
@@ -460,6 +466,37 @@ const OK_API = {
   const tiles = await page.$$eval(".spx-t", (t) => t.map((x) => ({ na: x.classList.contains("spx-na"), txt: x.innerText })));
   ok("[F] keys missing → NO DATA banner, all tiles N/A, no percentages", /NO DATA — price source not connected/.test(mp.text) && tiles.length === SPX_ITEMS.length && tiles.every((t) => t.na && !/%/.test(t.txt)) && !/[+-]\d+\.\d\d%/.test(mp.text) && /N\/A/.test(mp.pillTitle || ""), mp.pill + " | " + mp.pillTitle + " | " + mp.text.slice(0, 400));
   ok("[F] no JavaScript errors (keys missing)", errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== G. Italian interface: labels translated, data untouched, briefing written in Italian ===============
+{
+  const { page, errors, requests, brfState } = await openTerminal(OK_API, htmlFast, () => { try { localStorage.setItem("at-lang", "it"); } catch (e) {} });
+  await page.waitForFunction(() => /LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await page.waitForTimeout(800);
+  ok("[G] Italian: launcher, page language and toggle", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("TITOLO,CERCA,WATCHLIST,PORTAFOGLIO,MERCATI,BORSE,HEAT MAP,INDICI,RENDIMENTI,CALENDARIO,NEWS,BRIEFING") && (await page.evaluate(() => document.documentElement.lang)) === "it" && (await page.$eval('#cmdbar [data-lang="it"]', (b) => b.getAttribute("aria-pressed"))) === "true", await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")));
+  await cmd(page, "CAL"); await page.waitForTimeout(400);
+  let cal = await winOf(page, "CALENDARIO ECONOMICO");
+  ok("[G] Italian: calendar labels translated, event names as published, Italian dates", !!cal && /ORA \(LOCALE\)\s+VALUTA\s+EVENTO\s+IMPATTO\s+EFFETTIVO\s+PREVISTO\s+PRECED\./.test(cal.text) && /USD\s+CPI m\/m\s+ALTO/.test(cal.text) && /PROSSIMO ALTO IMPATTO/.test(cal.text) && /German Ifo|GDP m\/m/.test(cal.text) && /\b(LUN|MAR|MER|GIO|VEN|SAB|DOM)\b/.test(cal.text), cal && cal.text.slice(0, 600));
+  await cmd(page, "N"); await page.waitForTimeout(500);
+  const nw = await winOf(page, "NEWS");
+  ok("[G] Italian: news labels translated, headlines unchanged", /TITOLI · .*PIÙ RECENTI PRIMA/.test(nw.text) && /Test FT markets headline/.test(nw.text) && /BANCHE CENTRALI/.test(nw.text));
+  await cmd(page, "BRF"); await page.waitForTimeout(1200);
+  let br = await winOf(page, "BRIEFING");
+  ok("[G] Italian: the edition is requested and shown in Italian (sections, title, disclaimer)", requests.some((u) => /\/api\/briefs\/item\?id=daily-[\d-]+&lang=it/.test(u)) && /I componenti salgono mentre l'euro cede/.test(br.text) && /IN UNA RIGA/i.test(br.text) && /Non è una consulenza finanziaria/.test(br.text) && /Verifica delle cifre/.test(br.text), br.text.slice(0, 500));
+  await page.click('.brf-list button:not(.on)'); await page.waitForTimeout(700);
+  br = await winOf(page, "BRIEFING");
+  ok("[G] Italian: an edition without the Italian version says so and offers to write it", /La versione italiana di questa edizione non è ancora stata scritta/.test(br.text) && /SCRIVI IN ITALIANO/.test(br.text) && /Yesterday's edition/.test(br.text), br.text.slice(0, 400));
+  await page.click(".brf-it"); await page.waitForTimeout(900);
+  br = await winOf(page, "BRIEFING");
+  ok("[G] Italian: written in Italian from the edition's data on request", brfState.langPosts === 1 && /Edizione di ieri/.test(br.text) && !/non è ancora stata scritta/.test(br.text));
+  await cmd(page, "PF"); await page.waitForTimeout(600);
+  const pf = await winOf(page, "PORTAFOGLIO");
+  ok("[G] Italian: portfolio labels translated; the trade side keeps its value for the server", !!pf && /VALORE DI MERCATO/.test(pf.text) && /AGGIUNGI OPERAZIONE/.test(pf.text) && /Il portafoglio è vuoto/.test(pf.text) && (await page.$eval('.pf-form select[name="side"]', (s) => s.value)) === "BUY" && (await page.$eval('.pf-form select[name="side"] option', (o) => o.textContent)) === "ACQUISTO");
+  await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(600);
+  ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,PORTFOLIO") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[G] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 
