@@ -61,7 +61,7 @@ export function parseBoc(j) {
 
 export const BANKS = [
   { id: "ECB", name: "European Central Bank", ccy: "EUR", page: "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/key_ecb_interest_rates/html/index.en.html",
-    load: async () => { const out = {}; const f = await fetchText(ECB_RATES_URL, { timeoutMs: 15000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; for (const k of Object.keys(ECB_RATES)) { const p = parseEcbRate(f.text, k); if (p) out[k] = p; } return out.DFR ? { data: { rate: out.DFR, label: "Deposit facility rate", others: Object.fromEntries(Object.entries(out).filter(([k]) => k !== "DFR").map(([k, v]) => [ECB_RATES[k], v])) } } : { err: "no_data" }; } },
+    load: async () => { const out = {}; const f = await fetchText(ECB_RATES_URL, { timeoutMs: 25000, headers: { accept: "text/csv" } }); // the ECB API can take 10–15 s if (f.err) return { err: f.err }; for (const k of Object.keys(ECB_RATES)) { const p = parseEcbRate(f.text, k); if (p) out[k] = p; } return out.DFR ? { data: { rate: out.DFR, label: "Deposit facility rate", others: Object.fromEntries(Object.entries(out).filter(([k]) => k !== "DFR").map(([k, v]) => [ECB_RATES[k], v])) } } : { err: "no_data" }; } },
   { id: "FED", name: "Federal Reserve", ccy: "USD", page: "https://www.newyorkfed.org/markets/reference-rates/effr",
     load: async () => { const f = await fetchText(NYFED_URL, { timeoutMs: 10000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const p = parseNyFed(j); return p ? { data: { rate: { date: p.date, value: p.value }, label: "Effective federal funds rate", target: p.targetFrom != null ? { from: p.targetFrom, to: p.targetTo, previous: p.targetPrevious, changedOn: p.targetChangedOn, unchangedSince: p.targetUnchangedSince } : null } } : { err: "no_data" }; } },
   { id: "BOE", name: "Bank of England", ccy: "GBP", page: "https://www.bankofengland.co.uk/monetary-policy/the-interest-rate-bank-rate",
@@ -73,7 +73,7 @@ export const BANKS = [
 ];
 export async function handleCentralBanks(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
-  const res = await Promise.all(BANKS.map((b) => cachedSource({ origin: url.origin, key: `cb2/${b.id}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: b.load }).then((r) => ({ b, r }))));
+  const res = await Promise.all(BANKS.map((b) => cachedSource({ origin: url.origin, key: `cb3/${b.id}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 5 * 60_000, load: b.load }).then((r) => ({ b, r }))));
   const banks = res.map(({ b, r }) => ({ id: b.id, name: b.name, ccy: b.ccy, page: b.page, ...(r.data ? { ...r.data, status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) } : { status: "N/A", error: r.err }) }));
   return send({ banks, note: "Policy rates as published by each central bank, with their dates. Meetings: see the calendar (Forex Factory).", status: banks.some((b) => b.status !== "N/A") ? "LIVE" : "N/A" }, banks.some((b) => b.status !== "N/A") ? 200 : 502);
 }
@@ -87,7 +87,7 @@ export function parseSpread(text) {
 }
 export async function handleSpread(url, env, ctx, H, json) {
   const r = await cachedSource({ origin: url.origin, key: "sprd/EA2", ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
-    load: async () => { const f = await fetchText(ECB_SPRD_URL, { timeoutMs: 15000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const s = parseSpread(f.text); return s.length > 20 ? { data: s } : { err: "no_data" }; } });
+    load: async () => { const f = await fetchText(ECB_SPRD_URL, { timeoutMs: 25000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const s = parseSpread(f.text); return s.length > 20 ? { data: s } : { err: "no_data" }; } });
   const out = { series: { EA: r.data ? { name: "Euro area — AAA government bonds, 10Y minus 2Y (spot)", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", points: r.data, status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) } : { status: "N/A", error: r.err },
     US: { status: "N/A", error: "needs a FRED API key (the U.S. Treasury XML times out from the server)" } }, basis: "daily spot rates from the ECB; spread = 10Y − 2Y in basis points (DERIVED)" };
   const res = json(out, H, r.data ? 200 : 502); res.headers.set("cache-control", "no-store"); return res;
