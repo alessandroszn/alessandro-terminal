@@ -187,6 +187,13 @@
   .brf-open button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:3px 8px;font:inherit;font-size:10px;cursor:pointer}
   .brf-open button:hover{color:var(--fg);border-color:var(--amber)}
   .brf-open .all{color:var(--amber)}
+  .brf-see{display:flex;flex-direction:column;gap:2px;margin:2px 0 12px;padding:6px 10px;border-left:2px solid var(--amber);background:#ffffff06;border-radius:0 3px 3px 0}
+  .brf-see-h{font-size:9px;letter-spacing:.14em;color:var(--dim);margin-bottom:2px}
+  .brf-see button{display:flex;flex-direction:column;gap:1px;align-items:flex-start;text-align:left;background:none;border:0;color:var(--fg);font:inherit;font-size:11px;cursor:pointer;padding:2px 0;line-height:1.4}
+  .brf-see button b{color:var(--amber);font-weight:600;white-space:nowrap}
+  .brf-see button span{color:var(--muted)}
+  .brf-see button:hover span{color:var(--fg)}
+  .sys-btn.view-back{color:var(--amber);border-color:var(--amber)}
   @media (max-width:880px){.brf-wrap{grid-template-columns:1fr}.brf-list{flex-direction:row;overflow-x:auto}}
   .imp{display:inline-block;font-size:8.5px;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 4px;line-height:13px;border:1px solid var(--line-2);color:var(--muted)}
   .imp-High{color:var(--down);border-color:rgba(240,85,91,.45);background:rgba(240,85,91,.12)}
@@ -847,7 +854,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function fmtIn(ms){const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60);return h>=24?`${Math.floor(h/24)}d ${h%24}h`:h?`${h}h${String(m%60).padStart(2,'0')}`:`${m}m`;}
   function updateNextEvent(){const el=$('#nextEv');if(!el)return;const e=nextHigh();
     el.textContent=e?`${e.currency} ${e.indicator} in ${fmtIn(Date.parse(e.datetime)-Date.now())}`:'—';el.title=e?`${e.region} · ${e.indicator} · ${fmtDT(e.datetime)} (local) · impact high · source Forex Factory`:'no upcoming high-impact event in the current week';}
-  function renderCal(body,win){const st=win.state;st.view=st.view||'world';const e=EXT.calendar;loadExt('calendar');
+  function renderCal(body,win){const st=win.state;st.view=st.view||'world';if(st.ev){CALX.open=st.ev;delete st.ev;}const e=EXT.calendar;loadExt('calendar');
     const imp=CALF.imp,sel=CALF.ccy;
     const tabs=`<div class="tfbar"><button class="tf" data-cv="world" aria-pressed="${st.view==='world'}">WORLD</button><button class="tf" data-cv="us" aria-pressed="${st.view==='us'}">US OFFICIAL (BLS / BEA)</button>${st.view==='world'?`<span style="width:12px"></span><button class="tf" data-imp="3" aria-pressed="${imp===3}">HIGH IMPACT</button><button class="tf" data-imp="2" aria-pressed="${imp===2}">HIGH + MEDIUM</button><button class="tf" data-imp="0" aria-pressed="${imp===0}">ALL</button>`:''}</div>`
       +(st.view==='world'?`<div class="tfbar cal-ccy"><button class="tf" data-ccy="ALL" aria-pressed="${!sel.length}">ALL CCY</button>${CAL_CCY.map(c=>`<button class="tf" data-ccy="${c}" aria-pressed="${sel.includes(c)}">${c}</button>`).join('')}</div>`:'');
@@ -1056,8 +1063,31 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     String(text||'').split('\n').forEach(l=>{const h=/^#{1,3}\s+(.*)$/.exec(l),b=/^\s*[-*]\s+(.*)$/.exec(l);
       if(h){flush();out.push(`<h3>${inl(h[1])}</h3>`);}else if(b){if(para.length){out.push(`<p>${inl(para.join(' '))}</p>`);para=[];}(list=list||[]).push(b[1]);}else if(!l.trim())flush();else{if(list){out.push(`<ul>${list.map(li=>`<li>${inl(li)}</li>`).join('')}</ul>`);list=null;}para.push(l.trim());}});
     flush();return out.join('');}
-  function brfOpenWindow(spec){if(spec.type==='GP'){const w=openSecurity(spec.state.ticker);if(w&&spec.state.tf){w.state.tf=spec.state.tf;paintWin(w);}return;}
-    const w=openOrFocus(spec.type,Object.assign(defaultState(spec.type),spec.state||{}));if(w&&spec.state){Object.assign(w.state,spec.state);paintWin(w);}}
+  // a window attached to an edition, opened in the state the edition gives it (a heat map of another universe opens beside the first)
+  function brfOpenWindow(spec){const s=JSON.parse(JSON.stringify(spec.state||{}));let w=null;
+    const show=x=>{if(x.min)toggleMin(x);bringFront(x);paintWin(x);return x;};
+    if(spec.type==='GP'){if(!s.ticker)return null;w=openSecurity(s.ticker);if(w&&s.tf&&w.state.tf!==s.tf){w.state.tf=s.tf;paintWin(w);}}
+    else if(spec.type==='MAP'||spec.type==='EQ'){const same=wins.find(x=>x.type===spec.type&&(x.state.u||'SPX')===(s.u||'SPX'));w=same?show(Object.assign(same,{state:Object.assign(same.state,s)})):openWindow(spec.type,Object.assign(defaultState(spec.type),s));}
+    else{if(spec.type==='COMP')(s.sel||[]).forEach(x=>inst(x));if(!WINTYPES[spec.type])return null;const ex=wins.find(x=>x.type===spec.type);w=ex?show(Object.assign(ex,{state:Object.assign(ex.state,s)})):openWindow(spec.type,Object.assign(defaultState(spec.type),s));}
+    // the calendar opens scrolled to the release the edition points to
+    if(w&&spec.type==='CAL'&&s.ev)setTimeout(()=>{const r=w.bodyEl&&w.bodyEl.querySelector('tr.cal-row.open');if(r)w.bodyEl.scrollTop+=r.getBoundingClientRect().top-w.bodyEl.getBoundingClientRect().top-w.bodyEl.clientHeight/3;},250);
+    return w;}
+  // one window next to the briefing (not over it)
+  function placeBeside(w,bw){if(isMobile()||!w||!bw||w===bw||bw.max||bw.min)return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight,x=bw.x+bw.w+6;if(x+260>dw)return;
+    w.max=false;w.el.classList.remove('ismax');w.x=x;w.y=bw.y;w.w=Math.min(w.w,dw-x);w.h=Math.min(w.h,dh-w.y);applyRect(w);bringFront(w);requestAnimationFrame(()=>reflowWin(w));}
+  // "open all as a view": the briefing on the left, its windows on the right; the previous layout is kept and comes back with one click
+  const VIEW={prev:null};
+  function snapLayout(){return wins.map(w=>({type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h,min:w.min}));}
+  function brfOpenView(b,bw){const list=(b.windows||[]).slice(0,8);if(isMobile()){list.forEach(brfOpenWindow);return;}
+    if(!VIEW.prev)VIEW.prev=snapLayout();
+    wins.slice().forEach(w=>{if(w!==bw)closeWin(w,true);});
+    const dw=deskEl.clientWidth,dh=deskEl.clientHeight,lw=Math.max(380,Math.round(dw*0.38)),n=list.length,cols=n<=2?1:2,rows=Math.max(1,Math.ceil(n/cols)),cw=Math.floor((dw-lw)/cols),ch=Math.floor(dh/rows);
+    if(bw.min)toggleMin(bw);bw.max=false;bw.el.classList.remove('ismax');Object.assign(bw,{x:0,y:0,w:lw-4,h:dh-4});applyRect(bw);
+    list.forEach((spec,i)=>{const w=brfOpenWindow(spec);if(!w||w===bw)return;w.max=false;w.el.classList.remove('ismax');Object.assign(w,{x:lw+(i%cols)*cw,y:Math.floor(i/cols)*ch,w:cw-6,h:ch-6});applyRect(w);requestAnimationFrame(()=>reflowWin(w));});
+    bringFront(bw);renderTaskbar();requestAnimationFrame(()=>reflowWin(bw));}
+  function restoreLayout(){const prev=VIEW.prev;if(!prev)return;VIEW.prev=null;wins.slice().forEach(w=>closeWin(w,true));
+    prev.forEach(s=>{if(s.type==='GP')inst(s.state.ticker);const w=openWindow(s.type,s.state);Object.assign(w,{x:s.x,y:s.y,w:s.w,h:s.h});applyRect(w);if(s.min)toggleMin(w);requestAnimationFrame(()=>reflowWin(w));});
+    renderTaskbar();updateGlobal();}
   function renderBriefing(body,win){const st=win.state;st.period=st.period||'daily';const period=st.period;brfIndex(period);
     const ix=BRF.idx[period],tabs=`<div class="tfbar">${BRF_PERIODS.map(([v,l])=>`<button class="tf" data-period="${v}" aria-pressed="${v===period}">${l}</button>`).join('')}</div>`;
     const bind=()=>{$$('[data-period]',body).forEach(b=>b.onclick=()=>{st.period=b.dataset.period;st.id=null;paintWin(win);});};
@@ -1082,18 +1112,23 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       const wl=(b.windows||[]).map((w,i)=>`<button data-win="${i}" title="${esc(w.why||'')}">${esc(w.label)}</button>`).join('');
       const issues=[];if(v.unverified&&v.unverified.length)issues.push(`${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`);if(v.removedLinks&&v.removedLinks.length)issues.push(`${v.removedLinks.length} link(s) not in the source data removed`);if(v.missingSections&&v.missingSections.length)issues.push(`missing section(s): ${esc(v.missingSections.join(', '))}`);
       art=(itMissing?`<div class="banner" style="margin-bottom:8px">The Italian version of this edition has not been written yet. ${BRF.loading['L:'+lk]?'<b>writing…</b>':`<button class="set-reset brf-it">WRITE IN ITALIAN</button>`}${BRF.fail['L:'+lk]?' '+esc(P.errorText(BRF.fail['L:'+lk])):''}</div>`:'')+`<article class="brf-art"><h2 class="notranslate">${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())}${b.writtenBy==='schedule'?' (scheduled)':''} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
+        ${wl?`<div class="brf-open"><button class="all" data-allwin="1" title="Lay out the briefing on the left and these windows on the right; your layout comes back with one click">▦ Open all ${b.windows.length} as a view</button>${VIEW.prev?`<button class="all" data-restore="1">↩ back to my layout</button>`:''}${wl}</div>`:''}
         <div class="brf-body notranslate">${brfMd(b.body,b.symbols,tf)}</div>
-        ${wl?`<div class="brf-open"><button class="all" data-allwin="1" title="Open these windows and tile them next to the briefing">▦ Open all ${b.windows.length} as a view</button>${wl}</div>`:''}
         <div class="${issues.length?'banner warn':'scr-count'}">${issues.length?'<b>CHECK</b> — '+issues.join(' · '):`Number check: all ${v.checked} figures match the source data.`}</div>
         <div class="set-grp" style="margin-top:10px">SOURCES</div>${(b.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
         <details><summary class="scr-count">Input data given to the model</summary><pre class="brief-in">${esc(b.inputData||'')}</pre></details>
         <div class="scr-count">${esc(b.disclaimer||'')} ${ix.due&&ix.due.writable&&b.id===ix.due.id?'<button class="set-reset brf-rewrite" style="margin-left:8px">REWRITE</button>':''}</div></article>`;}
     body.innerHTML=tabs+`<div class="brf-wrap">${list}<div>${pendNote}${art}</div></div>`;bind();
+    // under each section, the windows that show what it says (with the reason, from the same figures)
+    if(b&&Array.isArray(b.windows)&&b.windows.some(w=>w.sectionName)){const by={};b.windows.forEach((w,i)=>{if(w.sectionName)(by[w.sectionName.trim().toLowerCase()]=by[w.sectionName.trim().toLowerCase()]||[]).push(i);});
+      $$('.brf-body h3',body).forEach(h=>{const idx=by[h.textContent.trim().toLowerCase()];if(!idx)return;let last=h;while(last.nextElementSibling&&last.nextElementSibling.tagName!=='H3')last=last.nextElementSibling;
+        const strip=document.createElement('div');strip.className='brf-see';strip.innerHTML=`<span class="brf-see-h">${tl('SEE IT','GUARDALO')}</span>`+idx.map(i=>`<button data-win="${i}" title="${tl('open next to the briefing','apri accanto al briefing')}"><b>▸ ${esc(b.windows[i].label)}</b><span>${esc(b.windows[i].why||'')}</span></button>`).join('');last.after(strip);});}
     setProv(win,{'ds:BRF':b?S.DERIVED:BRF.writing[period]||pending?S.LOADING:S.NA},'AI-written from real data');
     $$('[data-id]',body).forEach(x=>x.onclick=()=>{st.id=x.dataset.id;paintWin(win);});
     $$('.brief-sym',body).forEach(x=>x.onclick=()=>{const w=openSecurity(x.dataset.sym);if(w&&ix.chipTf){w.state.tf=ix.chipTf;paintWin(w);}});
-    $$('[data-win]',body).forEach(x=>x.onclick=()=>brfOpenWindow(b.windows[+x.dataset.win]));
-    const all=body.querySelector('[data-allwin]');if(all)all.onclick=()=>{b.windows.forEach(brfOpenWindow);bringFront(win);if(!isMobile())tileAll();};
+    $$('[data-win]',body).forEach(x=>x.onclick=()=>{const w=brfOpenWindow(b.windows[+x.dataset.win]);placeBeside(w,win);});
+    const all=body.querySelector('[data-allwin]');if(all)all.onclick=()=>brfOpenView(b,win);
+    const back=body.querySelector('[data-restore]');if(back)back.onclick=restoreLayout;
     const rt=body.querySelector('.brf-retry');if(rt)rt.onclick=()=>{BRF.fail['w:'+period]=null;brfWrite(period);};
     const rw=body.querySelector('.brf-rewrite');if(rw)rw.onclick=()=>{delete BRF.items[b.id+'|en'];delete BRF.items[b.id+'|it'];brfWrite(period,true);};
     const wi=body.querySelector('.brf-it');if(wi)wi.onclick=()=>brfWriteLang(b.id);}
@@ -1154,7 +1189,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <div class="chart-box" style="height:230px"><canvas class="cmp-chart" aria-label="Comparison chart"></canvas></div>
       <div class="cmp-legend"></div>
       <div class="chips-label">INSTRUMENTS · click to toggle · real daily closes</div>
-      <div class="chips">${UNI.map(t=>`<button class="chip" data-csym="${t.sym}" aria-pressed="${st.sel.includes(t.sym)}">${t.sym}</button>`).join('')}</div>`;
+      <div class="chips">${[...new Set(UNI.map(t=>t.sym).concat(st.sel))].map(sym=>`<button class="chip" data-csym="${sym}" aria-pressed="${st.sel.includes(sym)}">${sym}</button>`).join('')}</div>`;
     $$('[data-ctf]',body).forEach(b=>b.onclick=()=>{st.tf=b.dataset.ctf;$$('[data-ctf]',body).forEach(x=>x.setAttribute('aria-pressed',x===b));redraw();});
     $$('[data-cmode]',body).forEach(b=>b.onclick=()=>{st.mode=b.dataset.cmode;$$('[data-cmode]',body).forEach(x=>x.setAttribute('aria-pressed',x===b));redraw();});
     $$('[data-csym]',body).forEach(b=>b.onclick=()=>{const s=b.dataset.csym,i=st.sel.indexOf(s);if(i>=0)st.sel.splice(i,1);else st.sel.push(s);b.setAttribute('aria-pressed',st.sel.includes(s));DATA.ensureSeries(s);redraw();});
@@ -1423,7 +1458,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // a symbol is accepted only when the provider returns a real quote for it
   async function checkQuote(sym){if(!SYMBOL_OK.test(sym))return{err:'invalid_symbol'};const t=inst(sym);if(t.q&&fin(t.px))return{t};if(t._planBlocked)return{err:'plan_required'};
     try{await Budget.take(1);const j=await DATA.provider.quotes([sym]);applyQuotes(j,[sym]);if(!(j.quotes&&j.quotes[sym]))return{err:(j.errors&&j.errors[sym]&&j.errors[sym].error)||'provider_error'};return{t:BY[sym]};}catch(e){return{err:'network'};}}
-  function pearson(x,y){const n=Math.min(x.length,y.length);if(n<3)return null;let sx=0,sy=0;for(let i=0;i<n;i++){sx+=x[i];sy+=y[i];}const mx=sx/n,my=sy/n;let a=0,b=0,c=0;for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;a+=dx*dy;b+=dx*dx;c+=dy*dy;}return b&&c?a/Math.sqrt(b*c):null;}
+  function pearson7(x,y){const n=Math.min(x.length,y.length);if(n<3)return null;let sx=0,sy=0;for(let i=0;i<n;i++){sx+=x[i];sy+=y[i];}const mx=sx/n,my=sy/n;let a=0,b=0,c=0;for(let i=0;i<n;i++){const dx=x[i]-mx,dy=y[i]-my;a+=dx*dy;b+=dx*dx;c+=dy*dy;}return b&&c?a/Math.sqrt(b*c):null;}
   function toast(html,ms){let box=$('#toasts');if(!box){box=document.createElement('div');box.id='toasts';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
     const d=document.createElement('div');d.className='toast';d.innerHTML=html;d.title=tl('click to close','clic per chiudere');d.onclick=()=>d.remove();box.appendChild(d);setTimeout(()=>d.remove(),ms||20000);}
 
@@ -1689,7 +1724,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const m=new Map(hb.data.points.map(p=>[p.t,p.c])),al=ha.data.points.filter(p=>m.has(p.t)).map(p=>({t:p.t,a:p.c,b:m.get(p.t)}));
     if(al.length<3){setProv(win,{'ds:cross':S.NA});body.innerHTML=form+naB(tl('too few common dates','troppe poche date in comune'),'no_data');bind();return;}
     const ratio=al.map(x=>x.a/x.b),last=ratio[ratio.length-1],chg=n=>{const c=cutDate(n);const i=al.findIndex(x=>x.t>=c);return i>=0&&i<al.length-1?(last/ratio[i]-1)*100:null;};
-    const ra=[],rb=[];for(let i=1;i<al.length;i++){ra.push(al[i].a/al[i-1].a-1);rb.push(al[i].b/al[i-1].b-1);}const rho=pearson(ra,rb),ta=(al[al.length-1].a/al[0].a-1)*100,tbv=(al[al.length-1].b/al[0].b-1)*100;
+    const ra=[],rb=[];for(let i=1;i<al.length;i++){ra.push(al[i].a/al[i-1].a-1);rb.push(al[i].b/al[i-1].b-1);}const rho=pearson7(ra,rb),ta=(al[al.length-1].a/al[0].a-1)*100,tbv=(al[al.length-1].b/al[0].b-1)*100;
     const k=(l,v,c,n)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${n?`<i>${n}</i>`:''}</div>`;
     body.innerHTML=form+`<div class="pf-kpis">${k(`${esc(st.a)} / ${esc(st.b)}`,last.toPrecision(5),'',fmtDay(al[al.length-1].t))}${['1M','3M','6M','1Y'].concat(st.range==='5Y'?['5Y']:[]).map(n=>{const v=n==='5Y'?(last/ratio[0]-1)*100:chg(n);return k('Δ '+n,pctN(v),cls(v));}).join('')}${k(tl('CORRELATION','CORRELAZIONE'),rho!=null?rho.toFixed(2):'N/A','',tl('daily returns','rendimenti giornalieri'))}</div>
       <div class="chart-box" style="height:240px"><canvas class="x-cv" aria-label="ratio"></canvas></div>
@@ -1925,6 +1960,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function renderTaskbar(){const bar=$('#tabs');bar.innerHTML='';
     const fm=document.createElement('button');fm.className='sys-btn fm-btn';fm.id='fnMenuBtn';fm.textContent=tl('☰ FUNCTIONS','☰ FUNZIONI');fm.title=tl('all functions by category (m)','tutte le funzioni per categoria (m)');fm.onclick=()=>toggleMenu();bar.appendChild(fm);
     [['TILE',tileAll],['⊟ CLOSE',closeAll],['↩ UNDO',undoClose]].forEach(([lbl,fn])=>{const b=document.createElement('button');b.className='sys-btn';b.textContent=lbl;b.onclick=fn;bar.appendChild(b);});
+    if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
     const sep=document.createElement('span');sep.className='tb-sep';bar.appendChild(sep);
     if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);return;}
     wins.forEach(w=>{const c=document.createElement('button');c.className='tb-win'+(w.id===activeId?' active':'')+(w.min?' ismin':'');c.dataset.id=w.id;

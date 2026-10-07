@@ -197,6 +197,66 @@ export function attachWindows(period, eq, lang = "en") {
   return w;
 }
 
+// ---------- windows that explain the edition ----------
+// Chosen by code from the edition's own DATA, each tied to the section it explains, with a one-line reason built from
+// the same figures the text uses (so the numbers match by construction). The page shows them under their section and
+// can lay them all out next to the briefing as a view. Labels and reasons in English and Italian.
+const SECTION_OF = { daily: { eq: 1, rates: 2, fx: 2, cmd: 3, next: 4 }, evening: { eq: 1, cmd: 1, rates: 2, fx: 2, next: 3 }, weekly: { eq: 1, rates: 2, fx: 3, cmd: 4, news: 5, next: 6 }, monthly: { eq: 1, rates: 2, fx: 3, cmd: 4, news: 5, next: 6 } };
+const CB_DECISION = /federal funds rate|main refinancing rate|deposit facility rate|official bank rate|snb policy rate|overnight rate|boj policy rate|cash rate/i;
+const pc = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, pp = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)} pp`, bp = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} bp`;
+export function storyWindows(period, { eq, quotes = [], fxHist = null, curves = {}, events = [] } = {}) {
+  const P = PERIODS[period], map = SECTION_OF[period], tf = P.chipTf, metric = P.eq, out = [];
+  const add = (key, type, state, en, it) => { const i = map[key]; if (i == null) return; out.push({ type, state, section: i, sectionName: P.sections[i], sectionName_it: PERIODS_IT[period].sections[i], label: en[0], why: en[1], label_it: it[0], why_it: it[1] }); };
+  if (eq && eq.n) {
+    add("eq", "MAP", { u: "SPX", metric, size: "weight", view: "map" },
+      [`S&P 500 heat map · ${metric}`, `Constituents ${pc(eq.avg)} (IVV-weighted): ${eq.up} up, ${eq.down} down — where the moves were, by sector and weight.`],
+      [`Heat map S&P 500 · ${metric}`, `Componenti ${pc(eq.avg)} (ponderati IVV): ${eq.up} in rialzo, ${eq.down} in calo — dove sono stati i movimenti, per settore e peso.`]);
+    const best = eq.sectors[0], worst = eq.sectors[eq.sectors.length - 1], sec = best && worst && Math.abs(worst.chg) > Math.abs(best.chg) ? worst : best;
+    if (sec) { const up = sec.chg >= 0;
+      add("eq", "EQ", { u: "SPX", metric, sort: up ? "best" : "worst", sec: sec.name, q: "" },
+        [`${sec.name} · ${up ? "leading" : "lagging"} sector`, `${sec.name} ${pc(sec.chg)}, the ${up ? "strongest" : "weakest"} sector: its members, ${up ? "best" : "worst"} first.`],
+        [`${sec.name} · settore ${up ? "migliore" : "peggiore"}`, `${sec.name} ${pc(sec.chg)}, il settore ${up ? "più forte" : "più debole"}: i suoi titoli, dal ${up ? "migliore" : "peggiore"}.`]); }
+    const ups = eq.topContrib.filter((r) => r.pp > 0).slice(0, 2), dn = eq.bottomContrib.find((r) => r.pp < 0);
+    if (ups.length && dn) {
+      const sel = [...ups.map((r) => r.sym), dn.sym], ctf = period === "monthly" ? "6M" : period === "weekly" ? "3M" : "1M";
+      add("eq", "COMP", { sel, mode: "pct", tf: ctf },
+        [`${ups.map((r) => r.sym).join(", ")} vs ${dn.sym} · ${ctf}`, `${ups.map((r) => `${r.sym} (${pp(r.pp)})`).join(" and ")} added most to the move, ${dn.sym} (${pp(dn.pp)}) took most away — their last ${ctf === "1M" ? "month" : ctf === "3M" ? "three months" : "six months"}.`],
+        [`${ups.map((r) => r.sym).join(", ")} contro ${dn.sym} · ${ctf}`, `${ups.map((r) => `${r.sym} (${pp(r.pp)})`).join(" e ")} hanno aggiunto di più al movimento, ${dn.sym} (${pp(dn.pp)}) ha tolto di più — ${ctf === "1M" ? "l'ultimo mese" : ctf === "3M" ? "gli ultimi tre mesi" : "gli ultimi sei mesi"}.`]);
+    }
+    const g = eq.gainers[0], l = eq.losers[0], m = g && l ? (Math.abs(l.chg) > Math.abs(g.chg) ? l : g) : g || l;
+    if (m) { const up = m.chg >= 0;
+      add("eq", "GP", { ticker: m.sym, tf },
+        [`${m.sym} · biggest ${up ? "gain" : "drop"}`, `${m.name}: ${pc(m.chg)}, the largest ${up ? "rise" : "fall"} among the constituents.`],
+        [`${m.sym} · ${up ? "rialzo" : "ribasso"} maggiore`, `${m.name}: ${pc(m.chg)}, il ${up ? "rialzo" : "calo"} più forte tra i componenti.`]); }
+  }
+  const cv = Object.values(curves || {}).map((c) => ({ c, ten: c.points.find((p) => p.tenor === "10Y"), two: c.points.find((p) => p.tenor === "2Y") })).filter((x) => x.ten && x.ten.value != null);
+  if (cv.length) {
+    const part = (x, it) => `${x.c.id === "US" ? (it ? "USA" : "US") : it ? "area euro" : "euro-area"} 10Y ${x.ten.value.toFixed(2)}%${x.ten.changeBp != null ? ` (${bp(x.ten.changeBp)})` : ""}`;
+    add("rates", "YLD", {}, ["Yield curves vs previous publication", `${cv.map((x) => part(x, false)).join(", ")} — the dashed line is the previous curve.`],
+      ["Curve dei rendimenti contro la pubblicazione precedente", `${cv.map((x) => part(x, true)).join(", ")} — la linea tratteggiata è la curva precedente.`]);
+    const ea = cv.find((x) => x.c.id === "EA" && x.two && x.two.value != null);
+    if (ea) { const s2 = (ea.ten.value - ea.two.value) * 100;
+      add("rates", "SPRD", { range: period === "monthly" ? "1Y" : "3M" }, ["Euro-area 2s10s", `Euro-area 10Y minus 2Y at ${s2.toFixed(1)} bp (same ECB curve): how it got here.`],
+        ["2s10s dell'area euro", `Area euro 10A meno 2A a ${s2.toFixed(1)} pb (stessa curva BCE): come ci è arrivato.`]); }
+  }
+  const chgOf = (q) => (fxHist && fxHist[q.symbol] ? fxHist[q.symbol].chg : q.changePct);
+  const fx = quotes.filter((q) => /^[A-Z]{3}\/[A-Z]{3}$/.test(q.symbol) && !/^(XAU|XAG|BTC|ETH)\//.test(q.symbol) && Number.isFinite(chgOf(q))).sort((a, b) => Math.abs(chgOf(b)) - Math.abs(chgOf(a)))[0];
+  if (fx) { const span = fxHist && fxHist[fx.symbol] ? metric : "1D";
+    add("fx", "GP", { ticker: fx.symbol, tf }, [`${fx.symbol} · ${pc(chgOf(fx))} ${span}`, `${fx.symbol} ${pc(chgOf(fx))} (${span}), the largest move among the pairs; all crosses in FXM.`],
+      [`${fx.symbol} · ${pc(chgOf(fx))} ${span}`, `${fx.symbol} ${pc(chgOf(fx))} (${span}), il movimento più ampio tra le coppie; tutti i cambi incrociati in FXM.`]); }
+  const gold = quotes.find((q) => q.symbol === "XAU/USD" && Number.isFinite(chgOf(q))), btc = quotes.find((q) => q.symbol === "BTC/USD" && Number.isFinite(chgOf(q)));
+  if (gold) add("cmd", "GP", { ticker: "XAU/USD", tf }, [`Gold · ${pc(chgOf(gold))}`, `Gold at ${+Number(gold.price).toFixed(2)} USD, ${pc(chgOf(gold))} (${fxHist && fxHist["XAU/USD"] ? metric : "1D"}).`], [`Oro · ${pc(chgOf(gold))}`, `Oro a ${+Number(gold.price).toFixed(2)} USD, ${pc(chgOf(gold))} (${fxHist && fxHist["XAU/USD"] ? metric : "1D"}).`]);
+  if (btc) add("cmd", "CRYPTO", { metric, sort: "dv" }, [`Crypto board · ${metric}`, `Bitcoin ${pc(chgOf(btc))} (${fxHist && fxHist["BTC/USD"] ? metric : "1D"}); the other pairs by traded value.`], [`Quadro cripto · ${metric}`, `Bitcoin ${pc(chgOf(btc))} (${fxHist && fxHist["BTC/USD"] ? metric : "1D"}); le altre coppie per controvalore.`]);
+  const nextEv = events.filter((e) => e.id && e.datetime).sort((a, b) => Date.parse(a.datetime) - Date.parse(b.datetime))[0];
+  if (nextEv) { const fpv = (o) => (o && o.value ? o.value : null), f = fpv(nextEv.forecast), pv = fpv(nextEv.previous), when = `${nextEv.dateET}${nextEv.timeET ? " " + nextEv.timeET + " ET" : ""}`;
+    add("next", "CAL", { view: "world", ev: nextEv.id }, [`${nextEv.currency || ""} ${nextEv.indicator} · ${when}`.trim(), `${nextEv.region || ""} ${nextEv.indicator}${f ? `, forecast ${f}` : ""}${pv ? `, previous ${pv}` : ""}: the first high-impact release ahead — opened with its past releases.`.trim()],
+      [`${nextEv.currency || ""} ${nextEv.indicator} · ${when}`.trim(), `${nextEv.indicator}${f ? `, previsto ${f}` : ""}${pv ? `, precedente ${pv}` : ""}: la prima uscita ad alto impatto in arrivo — aperta con le uscite passate.`]); }
+  const cb = events.find((e) => CB_DECISION.test(e.indicator || ""));
+  if (cb) add("next", "CB", {}, [`Central banks · ${cb.indicator}`, `${cb.indicator} on ${cb.dateET}: the current policy rates and when each last changed.`], [`Banche centrali · ${cb.indicator}`, `${cb.indicator} il ${cb.dateET}: i tassi ufficiali attuali e quando sono cambiati l'ultima volta.`]);
+  if (map.news != null) add("news", "N", {}, ["Headlines", "The publishers' headlines behind the period, newest first."], ["Titoli", "I titoli degli editori dietro il periodo, i più recenti prima."]);
+  return out.sort((a, b) => a.section - b.section);
+}
+
 // ---------- inputs ----------
 export async function tdDaily(env, symbols, now, origin, ctx) {
   // weekly / monthly change for FX, crypto, gold: one batched daily series (credits = symbols)
@@ -281,6 +341,7 @@ async function compose(env, period, dataText, lang) {
 // window labels of an edition in Italian (the windows themselves are the same)
 export function localizeWindows(windows, lang) {
   if (lang !== "it" || !Array.isArray(windows)) return windows;
+  if (windows.every((w) => w.label_it)) return windows.map((w) => ({ ...w, label: w.label_it, why: w.why_it, sectionName: w.sectionName_it || w.sectionName }));
   const T = { "Where the moves were, by sector and index weight.": "Dove sono stati i movimenti, per settore e peso nell'indice.", "Government curves": "Curve dei titoli di Stato", "Levels and change of the published curves.": "Livelli e variazioni delle curve pubblicate.", "Calendar": "Calendario", "What is scheduled next.": "Cosa è in programma.", "FX, crypto, gold": "Valute, cripto, oro", "Currencies, crypto and gold quotes.": "Quotazioni di valute, cripto e oro." };
   return windows.map((w) => ({ ...w, label: T[w.label] || String(w.label).replace(/^S&P 500 heat map · /, "Heat map S&P 500 · ").replace(/ · largest positive contribution$/, " · maggior contributo positivo").replace(/ · largest negative contribution$/, " · maggior contributo negativo"), why: T[w.why] || w.why }));
 }
@@ -306,7 +367,7 @@ export async function writeEdition(origin, env, ctx, period, edition, symbols, n
       id: edition.id, period, d: edition.d, title: en.title, body: en.body, created: Math.floor(now / 1000), n: en.n,
       status: "DERIVED", model: BRIEF_MODEL, provider: "Cloudflare Workers AI",
       verification: en.verification, writtenBy: by,
-      symbols: data.symbols, windows: attachWindows(period, g.eq), sources: data.sources, inputData: data.text, inputErrors: g.errors,
+      symbols: data.symbols, windows: storyWindows(period, g), sources: data.sources, inputData: data.text, inputErrors: g.errors,
       disclaimer: en.disclaimer, ...(it ? { i18n: { it } } : {}),
     };
     const idx = (await kvJson(env, IDX(period))) || [];

@@ -97,6 +97,8 @@
     "CURRENCIES": "VALUTE", "FUTURES": "FUTURES", "REDDIT SENTIMENT": "SENTIMENT REDDIT", "MY BOARDS": "LE MIE TABELLE", "SPREADS · 2s10s": "SPREAD · 2s10s",
     "EARNINGS CALENDAR": "CALENDARIO DELLE TRIMESTRALI", "FUTURES CURVES · ENERGY": "CURVE DEI FUTURES · ENERGIA", "PRICE ALERTS": "AVVISI DI PREZZO", "NOTES": "NOTE",
     "SYSTEM STATUS": "STATO DEL SISTEMA", "EARNINGS": "TRIMESTRALI", "ALERTS": "AVVISI",
+    "↩ back to my layout": "↩ torna al mio layout",
+    "Lay out the briefing on the left and these windows on the right; your layout comes back with one click": "Il briefing a sinistra e queste finestre a destra; il tuo layout torna con un clic",
     "All functions by category (also the ☰ FUNCTIONS button, or press m)": "Tutte le funzioni per categoria (anche il pulsante ☰ FUNZIONI, o premi m)",
     "Equities: S&P 500, Nasdaq-100 and Dow 30 members with weights and changes": "Azioni: componenti di S&P 500, Nasdaq-100 e Dow 30 con pesi e variazioni",
     "Currency board and crypto board": "Quadro delle valute e quadro delle cripto",

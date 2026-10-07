@@ -2,7 +2,7 @@
 // Mocked: fetch (all sources), Cache API, KV archive, Workers AI.
 //   node test/briefs.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { dueEdition, equitySummary, buildData, parseOutput, sanitize, attachWindows, PERIODS, systemPrompt } from "../src/briefs.mjs";
+import { dueEdition, equitySummary, buildData, parseOutput, sanitize, attachWindows, storyWindows, localizeWindows, PERIODS, systemPrompt } from "../src/briefs.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -49,6 +49,20 @@ const sz = sanitize(po.body, data.text);
 ok("links: kept only if the URL is in DATA", /\[FT\]\(https:\/\/www\.ft\.com\/content\/x1\)/.test(sz.body) && !/evil\.example/.test(sz.body) && sz.removedLinks[0] === "https://evil.example.com/a");
 const w = attachWindows("daily", eq);
 ok("windows: heat map, top/bottom contributor charts, curves, markets", w[0].type === "MAP" && w[0].state.metric === "1D" && w.some((x) => x.type === "GP" && x.state.ticker === "AAA" && x.state.tf === "1W") && w.some((x) => x.type === "GP" && x.state.ticker === "BBB") && w.some((x) => x.type === "YLD"));
+// story windows: chosen from the edition's data, each tied to the section it explains, reason built from the same figures
+const CURVES = { US: { id: "US", points: [{ tenor: "2Y", value: 3.6, changeBp: 1 }, { tenor: "10Y", value: 4.13, changeBp: 3 }] }, EA: { id: "EA", points: [{ tenor: "2Y", value: 3.05, changeBp: 5.5 }, { tenor: "10Y", value: 3.52, changeBp: 1.7 }] } };
+const QUOTES = [{ symbol: "EUR/USD", price: 1.12, changePct: -0.52 }, { symbol: "USD/JPY", price: 158.1, changePct: 0.71 }, { symbol: "XAU/USD", price: 4165.24, changePct: 1.01 }, { symbol: "BTC/USD", price: 85650, changePct: -2.4 }];
+const EVENTS = [{ id: "FF-b", dateET: "2026-10-07", timeET: "10:00", datetime: "2026-10-07T14:00:00.000Z", currency: "USD", region: "United States", indicator: "Federal Funds Rate", forecast: { value: "4.00%" }, previous: { value: "3.75%" } }, { id: "FF-a", dateET: "2026-10-07", timeET: "08:30", datetime: "2026-10-07T12:30:00.000Z", currency: "USD", region: "United States", indicator: "CPI m/m", forecast: { value: "0.3%" }, previous: { value: "0.2%" } }];
+const sw = storyWindows("daily", { eq, quotes: QUOTES, curves: CURVES, events: EVENTS });
+const byT = (t) => sw.filter((x) => x.type === t);
+ok("story windows: each tied to a section of the edition, in section order", sw.every((x) => PERIODS.daily.sections[x.section] === x.sectionName && x.sectionName_it) && sw.every((x, i) => !i || sw[i - 1].section <= x.section) && byT("MAP")[0].section === 1 && byT("YLD")[0].section === 2 && byT("CAL")[0].section === 4, JSON.stringify(sw.map((x) => [x.type, x.section])));
+ok("story windows: heat map reason = the edition's own figures (average, advancers, decliners)", byT("MAP")[0].why.includes(`${eq.up} up, ${eq.down} down`) && /\+0\.70%/.test(byT("MAP")[0].why));
+ok("story windows: contributors compared (two that added, one that took away), biggest mover chart", byT("COMP")[0] && byT("COMP")[0].state.sel.length === 3 && byT("COMP")[0].state.sel[2] === eq.bottomContrib.find((r) => r.pp < 0).sym && byT("GP").some((x) => x.section === 1));
+ok("story windows: largest FX move (USD/JPY), gold, crypto board, curves with 10Y levels, EA 2s10s", byT("GP").some((x) => x.state.ticker === "USD/JPY" && /\+0\.71%/.test(x.why)) && byT("GP").some((x) => x.state.ticker === "XAU/USD" && x.section === 3) && byT("CRYPTO")[0] && /US 10Y 4\.13% \(\+3\.0 bp\)/.test(byT("YLD")[0].why) && /47\.0 bp/.test(byT("SPRD")[0].why), JSON.stringify(sw.map((x) => x.why)));
+ok("story windows: the first high-impact event opens in the calendar; a rate decision adds the central banks", byT("CAL")[0].state.ev === "FF-a" && /CPI m\/m, forecast 0\.3%, previous 0\.2%/.test(byT("CAL")[0].why) && byT("CB")[0] && /Federal Funds Rate/.test(byT("CB")[0].label));
+ok("story windows: nothing without data (no equities, no curves, no quotes, no events → none)", storyWindows("daily", {}).length === 0 && storyWindows("weekly", {}).some((x) => x.type === "N") === true && storyWindows("weekly", {}).length === 1);
+const swIt = localizeWindows(sw, "it");
+ok("story windows in Italian: labels, reasons and section names", swIt.every((x) => x.label === x.label_it && x.why === x.why_it) && byT("MAP").length && /in rialzo/.test(swIt.find((x) => x.type === "MAP").why) && swIt.find((x) => x.type === "MAP").sectionName === "Azioni");
 
 // ---------- endpoints (KV + AI mocked; sources unreachable except the quote cache) ----------
 const FIXED = at("2026-10-07T07:00:00Z"); Date.now = () => FIXED; // Wednesday 09:00 Rome: the daily edition is due and writable
@@ -89,7 +103,7 @@ r = await call("/api/briefs/write?period=daily&force=1", "POST");
 ok("a write in progress → 202, no second model call", r.status === 202 && aiCalls.length === 2);
 kv.delete(`lock/${dueId}`);
 r = await call(`/api/briefs/item?id=${dueId}&lang=it`);
-ok("Italian version: Italian title, sections and disclaimer; same number check (decimal point kept); windows labelled in Italian", r.j.lang === "it" && /euro cede/.test(r.j.title) && /## In una riga/.test(r.j.body) && r.j.verification.missingSections.length === 0 && r.j.verification.checked === 2 && r.j.verification.unverified.length === 0 && /Non è una consulenza/.test(r.j.disclaimer) && r.j.windows.some((w) => /Heat map S&P 500/.test(w.label)) && r.j.inputData === JSON.parse(kv.get(`brief/${dueId}`)).inputData, JSON.stringify({lang:r.j.lang,title:r.j.title,v:r.j.verification,w:(r.j.windows||[]).map((w)=>w.label)}));
+ok("Italian version: Italian title, sections and disclaimer; same number check (decimal point kept); windows labelled in Italian", r.j.lang === "it" && /euro cede/.test(r.j.title) && /## In una riga/.test(r.j.body) && r.j.verification.missingSections.length === 0 && r.j.verification.checked === 2 && r.j.verification.unverified.length === 0 && /Non è una consulenza/.test(r.j.disclaimer) && r.j.windows.length > 0 && r.j.windows.every((w) => w.label === w.label_it && w.why === w.why_it) && r.j.inputData === JSON.parse(kv.get(`brief/${dueId}`)).inputData, JSON.stringify({lang:r.j.lang,title:r.j.title,v:r.j.verification,w:(r.j.windows||[]).map((w)=>w.label)}));
 r = await call(`/api/briefs/item?id=${dueId}`);
 ok("English version unchanged by default", r.j.lang === "en" && /## In one line/.test(r.j.body));
 r = await call("/api/briefs?period=daily");
