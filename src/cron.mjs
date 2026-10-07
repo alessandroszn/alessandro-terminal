@@ -11,6 +11,7 @@ import { kvStore, easternDate } from "./lib.mjs";
 import { romeNow, isSlotDay, SLOT_MIN, MARKET_SYMS, PERIODS, dueEdition, writeEdition, kvJson, tdDaily, tdDailyKey, WRITE_OFFSET, WRITE_RETRY } from "./briefs.mjs";
 import { getUniverse, getCloses, alpacaConfigured, refTarget } from "./spx.mjs";
 import { getYieldCurves } from "./yields.mjs";
+import { BRIEF_CURVES } from "./briefs.mjs";
 import { getWorldCalendar, getCalendar, archiveFF } from "./calendar.mjs";
 import { getPress, PRESS } from "./press.mjs";
 
@@ -26,7 +27,7 @@ export function stepsFor(periods) {
   if (has("weekly")) s.push("ref:1W");
   if (has("monthly")) s.push("ref:1M");
   if (has("weekly") || has("monthly")) s.push("fxdaily");
-  s.push("yields", "calendar", ...Object.keys(PRESS).map((id) => "press:" + id));
+  s.push("yields", ...BRIEF_CURVES.filter((id) => id !== "US" && id !== "EA").map((id) => "bonds:" + id), "calendar", ...Object.keys(PRESS).map((id) => "press:" + id));
   if (!has("evening")) s.push("closes");
   s.push("fx", "retry", "retry");
   return s;
@@ -57,7 +58,8 @@ export async function isStaged(step, plan, store, now) {
   if (step === "closes") return fresh(await store.get(closesKey(now)), plan.periods.includes("evening") ? plan.slotAt : since);
   if (step.startsWith("ref:")) { const ref = step.slice(4); return fresh(await store.get(`spx/closes/${ref}/${refTarget(ref, easternDate(new Date(now)))}`), now - 24 * 3600_000); }
   if (step === "fxdaily") return !!(await store.get(tdDailyKey(now)));
-  if (step === "yields") return (await Promise.all(["yields/ea", "yields/us"].map((k) => store.get(k)))).some((e) => fresh(e, since));
+  if (step === "yields") return (await Promise.all(["yields/ea", "yields/us", "yields/us-fred"].map((k) => store.get(k)))).some((e) => fresh(e, since));
+  if (step.startsWith("bonds:")) return fresh(await store.get(`yields/${step.slice(6).toLowerCase()}`), since);
   if (step === "calendar") return (await Promise.all(["calendar/FF", "calendar/BLS"].map((k) => store.get(k)))).some((e) => fresh(e, since));
   if (step.startsWith("press:")) { const id = step.slice(6); return (await Promise.all(PRESS[id].feeds.map(([sec]) => store.get(`press/${id}/${sec}`)))).some((e) => fresh(e, since)); }
   if (step === "fx") return (await Promise.all(MARKET_SYMS.map((s) => store.get(`quote/${encodeURIComponent(s)}`)))).every((e) => fresh(e, since));
@@ -76,7 +78,8 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
     return ok(await getCloses(origin, env, sctx, step === "closes" ? "recent" : step.slice(4), u.data.items.map((x) => x.sym), now));
   }
   if (step === "fxdaily") return (await tdDaily(env, MARKET_SYMS, now, origin, sctx)) ? "ok" : "no_data";
-  if (step === "yields") return ok(await getYieldCurves(origin, sctx, now));
+  if (step === "yields") return ok(await getYieldCurves(origin, sctx, now, env));
+  if (step.startsWith("bonds:")) return ok(await getYieldCurves(origin, sctx, now, env, [step.slice(6)])); // one country per run
   if (step === "calendar") { const w = await getWorldCalendar(origin, sctx, now); if (w.data) await archiveFF(env, w.data).catch(() => null); if (w.events.length) return "ok"; const c = await getCalendar(origin, sctx, now); return c.events.length ? "ok_us_only" : w.err || "no_data"; }
   if (step.startsWith("press:")) return ok(await getPress(origin, sctx, step.slice(6)));
   if (step === "fx") {

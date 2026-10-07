@@ -54,7 +54,7 @@ ok("xlsx reader: deflated shared strings (rich text, entities), stored sheet, in
 // ---------- fixed lists ----------
 ok("sector map: the 11 SPDR Select Sector ETFs", SECTOR_ETFS.length === 11 && SECTOR_ETFS.every((x) => /^XL[A-Z]{1,2}$/.test(x.sym)));
 ok("country map: country ETFs grouped by region, named by country, no weights invented", COUNTRY_ETFS.length >= 30 && COUNTRY_ETFS.find((x) => x.sym === "EWI").short === "ITALY" && COUNTRY_ETFS.every((x) => x.weight === null && x.sector));
-ok("universes: SPX, NDX, DJI, SECT, CTRY, CRYPTO", Object.keys(UNIVERSES).join() === "SPX,NDX,DJI,SECT,CTRY,CRYPTO");
+ok("universes: SPX, NDX, DJI, SECT, CTRY, ETF, CRYPTO", Object.keys(UNIVERSES).join() === "SPX,NDX,DJI,SECT,CTRY,ETF,CRYPTO");
 
 // ---------- crypto: only completed UTC days are closes ----------
 const NOW = Date.parse("2026-10-07T10:00:00Z");

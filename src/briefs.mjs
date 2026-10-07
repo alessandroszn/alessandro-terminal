@@ -31,6 +31,8 @@ export const LANGS = ["en", "it"];
 const DISCLAIMER = { en: "AI-written summary of the real data listed below. Not investment advice.", it: "Sintesi scritta dall'AI dai dati reali elencati sotto. Non è una consulenza finanziaria." };
 export const SLOT_MIN = { daily: 450, evening: 1350, weekly: 480, monthly: 480 }; // minutes after midnight, Rome
 export const MARKET_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD", "XAU/USD"];
+// government curves in the editions (each staged in its own minute by the scheduled run)
+export const BRIEF_CURVES = ["US", "EA", "DE", "UK", "JP"];
 
 // ---------- edition schedule (Europe/Rome) ----------
 export function romeNow(now = Date.now()) {
@@ -229,9 +231,9 @@ export function storyWindows(period, { eq, quotes = [], fxHist = null, curves = 
         [`${m.sym} · biggest ${up ? "gain" : "drop"}`, `${m.name}: ${pc(m.chg)}, the largest ${up ? "rise" : "fall"} among the constituents.`],
         [`${m.sym} · ${up ? "rialzo" : "ribasso"} maggiore`, `${m.name}: ${pc(m.chg)}, il ${up ? "rialzo" : "calo"} più forte tra i componenti.`]); }
   }
-  const cv = Object.values(curves || {}).map((c) => ({ c, ten: c.points.find((p) => p.tenor === "10Y"), two: c.points.find((p) => p.tenor === "2Y") })).filter((x) => x.ten && x.ten.value != null);
+  const cv = ["US", "EA", "DE", "UK"].map((id) => (curves || {})[id]).filter(Boolean).map((c) => ({ c, ten: c.points.find((p) => p.tenor === "10Y"), two: c.points.find((p) => p.tenor === "2Y") })).filter((x) => x.ten && x.ten.value != null);
   if (cv.length) {
-    const part = (x, it) => `${x.c.id === "US" ? (it ? "USA" : "US") : it ? "area euro" : "euro-area"} 10Y ${x.ten.value.toFixed(2)}%${x.ten.changeBp != null ? ` (${bp(x.ten.changeBp)})` : ""}`;
+    const part = (x, it) => `${{ US: it ? "USA" : "US", EA: it ? "area euro" : "euro-area", DE: it ? "Germania" : "Germany", UK: it ? "Regno Unito" : "UK" }[x.c.id]} 10Y ${x.ten.value.toFixed(2)}%${x.ten.changeBp != null ? ` (${bp(x.ten.changeBp)})` : ""}`;
     add("rates", "YLD", {}, ["Yield curves vs previous publication", `${cv.map((x) => part(x, false)).join(", ")} — the dashed line is the previous curve.`],
       ["Curve dei rendimenti contro la pubblicazione precedente", `${cv.map((x) => part(x, true)).join(", ")} — la linea tratteggiata è la curva precedente.`]);
     const ea = cv.find((x) => x.c.id === "EA" && x.two && x.two.value != null);
@@ -313,7 +315,7 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
     if (series) { const refDate = addDays(edition.d, period === "weekly" ? -7 : -30); fxHist = Object.fromEntries(MARKET_SYMS.map((s) => [s, periodChange(series[s], refDate)]).filter(([, v]) => v)); }
   }
   const nHead = period === "weekly" || period === "monthly" ? 24 : 16;
-  const [y, world, headlines] = await Promise.all([getYieldCurves(origin, ctx, now), getWorldCalendar(origin, ctx, now), topHeadlines(origin, ctx, nHead)]);
+  const [y, world, headlines] = await Promise.all([getYieldCurves(origin, ctx, now, env, BRIEF_CURVES), getWorldCalendar(origin, ctx, now), topHeadlines(origin, ctx, nHead)]);
   // world high-impact events (Forex Factory); the US official schedules only if that source is unavailable
   const cal = world.events.length ? { events: world.events.filter((e) => e.impact === "High") } : await getCalendar(origin, ctx, now);
   if (!world.events.length) errors.calendarWorld = world.err || "no_data";

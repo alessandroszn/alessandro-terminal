@@ -183,6 +183,20 @@ export const COUNTRY_ETFS = [
   ["Asia-Pacific", [["EWJ", "Japan"], ["MCHI", "China"], ["EWH", "Hong Kong"], ["EWT", "Taiwan"], ["EWY", "South Korea"], ["INDA", "India"], ["EWA", "Australia"], ["EWS", "Singapore"], ["EWM", "Malaysia"], ["EIDO", "Indonesia"], ["THD", "Thailand"], ["EPHE", "Philippines"], ["ENZL", "New Zealand"]]],
   ["Middle East & Africa", [["EIS", "Israel"], ["KSA", "Saudi Arabia"], ["QAT", "Qatar"], ["UAE", "United Arab Emirates"], ["EZA", "South Africa"]]],
 ].flatMap(([g, list]) => list.map(([s, c, issuer]) => etf(s, `${c} — ${issuer || "iShares MSCI " + c} (${s})`, g, c.toUpperCase())));
+// ETFs by asset class (fixed list; chosen with TradingView's most traded / largest lists as a reference). ETF prices,
+// never shown as the price of the asset they hold.
+export const ASSET_ETFS = [
+  ["US equity", [["SPY", "SPDR S&P 500"], ["VOO", "Vanguard S&P 500"], ["QQQ", "Invesco QQQ (Nasdaq-100)"], ["DIA", "SPDR Dow Jones Industrial Average"], ["IWM", "iShares Russell 2000"], ["VTI", "Vanguard Total Stock Market"], ["RSP", "Invesco S&P 500 Equal Weight"]]],
+  ["Factors", [["MTUM", "iShares MSCI USA Momentum"], ["QUAL", "iShares MSCI USA Quality"], ["USMV", "iShares MSCI USA Min Vol"], ["VLUE", "iShares MSCI USA Value"], ["SCHD", "Schwab US Dividend Equity"]]],
+  ["Treasuries", [["SGOV", "iShares 0-3 Month Treasury"], ["BIL", "SPDR 1-3 Month T-Bill"], ["SHY", "iShares 1-3 Year Treasury"], ["IEI", "iShares 3-7 Year Treasury"], ["IEF", "iShares 7-10 Year Treasury"], ["TLT", "iShares 20+ Year Treasury"], ["TIP", "iShares TIPS"], ["GOVT", "iShares US Treasury"]]],
+  ["Credit and aggregate", [["AGG", "iShares Core US Aggregate"], ["BND", "Vanguard Total Bond Market"], ["LQD", "iShares Investment Grade Corporate"], ["HYG", "iShares High Yield Corporate"], ["JNK", "SPDR High Yield"], ["EMB", "iShares JP Morgan USD Emerging Markets"], ["MUB", "iShares National Muni"], ["BNDX", "Vanguard Total International Bond"]]],
+  ["Commodities", [["GLD", "SPDR Gold Shares"], ["IAU", "iShares Gold Trust"], ["SLV", "iShares Silver Trust"], ["PPLT", "abrdn Platinum"], ["CPER", "US Copper Index"], ["USO", "United States Oil"], ["BNO", "United States Brent Oil"], ["UNG", "United States Natural Gas"], ["DBA", "Invesco DB Agriculture"], ["DBC", "Invesco DB Commodity Index"], ["PDBC", "Invesco Optimum Yield Diversified Commodity"]]],
+  ["Real estate", [["VNQ", "Vanguard Real Estate"], ["VNQI", "Vanguard Global ex-US Real Estate"]]],
+  ["International", [["VXUS", "Vanguard Total International Stock"], ["EFA", "iShares MSCI EAFE"], ["EEM", "iShares MSCI Emerging Markets"], ["VGK", "Vanguard FTSE Europe"], ["EWJ", "iShares MSCI Japan"], ["MCHI", "iShares MSCI China"]]],
+  ["Currencies", [["UUP", "Invesco DB US Dollar Bullish"], ["FXE", "Invesco CurrencyShares Euro"], ["FXY", "Invesco CurrencyShares Yen"], ["FXB", "Invesco CurrencyShares Pound"], ["FXF", "Invesco CurrencyShares Swiss Franc"]]],
+  ["Volatility", [["VIXY", "ProShares VIX Short-Term Futures"]]],
+  ["Crypto", [["IBIT", "iShares Bitcoin Trust"], ["FBTC", "Fidelity Wise Origin Bitcoin"], ["ETHA", "iShares Ethereum Trust"]]],
+].flatMap(([g, list]) => list.map(([s, n]) => etf(s, `${n} (${s})`, g, s)));
 export const CRYPTO_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "AVAX", "LINK", "LTC", "BCH", "DOT", "UNI", "AAVE", "SHIB", "PEPE", "XTZ", "CRV", "GRT", "BAT", "SUSHI", "YFI", "TRUMP"]
   .map((c) => ({ sym: `${c}/USD`, name: `${c} / US dollar`, sector: "Crypto", short: c, weight: null }));
 
@@ -231,6 +245,7 @@ export const UNIVERSES = {
     load: async () => { const f = await fetchBinary(DIA_URL, { timeoutMs: 12000 }); if (f.err) return { err: f.err }; try { return { data: parseSpdrRows(await xlsxRows(f.buf)) }; } catch { return { err: "provider_error" }; } } },
   SECT: { label: "US sectors (SPDR sector ETFs)", kind: "stocks", static: SECTOR_ETFS, source: "SPDR Select Sector ETFs (fixed list)", weightBasis: "none — size: traded value or equal" },
   CTRY: { label: "Countries (single-country ETFs in New York)", kind: "stocks", static: COUNTRY_ETFS, source: "single-country ETFs listed in New York (fixed list)", weightBasis: "none — size: traded value or equal" },
+  ETF: { label: "ETFs by asset class", kind: "stocks", static: ASSET_ETFS, source: "ETFs by asset class (fixed list)", weightBasis: "none — size: traded value or equal" },
   CRYPTO: { label: "Crypto (USD pairs)", kind: "crypto", static: CRYPTO_PAIRS, source: "Alpaca crypto USD pairs (fixed list)", weightBasis: "none — size: traded value or equal" },
 };
 

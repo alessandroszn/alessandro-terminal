@@ -82,7 +82,7 @@ export async function handleBriefing(url, env, ctx, H, json) {
     const e = await cacheRead(url.origin, `quote/${encodeURIComponent(s)}`);
     if (e && e.rec && now - e.fetchedAt < 24 * 3600_000) quotes.push({ symbol: s, name: e.rec.name, price: e.rec.price, changePct: e.rec.changePct, prevClose: e.rec.prevClose, currency: e.rec.currency, timestamp: e.rec.asOf });
   }
-  const [y, cal, news] = await Promise.all([getYieldCurves(url.origin, ctx, now), getCalendar(url.origin, ctx, now), topHeadlines(url.origin, ctx, 8)]);
+  const [y, cal, news] = await Promise.all([getYieldCurves(url.origin, ctx, now, env), getCalendar(url.origin, ctx, now), topHeadlines(url.origin, ctx, 8)]);
   const data = buildBriefingData({ quotes, curves: y.curves, events: cal.events, headlines: news, now });
   if (!data.text) return json({ error: "no_input_data", status: "N/A" }, H, 503);
 

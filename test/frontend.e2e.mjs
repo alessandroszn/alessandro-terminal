@@ -85,6 +85,11 @@ const SPX_LIVE = { NVDA: 240.72, AAPL: 326.7, MSFT: 520, AMZN: 257.5, GOOGL: 340
 const CTRY_ITEMS = [{ sym: "EWI", name: "Italy — iShares MSCI Italy (EWI)", sector: "Europe", short: "ITALY", weight: null }, { sym: "EWJ", name: "Japan — iShares MSCI Japan (EWJ)", sector: "Asia-Pacific", short: "JAPAN", weight: null }];
 const spxApi = (path, u, { configured = true } = {}) => {
   const now = new Date().toISOString();
+  if (u.searchParams.get("u") === "ETF") {
+    if (path === "/api/spx/universe") return { body: { universe: "ETF", source: "ETFs by asset class (fixed list)", count: 3, items: [{ sym: "SPY", name: "SPDR S&P 500 (SPY)", sector: "US equity", short: "SPY", weight: null }, { sym: "TLT", name: "iShares 20+ Year Treasury (TLT)", sector: "Treasuries", short: "TLT", weight: null }, { sym: "HYG", name: "iShares High Yield Corporate (HYG)", sector: "Credit and aggregate", short: "HYG", weight: null }], fetchedAt: now, status: "LIVE" } };
+    if (path === "/api/spx/live") return { body: { universe: "ETF", trades: { SPY: [671.2, now], TLT: [88.4, now], HYG: [80.1, now] }, live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
+    return { body: { universe: "ETF", ref: "recent", todayET: ET, todayBarFinal: false, closes: { SPY: [[dShift(ET, -2), 660], [dShift(ET, -1), 668, 4e10]], TLT: [[dShift(ET, -2), 89], [dShift(ET, -1), 89.3, 2e9]], HYG: [[dShift(ET, -2), 80], [dShift(ET, -1), 80.1, 1e9]] }, fetchedAt: now, status: "LIVE" } };
+  }
   if (u.searchParams.get("u") === "CRYPTO") {
     if (path === "/api/spx/universe") return { body: { universe: "CRYPTO", source: "Alpaca crypto USD pairs (fixed list)", count: 2, items: [{ sym: "BTC/USD", name: "BTC / US dollar", sector: "Crypto", short: "BTC", weight: null }, { sym: "ETH/USD", name: "ETH / US dollar", sector: "Crypto", short: "ETH", weight: null }], fetchedAt: now, status: "LIVE" } };
     if (path === "/api/spx/live") return { body: { universe: "CRYPTO", trades: { "BTC/USD": [86000, now], "ETH/USD": [2650, now] }, live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
@@ -179,6 +184,19 @@ const DES_FACTS = { revenue: FACT("Revenue", "USD", 416161e6, 391035e6, 94036e6)
 const OPT_EXP = () => ({ symbol: "AAPL", spot: { price: 251.2, time: T7_NOW() }, expirations: [{ exp: dShift(today, 9), contractsNearSpot: 40 }, { exp: dShift(today, 37), contractsNearSpot: 36 }], status: "LIVE" });
 const OPT_CHAIN = (exp) => ({ symbol: "AAPL", exp, spot: { price: 251.2, time: T7_NOW() }, rows: [240, 250, 260].map((k) => ({ strike: k, call: { bid: +(14 - (k - 240) / 2).toFixed(2), ask: +(14.3 - (k - 240) / 2).toFixed(2), last: +(14.1 - (k - 240) / 2).toFixed(2), iv: 0.27, delta: +(0.7 - (k - 240) / 50).toFixed(2), oi: 1200 }, put: { bid: +(3 + (k - 240) / 2).toFixed(2), ask: +(3.2 + (k - 240) / 2).toFixed(2), last: null, iv: 0.29, delta: +(-0.3 - (k - 240) / 50).toFixed(2), oi: 800 } })), feed: "Alpaca indicative options feed (free; derived from OPRA, delayed) — not the consolidated quote", fetchedAt: T7_NOW(), status: "LIVE" });
 const STATUS_FIX = () => ({ sources: [{ id: "twelvedata", name: "Twelve Data", use: "quotes", configured: true }, { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: false }, { id: "eia", name: "U.S. EIA", use: "energy", configured: true }], twelvedata: { minute: { used: 3, limit: 8 }, day: { used: 120, limit: 800 }, plan: "basic", fetchedAt: T7_NOW(), status: "LIVE" }, scheduler: { lastRun: { at: T7_NOW(), periods: ["daily"] }, schedule: "Cron Triggers" }, serverTime: T7_NOW() });
+const TN = (v, d1, w1, m1, note) => ({ value: v, d1, w1, m1, date: today, ...(note ? { note } : {}) });
+const BONDS_FIX = (noFred) => ({ tenors: ["2Y", "5Y", "10Y", "20Y", "30Y"], notConnected: ["Italy", "France"], spreads: [{ id: "UK", tenor: "10Y", bp: 184, date: today }],
+  countries: [
+    { id: "US", name: "United States — Treasury constant maturity", kind: "constant-maturity yield (Federal Reserve H.15), daily", source: "FRED · Federal Reserve H.15", sourceUrl: "https://fred.stlouisfed.org/x", date: today, status: "LIVE", tenors: { "2Y": TN(3.6, 1, 5, -10), "10Y": TN(4.13, 3, 8, 12), "30Y": TN(4.7, 2, 6, 9) } },
+    { id: "DE", name: "Germany — Federal securities (Bunds)", kind: "yield from the term structure (Svensson), daily", source: "Deutsche Bundesbank", sourceUrl: "https://www.bundesbank.de/x", date: today, status: "LIVE", tenors: { "2Y": TN(3.06, -2, 4, 11), "10Y": TN(3.52, 3, 8, 22), "30Y": TN(3.86, 4, 9, 20) } },
+    { id: "UK", name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/x", date: today, status: "LIVE", tenors: { "5Y": TN(4.93, 4, 10, 15), "10Y": TN(5.36, 3, 7, 19), "20Y": TN(5.74, 5, 9, 25) } },
+    { id: "CH", name: "Switzerland — Confederation bonds", kind: "yield of the Confederation bond nearest each maturity", source: "Swiss National Bank", sourceUrl: "https://data.snb.ch/x", date: dShift(today, -7), status: "LIVE", tenors: { "10Y": TN(0.71, null, 2, 5, "Confederation bond V13_1, 9.6 years to maturity") } },
+    { id: "CA", name: "Canada — benchmark bonds", source: "Bank of Canada", sourceUrl: "https://www.bankofcanada.ca/x", status: "N/A", error: "provider_timeout" }],
+  fred: noFred ? { status: "N/A", error: "fred_not_configured" } : { status: "LIVE", source: "FRED", groups: [{ group: "Inflation", rows: [{ id: "T10YIE", name: "10-year breakeven inflation", unit: "%", value: 2.31, d1: 1, w1: -2, m1: 5, date: today, status: "LIVE" }] }, { group: "Credit", rows: [{ id: "BAMLH0A0HYM2", name: "US high yield — option-adjusted spread (ICE BofA)", unit: "bp", value: 3.05, d1: 5, w1: 12, m1: -20, date: today, status: "LIVE" }] }] } });
+const COT_FIX = () => ({ report: "Commitments of Traders — legacy, futures only", source: "U.S. Commodity Futures Trading Commission", sourceUrl: "https://www.cftc.gov/x", status: "LIVE", contracts: [
+  { code: "13874A", name: "E-mini S&P 500", group: "Equity indices", root: "ES", date: "2026-09-29", oi: 1895922, long: 209587, short: 352086, net: -142499, commNet: 35281, chg1w: -9271, chg4w: 12000, netPctOi: -7.5, range: { weeks: 26, min: -200000, max: -100000, pos: 58 }, history: [-150000, -140000, -133228, -142499] },
+  { code: "088691", name: "Gold", group: "Metals", root: "GC", date: "2026-09-29", oi: 406456, long: 249736, short: 31104, net: 218632, commNet: -250967, chg1w: -7221, chg4w: 5000, netPctOi: 53.8, range: { weeks: 26, min: 150000, max: 230000, pos: 86 }, history: [210000, 225853, 218632] },
+  { code: "133741", name: "Bitcoin", group: "Crypto", root: "BTC", status: "N/A" }] });
 const t07Api = (u, method, body, st) => {
   const p = u.pathname; st.calls.push(method + " " + p + u.search);
   if (p === "/api/cb") return { body: CB_FIX() };
@@ -191,6 +209,8 @@ const t07Api = (u, method, body, st) => {
   if (p === "/api/options/expirations") return { body: OPT_EXP() };
   if (p === "/api/options/chain") return { body: OPT_CHAIN(u.searchParams.get("exp")) };
   if (p === "/api/status") return { body: STATUS_FIX() };
+  if (p === "/api/bonds") return { body: BONDS_FIX(st.noFred) };
+  if (p === "/api/cot") return { body: COT_FIX() };
   const kind = p.split("/")[3];
   if (method === "GET") return { body: kind === "board" ? { boards: st.boards } : { [kind]: st[kind] } };
   if (kind === "board") { st.boards = body.boards.map((b, i) => ({ id: b.id || "board-" + i + "-xyz", name: b.name, syms: b.syms })); return { body: { boards: st.boards } }; }
@@ -211,7 +231,7 @@ const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODE
 
 async function openTerminal(api, html = htmlFast, init = null) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] }, t7 = { calls: [], alerts: [], notes: [], boards: [], hits: [], noEia: !!(api.noEia) };
+  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] }, t7 = { calls: [], alerts: [], notes: [], boards: [], hits: [], noEia: !!(api.noEia), noFred: !!(api.noFred) };
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -231,7 +251,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
+    if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
   });
@@ -589,7 +609,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "IDX,FUT,RDT", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "IDX,FUT,RDT", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -719,6 +739,47 @@ const OK_API = {
   await cmd(page, "FCRV"); await page.waitForTimeout(600);
   const fc = await winOf(page, "FUTURES CURVES");
   ok("[H] no EIA key → NO DATA banners naming the secret, no energy numbers", /NO DATA — Energy prices \(U\.S\. EIA\): the API key is not set in the Worker \(EIA_KEY/.test(cm.text) && !/\$\/bbl/.test(cm.text) && /NO DATA/.test(fc.text) && fc.pill === "N/A" && errors.length === 0, cm.text.slice(0, 400));
+  await page.close();
+}
+
+// =============== I. bonds, futures positioning, ETFs by asset class ===============
+{
+  const { page, errors, t7 } = await openTerminal(OK_API);
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await cmd(page, "BOND"); await page.waitForTimeout(800);
+  let bd = await winOf(page, "WORLD GOVERNMENT BONDS");
+  ok("[I] BOND: countries with 2Y…30Y yields, 10Y daily change, spread vs Bund (same date), source; a failed source N/A", /United States[\s\S]*3\.60\s+—\s+4\.13\s+—\s+4\.70\s+\+3\.0/.test(bd.text) && /United Kingdom[\s\S]*\+184\.0/.test(bd.text) && /Canada\s+N\/A — provider timed out/.test(bd.text) && /Not connected: Italy, France/.test(bd.text), bd.text.slice(0, 900));
+  ok("[I] BOND: the Swiss value says which bond it is (hover)", await page.$eval("table.bond-t", (t) => [...t.querySelectorAll("td[title]")].some((td) => /Confederation bond V13_1/.test(td.title))));
+  await page.click('[data-bmode="w1"]'); await page.waitForTimeout(300);
+  bd = await winOf(page, "WORLD GOVERNMENT BONDS");
+  ok("[I] BOND: Δ 1 WEEK view shows the changes in basis points, coloured", /CHANGE IN BASIS POINTS/.test(bd.text) && /Germany[\s\S]*\+4\.0\s+—\s+\+8\.0/.test(bd.text) && (await page.$$eval("table.bond-t td[style*='background']", (t) => t.length)) > 4, bd.text.slice(0, 600));
+  ok("[I] BOND: US inflation and credit from FRED (HY spread in bp)", /10-year breakeven inflation T10YIE\s+2\.31%/.test(bd.text) && /option-adjusted spread \(ICE BofA\) BAMLH0A0HYM2\s+305 bp\s+\+5\.0/.test(bd.text), bd.text.slice(-700));
+  await cmd(page, "COT"); await page.waitForTimeout(700);
+  const ct = await winOf(page, "FUTURES POSITIONING");
+  ok("[I] COT: speculators long / short / net, weekly and 4-week change, % of OI, place in the 26-week range; missing contract N/A; positions date", /E-mini S&P 500 ES\s+1\.90M\s+209\.6K\s+352\.1K\s+-142\.5K\s+-9\.3K\s+\+12\.0K\s+-7\.5%\s+58%/.test(ct.text) && /Gold GC[\s\S]*\+218\.6K/.test(ct.text) && /Bitcoin BTC\s+N\/A/.test(ct.text) && /positions as of\s+29 Sept? 2026/.test(ct.text), ct.text.slice(0, 900));
+  await page.click('[data-cgrp="Metals"]'); await page.waitForTimeout(200);
+  ok("[I] COT: group filter", !/E-mini S&P 500/.test((await winOf(page, "FUTURES POSITIONING")).text) && /Gold/.test((await winOf(page, "FUTURES POSITIONING")).text));
+  await cmd(page, "FUT"); await page.waitForTimeout(300);
+  ok("[I] FUT: prices N/A, positioning one click away", !!(await page.$(".go-cot")));
+  await cmd(page, "ETF"); await page.waitForTimeout(1200);
+  let et = await winOf(page, "ETFs BY ASSET CLASS");
+  ok("[I] ETF: grouped by asset class with live price, change and traded value; labelled as ETF prices", /US EQUITY\s+SPY[\s\S]*TREASURIES\s+TLT[\s\S]*CREDIT AND AGGREGATE\s+HYG/.test(et.text) && /TLT\s+iShares 20\+ Year Treasury \(TLT\)\s+Treasuries\s+\$88\.40\s+-1\.01%/.test(et.text) && /not the price of the bonds/.test(et.text), et.text.slice(0, 700));
+  await page.click('[data-egrp="BONDS"]'); await page.waitForTimeout(300);
+  et = await winOf(page, "ETFs BY ASSET CLASS");
+  ok("[I] ETF: ALL BONDS filter keeps Treasuries and credit only", !/SPY/.test(et.text.split("BASE DATE")[1] || "") && /TLT/.test(et.text) && /HYG/.test(et.text));
+  await cmd(page, "MAP"); await page.waitForTimeout(500);
+  ok("[I] MAP has an ETFS universe", !!(await page.$('[data-mapu="ETF"]')));
+  await cmd(page, "YLD"); await page.waitForTimeout(500);
+  ok("[I] YLD: country filter and a link to BOND when more countries are published", !!(await page.$(".y-bond")) || (await winOf(page, "GOVERNMENT YIELDS")).text.includes("UNITED STATES"));
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[I] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+{
+  const { page, errors } = await openTerminal({ ...OK_API, noFred: true });
+  await cmd(page, "BOND"); await page.waitForTimeout(700);
+  const bd = await winOf(page, "WORLD GOVERNMENT BONDS");
+  ok("[I] no FRED key → inflation and credit NO DATA naming FRED_KEY; countries still shown", /NO DATA — U\.S\. inflation and credit \(FRED\): the API key is not set in the Worker \(FRED_KEY/.test(bd.text) && /Germany/.test(bd.text) && errors.length === 0, bd.text.slice(-400));
   await page.close();
 }
 

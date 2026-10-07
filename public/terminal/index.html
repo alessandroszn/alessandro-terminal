@@ -194,6 +194,9 @@
   .brf-see button span{color:var(--muted)}
   .brf-see button:hover span{color:var(--fg)}
   .sys-btn.view-back{color:var(--amber);border-color:var(--amber)}
+  .cot-bar{display:inline-block;position:relative;width:70px;height:6px;background:linear-gradient(90deg,rgba(240,85,91,.35),rgba(115,123,136,.25),rgba(46,194,138,.35));border-radius:3px;vertical-align:middle}
+  .cot-bar i{position:absolute;top:-3px;width:3px;height:12px;margin-left:-1px;background:var(--fg);border-radius:1px}
+  table.pf.bond-t td,table.pf.cot-t td{white-space:nowrap}
   @media (max-width:880px){.brf-wrap{grid-template-columns:1fr}.brf-list{flex-direction:row;overflow-x:auto}}
   .imp{display:inline-block;font-size:8.5px;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 4px;line-height:13px;border:1px solid var(--line-2);color:var(--muted)}
   .imp-High{color:var(--down);border-color:rgba(240,85,91,.45);background:rgba(240,85,91,.12)}
@@ -460,6 +463,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>FX · CRYPTO</code><span>Currency board and crypto board</span></div>
     <div class="help-row"><code>CMDTY · FCRV</code><span>Commodities (EIA energy, gold) and energy futures curves</span></div>
     <div class="help-row"><code>CB · SPRD</code><span>Central bank policy rates; 2s10s spreads</span></div>
+    <div class="help-row"><code>BOND</code><span>World government bonds (US, Germany, UK, Japan, Canada, Switzerland, euro area) with changes and spreads; US inflation and credit (FRED)</span></div>
+    <div class="help-row"><code>COT</code><span>Futures positioning: CFTC Commitments of Traders for the major contracts</span></div>
+    <div class="help-row"><code>ETF</code><span>ETFs by asset class: equities, Treasuries, credit, commodities, real estate, currencies, volatility, crypto</span></div>
     <div class="help-row"><code>ERN</code><span>Earnings calendar with surprise and price reaction</span></div>
     <div class="help-row"><code>DES AAPL</code><span>Company description and fundamentals from SEC filings</span></div>
     <div class="help-row"><code>OMON AAPL</code><span>Option chain (Alpaca indicative feed)</span></div>
@@ -588,7 +594,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       // the U.S. open: quotes fetched while closed are refreshed as soon as the exchange status says New York is open
       const ny=EXT.exchanges.data&&Array.isArray(EXT.exchanges.data.exchanges)?EXT.exchanges.data.exchanges.find(x=>x.code==='XNYS'):null;
       if(ny&&exchNow(ny,Date.now()).open&&UNI.some(t=>t.q&&t.q.marketOpen===false)&&Date.now()-(this.lastPull||0)>120000)this.refresh();
-      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='EQ')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='CRYPTO')spxEnsure(w.state.metric||'1D','CRYPTO');if(!w.min&&w._load)w._load();if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='EQ')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='CRYPTO')spxEnsure(w.state.metric||'1D','CRYPTO');if(!w.min&&w.type==='ETFB')spxEnsure(w.state.metric||'1D','ETF');if(!w.min&&w._load)w._load();if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
@@ -811,10 +817,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const line=(get,col,dash)=>{ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(dash);let on=false;ctx.beginPath();pts.forEach((p,i)=>{const v=get(p);if(!fin(v)){on=false;return;}const x=X(i),y=Y(v);on?ctx.lineTo(x,y):ctx.moveTo(x,y);on=true;});ctx.stroke();ctx.setLineDash([]);};
     line(prev,C.dim,[3,3]);line(p=>p.value,C.amber,[]);
     pts.forEach((p,i)=>{if(!fin(p.value))return;ctx.fillStyle=C.amber;ctx.beginPath();ctx.arc(X(i),Y(p.value),2.4,0,7);ctx.fill();});}
-  function renderYields(body,win){const e=EXT.yields;loadExt('yields');
+  const YLD_IDS=['US','EA','DE','UK','JP','CH','CA'],YLD_TITLE={US:'UNITED STATES · U.S. TREASURY',EA:'EURO AREA · ECB',DE:'GERMANY · BUNDESBANK',UK:'UNITED KINGDOM · BANK OF ENGLAND',JP:'JAPAN · MINISTRY OF FINANCE',CH:'SWITZERLAND · SNB',CA:'CANADA · BANK OF CANADA'};
+  function renderYields(body,win){const e=EXT.yields;loadExt('yields');const st=win.state;st.c=st.c||'ALL';
     if(!e.data&&!e.err){setProv(win,{'ds:YLD':S.LOADING});body.innerHTML='<div class="empty">Loading official yield curves…</div>';return;}
-    const d=e.data||{curves:{},errors:{}},items={};let html='';
-    for(const id of ['US','EA']){const c=d.curves&&d.curves[id],title=id==='US'?'UNITED STATES · U.S. TREASURY':'EURO AREA · ECB';
+    const d=e.data||{curves:{},errors:{}},items={};
+    const have=YLD_IDS.filter(id=>(d.curves&&d.curves[id])||(d.errors&&d.errors[id])||(!e.data&&(id==='US'||id==='EA')));if(st.c!=='ALL'&&!have.includes(st.c))st.c='ALL';
+    let html=have.length>2?`<div class="tfbar" style="margin-top:0">${[['ALL',tl('ALL','TUTTE')]].concat(have.map(id=>[id,id])).map(([v,l])=>`<button class="tf" data-yc="${v}" aria-pressed="${v===st.c}">${l}</button>`).join('')}<button class="sr-b y-bond" style="margin-left:8px" title="${tl('all countries side by side, with changes and spreads','tutti i paesi affiancati, con variazioni e spread')}">BOND</button></div>`:'';
+    for(const id of have.filter(x=>st.c==='ALL'||x===st.c)){const c=d.curves&&d.curves[id],title=YLD_TITLE[id]||id;
       if(!c){const er=(d.errors&&d.errors[id]&&d.errors[id].error)||e.err||'no_data';items['yld:'+id]=S.NA;html+=`<div class="yc"><div class="yc-h">${title} ${chip(S.NA)}</div><div class="banner warn"><b>N/A</b> — ${esc(P.errorText(er))}. No values are shown in its place.</div></div>`;continue;}
       const st=P.historyStatus({status:c.status,staleAt:c.staleAt},{}),two=c.points.find(p=>p.tenor==='2Y'),ten=c.points.find(p=>p.tenor==='10Y');
       const spread=two&&ten&&fin(two.value)&&fin(ten.value)?((ten.value-two.value)*100).toFixed(1):null;items['yld:'+id]=st;
@@ -822,11 +831,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         <div class="src-line">${esc(c.kind)} · data date ${c.timestamp}${c.previousDate?' · Δ vs '+c.previousDate:''} · fetched ${fmtTime(c.fetchedAt)} · source <a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a>${c.staleReason?' · '+esc(P.errorText(c.staleReason)):''}</div>
         <div class="chart-box" style="height:150px"><canvas class="yc-cv" data-curve="${id}" aria-label="${id} yield curve"></canvas></div>
         <div class="corr-wrap"><table class="pf"><thead><tr><th class="l">TENOR</th>${c.points.map(p=>`<th>${p.tenor}</th>`).join('')}</tr></thead><tbody>
-          <tr><td class="l">YIELD %</td>${c.points.map(p=>`<td class="num">${fin(p.value)?p.value.toFixed(2):'<span class="na">N/A</span>'}</td>`).join('')}</tr>
+          <tr><td class="l">YIELD %</td>${c.points.map(p=>`<td class="num"${p.note?` title="${esc(p.note)}"`:''}>${fin(p.value)?p.value.toFixed(2):'<span class="na">N/A</span>'}</td>`).join('')}</tr>
           <tr><td class="l">Δ BP ${chip(S.DERIVED,'difference between the two latest official publications')}</td>${c.points.map(p=>`<td class="num ${cls(p.changeBp)}">${fin(p.changeBp)?(p.changeBp>=0?'+':'')+p.changeBp.toFixed(1):'—'}</td>`).join('')}</tr></tbody></table></div>
         ${spread!=null?`<div class="scr-count">2s10s spread ${spread} bp ${chip(S.DERIVED,'10Y minus 2Y, same publication')}</div>`:''}</div>`;}
     html+=`<div class="des">Not connected: ${esc((d.notConnected||[]).join(', '))} — N/A until an approved official source is added. Maturities a source does not publish stay N/A; nothing is interpolated.</div>`;
     body.innerHTML=html;setProv(win,items);
+    $$('[data-yc]',body).forEach(b=>b.onclick=()=>{st.c=b.dataset.yc;paintWin(win);});const yb=body.querySelector('.y-bond');if(yb)yb.onclick=()=>openOrFocus('BOND',{});
     requestAnimationFrame(()=>$$('.yc-cv',body).forEach(cv=>{const c=d.curves&&d.curves[cv.dataset.curve];if(c)drawYieldCurve(cv,c);}));}
 
   function extSources(d){return (d.sources||[]).map(x=>`${chip(x.status,x.staleReason?P.errorText(x.staleReason):x.status)} <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a> · fetched ${fmtTime(x.fetchedAt)}`).concat(Object.entries(d.errors||{}).map(([k,v])=>`${chip(S.NA)} ${k}: ${esc(P.errorText(v.error))}${v.note?' — '+esc(v.note):''}`)).join(' · ');}
@@ -1275,9 +1285,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---- HEAT MAPS: S&P 500 (IVV), Nasdaq-100 (QQQ), Dow 30 (DIA), sector / country ETFs, crypto — prices Alpaca;
   //      FX matrix from live Twelve Data quotes. Every change is computed here from real prices: DERIVED ----
-  const MAPU=[['SPX','S&P 500'],['NDX','NASDAQ-100'],['DJI','DOW 30'],['SECT','SECTORS'],['CTRY','COUNTRIES'],['CRYPTO','CRYPTO'],['FX','FX']];
+  const MAPU=[['SPX','S&P 500'],['NDX','NASDAQ-100'],['DJI','DOW 30'],['SECT','SECTORS'],['CTRY','COUNTRIES'],['ETF','ETFS'],['CRYPTO','CRYPTO'],['FX','FX']];
   const MAPU_LABEL=Object.fromEntries(MAPU);
-  const MAP_DV=new Set(['SECT','CTRY','CRYPTO']); // no index weights: equal tiles (default) or traded value
+  const MAP_DV=new Set(['SECT','CTRY','ETF','CRYPTO']); // no index weights: equal tiles (default) or traded value
   const MAPS={};function mapSt(u){return MAPS[u]||(MAPS[u]={u:null,recent:null,live:null,refs:{},err:{},at:{},loading:{}});}
   const SPX=mapSt('SPX');
   const mapQ=(u,extra)=>u==='SPX'?(extra?'?'+extra:''):'?u='+u+(extra?'&'+extra:'');
@@ -1291,7 +1301,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(!j||j.error){M.err[key]=(j&&j.error)||('http '+r.status);}
       else{M.err[key]=null;if(key.startsWith('ref:'))M.refs[key.slice(4)]=j;else M[key]=j;}}
     catch(e){M.err[key]='network';}
-    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'))liveRepaint(w);});updateGlobal();}}
+    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'||w.type==='ETFB'))liveRepaint(w);});updateGlobal();}}
   function spxEnsure(metric,u='SPX'){if(u==='FX')return fxEnsure();
     spxGet('u','/api/spx/universe'+mapQ(u),false,u);spxGet('recent','/api/spx/closes'+mapQ(u,'ref=recent'),false,u);spxGet('live','/api/spx/live'+mapQ(u),false,u);
     if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes'+mapQ(u,'ref='+encodeURIComponent(metric)),false,u);
@@ -1464,8 +1474,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---------- FUNCTION MENU (all functions by category, with their codes) ----------
   const menuDef=()=>[
-    ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali'),'na'],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['FUT',tl('Futures','Futures'),'na'],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit sentiment','Sentiment Reddit'),'na'],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
-    ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['SPRD',tl('Spreads (2s10s)','Spread (2s10s)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves (energy)','Curve dei futures (energia)')]]],
+    ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali'),'na'],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['ETF',tl('ETFs by asset class','ETF per asset class')],['FUT',tl('Futures prices','Prezzi dei futures'),'na'],['COT',tl('Futures positioning (CFTC)','Posizionamento futures (CFTC)')],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit sentiment','Sentiment Reddit'),'na'],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
+    ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['SPRD',tl('Spreads (2s10s)','Spread (2s10s)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves (energy)','Curve dei futures (energia)')]]],
     ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')]]],
     ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['ALRT',tl('Price alerts','Avvisi di prezzo')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
     ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
@@ -1550,8 +1560,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function renderFut(body,win){setProv(win,{'ds:FUT':S.NA},'no approved futures source');
     body.innerHTML=`<div class="banner warn"><b>${tl('NO DATA','NESSUN DATO')}</b> — ${tl('futures prices are licensed by the exchanges (CME Group, ICE, Eurex) and no approved source is connected. Nothing is shown in their place; ETFs are not used as substitutes.','i prezzi dei futures sono concessi in licenza dalle borse (CME Group, ICE, Eurex) e nessuna fonte approvata è collegata. Al loro posto non si mostra nulla; gli ETF non vengono usati come sostituti.')}</div>
       <table class="pf"><thead><tr><th class="l">${tl('GROUP','GRUPPO')}</th><th class="l">${tl('CONTRACTS','CONTRATTI')}</th><th>${tl('LAST','ULTIMO')}</th><th>${tl('CHG%','VAR.%')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${FUT_ROWS().map(([g,c])=>`<tr><td class="l">${g}</td><td class="l k notranslate">${c}</td><td class="num na">N/A</td><td class="num na">N/A</td><td>${chip(S.NA)}</td></tr>`).join('')}</tbody></table>
-      <div class="des">${tl('Available instead: the NYMEX settlement prices of crude oil and natural gas contracts 1–4, published by the U.S. EIA with a lag —','Disponibile invece: i prezzi di regolamento NYMEX dei contratti 1–4 di petrolio e gas naturale, pubblicati dall\'EIA USA con ritardo —')} <button class="sr-b go-fcrv">FCRV</button></div>`;
-    body.querySelector('.go-fcrv').onclick=()=>openOrFocus('FCRV',{});}
+      <div class="des">${tl('Available instead: who is long or short each contract — the CFTC Commitments of Traders, weekly —','Disponibile invece: chi è long o short su ogni contratto — i Commitments of Traders della CFTC, settimanali —')} <button class="sr-b go-cot">COT</button> · ${tl('the NYMEX settlement prices of crude oil and natural gas contracts 1–4, published by the U.S. EIA with a lag —','i prezzi di regolamento NYMEX dei contratti 1–4 di petrolio e gas naturale, pubblicati dall\'EIA USA con ritardo —')} <button class="sr-b go-fcrv">FCRV</button></div>`;
+    body.querySelector('.go-fcrv').onclick=()=>openOrFocus('FCRV',{});body.querySelector('.go-cot').onclick=()=>openOrFocus('COT',{});}
   function renderRdt(body,win){setProv(win,{'ds:RDT':S.NA},'source not approved');
     body.innerHTML=`<div class="banner warn"><b>N/A</b> — ${tl('Reddit sentiment needs a third-party source (ApeWisdom), which was not approved. Nothing is shown and no sentiment is estimated.','il sentiment di Reddit richiede una fonte esterna (ApeWisdom), che non è stata approvata. Non si mostra nulla e nessun sentiment viene stimato.')}</div><div class="des">${tl('Market news from top publishers: ','Notizie dai principali editori: ')}<button class="sr-b go-n">NEWS</button></div>`;body.querySelector('.go-n').onclick=()=>openOrFocus('N',{});}
 
@@ -1857,6 +1867,72 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     card.style.top=top+'px';card.style.left=left+'px';
     card.querySelector('.t-end').onclick=endTour;card.querySelector('.t-next').onclick=()=>{tourI++;tourShow();};const bk=card.querySelector('.t-back');if(bk)bk.onclick=()=>{tourI--;tourShow();};setTimeout(()=>{const n=card.querySelector('.t-next');n&&n.focus();},150);}
 
+  // ---------- BOND: world government bonds (official curves) + U.S. inflation and credit (FRED) ----------
+  const BOND_ORDER=['US','DE','UK','JP','CA','CH','EA'],BOND_FLAG={US:'United States',DE:'Germany',UK:'United Kingdom',JP:'Japan',CA:'Canada',CH:'Switzerland',EA:'Euro area (AAA)'};
+  const BOND_IT={US:'Stati Uniti',DE:'Germania',UK:'Regno Unito',JP:'Giappone',CA:'Canada',CH:'Svizzera',EA:'Area euro (AAA)'};
+  function bondHeat(bp){if(!fin(bp))return'';const x=Math.max(-1,Math.min(1,bp/15));return x>=0?`background:rgba(46,194,138,${0.08+x*0.32})`:`background:rgba(240,85,91,${0.08+(-x)*0.32})`;}
+  function renderBond(body,win){const st=win.state;st.mode=st.mode||'level';const e=get7('/api/bonds',1800000,['BOND']);win._load=()=>get7('/api/bonds',1800000,['BOND']);const d=e.data;
+    if(!d&&!e.err){setProv(win,{'ds:BOND':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading government bond yields…','Caricamento dei rendimenti dei titoli di Stato…')}</div>`;return;}
+    if(!d||!Array.isArray(d.countries)){setProv(win,{'ds:BOND':S.NA});body.innerHTML=naB(tl('bond yields unavailable','rendimenti non disponibili'),(d&&d.error)||e.err);return;}
+    const items={},bp=v=>fin(v)?(v>=0?'+':'')+v.toFixed(1):'—',T=d.tenors||['2Y','5Y','10Y','20Y','30Y'],spr=Object.fromEntries((d.spreads||[]).map(x=>[x.id,x]));
+    const modes=[['level',tl('YIELD %','RENDIM. %')],['d1',tl('Δ 1 DAY','Δ 1 GIORNO')],['w1',tl('Δ 1 WEEK','Δ 1 SETT.')],['m1',tl('Δ 1 MONTH','Δ 1 MESE')]];
+    const rows=BOND_ORDER.map(id=>d.countries.find(c=>c.id===id)).filter(Boolean).map(c=>{
+      const name=tl(BOND_FLAG[c.id]||c.id,BOND_IT[c.id]||c.id);
+      if(c.status==='N/A'){items['bd:'+c.id]=S.NA;return`<tr><td class="l"><b>${name}</b></td><td colspan="${T.length+3}" class="na l">N/A — ${esc(P.errorText(c.error))}</td><td class="l"><a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a></td><td>${chip(S.NA)}</td></tr>`;}
+      const s2=c.status==='STALE'?S.STALE:S.LIVE;items['bd:'+c.id]=s2;const ten=c.tenors['10Y']||{};
+      const cell=t=>{const x=c.tenors[t];if(!x)return`<td class="num na" title="${tl('not published by this source','non pubblicato da questa fonte')}">—</td>`;if(st.mode==='level')return`<td class="num"${x.note?` title="${esc(x.note)}"`:''}>${x.value.toFixed(2)}</td>`;const v=x[st.mode];return`<td class="num ${cls(v)}" style="${bondHeat(v)}">${bp(v)}</td>`;};
+      return`<tr><td class="l"><b>${name}</b><br><span class="k">${esc(c.kind||'')}</span></td>${T.map(cell).join('')}<td class="num ${cls(ten.d1)}">${bp(ten.d1)}</td><td class="num">${spr[c.id]?bp(spr[c.id].bp):c.id==='DE'?'<span class="k">—</span>':'<span class="k" title="'+tl('no Bund value on the same date','nessun valore del Bund nella stessa data')+'">n/d</span>'}</td><td class="k">${fmtDay(c.date)}</td><td class="l"><a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a></td><td>${chip(s2,c.source+' · '+c.date)}</td></tr>`;}).join('');
+    let fredHtml='';const f=d.fred||{};
+    if(f.error==='fred_not_configured'){items['ds:fred']=S.NA;fredHtml=keyB(tl('U.S. inflation and credit (FRED)','Inflazione e credito USA (FRED)'),'FRED_KEY','https://fred.stlouisfed.org');}
+    else if(Array.isArray(f.groups)){items['ds:fred']=f.status==='N/A'?S.NA:S.LIVE;
+      fredHtml=`<table class="pf"><thead><tr><th class="l">${tl('SERIES','SERIE')}</th><th>${tl('LAST','ULTIMO')}</th><th>Δ 1D (bp)</th><th>Δ 1W (bp)</th><th>Δ 1M (bp)</th><th class="l">${tl('DATE','DATA')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${f.groups.map(g=>`<tr class="grp"><td colspan="7">${esc(g.group.toUpperCase())}</td></tr>`+g.rows.map(x=>x.value==null?`<tr><td class="l">${esc(x.name)}</td><td colspan="5" class="na l">N/A — ${esc(P.errorText(x.error))}</td><td>${chip(S.NA)}</td></tr>`:`<tr><td class="l">${esc(x.name)} <span class="k notranslate">${esc(x.id)}</span></td><td class="num"><b>${x.unit==='bp'?Math.round(x.value*100)+' bp':x.value.toFixed(2)+'%'}</b></td><td class="num ${cls(x.d1)}">${bp(x.d1)}</td><td class="num ${cls(x.w1)}">${bp(x.w1)}</td><td class="num ${cls(x.m1)}">${bp(x.m1)}</td><td class="k">${fmtDay(x.date)}</td><td>${chip(x.status==='STALE'?S.STALE:S.LIVE,'FRED · '+x.id)}</td></tr>`).join('')).join('')}</tbody></table>`;}
+    body.innerHTML=`<div class="tfbar" style="margin-top:0">${tb7('bmode',modes,st.mode)}<span class="w-sp"></span><button class="sr-b b-yld">YLD</button><button class="sr-b b-etf">${tl('BOND ETFs','ETF OBBLIGAZIONARI')}</button><button class="sr-b b-sprd">SPRD</button><button class="sr-b b-cb">CB</button></div>
+      <div class="set-grp">${tl('GOVERNMENT BONDS','TITOLI DI STATO')} · ${st.mode==='level'?tl('YIELDS','RENDIMENTI'):tl('CHANGE IN BASIS POINTS','VARIAZIONE IN PUNTI BASE')}</div>
+      <div style="overflow:auto"><table class="pf bond-t"><thead><tr><th class="l">${tl('COUNTRY','PAESE')}</th>${T.map(t=>`<th>${t}</th>`).join('')}<th>10Y Δ1D</th><th title="${tl('10-year yield minus the 10-year Bund, same date','rendimento a 10 anni meno il Bund a 10 anni, stessa data')}">10Y − BUND ${chip(S.DERIVED)}</th><th class="l">${tl('DATE','DATA')}</th><th class="l">${tl('SOURCE','FONTE')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scr-count">${tl('Each country as its official source publishes it — methods differ (par, spot, benchmark or individual-bond yields; hover a value for the bond used). Changes are between real publications, spreads only between values of the same date: DERIVED. Not connected: ','Ogni paese come lo pubblica la sua fonte ufficiale — i metodi differiscono (rendimenti par, spot, benchmark o di singoli titoli; passa sopra un valore per il titolo usato). Le variazioni sono tra pubblicazioni reali, gli spread solo tra valori della stessa data: DERIVED. Non collegati: ')}${esc((d.notConnected||[]).join(', '))} (N/A).</div>
+      <div class="set-grp" style="margin-top:12px">${tl('UNITED STATES · INFLATION AND CREDIT','STATI UNITI · INFLAZIONE E CREDITO')}</div>${fredHtml}`;
+    setProv(win,Object.assign(items,{'ds:bond-chg':S.DERIVED}),'Government bonds: official curves; changes and spreads computed here');
+    $$('[data-bmode]',body).forEach(b=>b.onclick=()=>{st.mode=b.dataset.bmode;paintWin(win);});
+    body.querySelector('.b-yld').onclick=()=>openOrFocus('YLD',{});body.querySelector('.b-sprd').onclick=()=>openOrFocus('SPRD',{});body.querySelector('.b-cb').onclick=()=>openOrFocus('CB',{});
+    body.querySelector('.b-etf').onclick=()=>{const w=openOrFocus('ETFB',defaultState('ETFB'));w.state.grp='BONDS';paintWin(w);};}
+
+  // ---------- COT: futures positioning (CFTC Commitments of Traders, weekly) ----------
+  function renderCot(body,win){const st=win.state;st.grp=st.grp||'ALL';const e=get7('/api/cot',3600000,['COT']);win._load=()=>get7('/api/cot',3600000,['COT']);const d=e.data;
+    if(!d&&!e.err){setProv(win,{'ds:COT':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading the CFTC report…','Caricamento del rapporto CFTC…')}</div>`;return;}
+    if(!d||!Array.isArray(d.contracts)){setProv(win,{'ds:COT':S.NA});body.innerHTML=naB(tl('CFTC positioning unavailable','posizionamento CFTC non disponibile'),(d&&d.error)||e.err);return;}
+    const groups=[...new Set(d.contracts.map(c=>c.group))],GI={'Equity indices':'Indici azionari','Interest rates':'Tassi','Energy':'Energia','Metals':'Metalli','Currencies':'Valute','Crypto':'Cripto','Agriculture':'Agricoltura'};
+    const k=v=>fin(v)?(Math.abs(v)>=1e6?(v/1e6).toFixed(2)+'M':Math.abs(v)>=1e3?(v/1e3).toFixed(1)+'K':String(v)):'—',sk=v=>fin(v)?(v>0?'+':'')+k(v):'—';
+    const date=d.contracts.map(c=>c.date).filter(Boolean).sort().pop();
+    const rows=groups.filter(g=>st.grp==='ALL'||g===st.grp).map(g=>`<tr class="grp"><td colspan="12">${esc(tl(g,GI[g]||g).toUpperCase())}</td></tr>`+d.contracts.filter(c=>c.group===g).map(c=>{
+      if(c.status==='N/A')return`<tr><td class="l">${esc(c.name)} <span class="k notranslate">${c.root}</span></td><td colspan="10" class="na l">N/A — ${tl('not in the report','non presente nel rapporto')}</td><td>${chip(S.NA)}</td></tr>`;
+      const pos=c.range&&fin(c.range.pos)?c.range.pos:null,bar=pos==null?'—':`<span class="cot-bar" title="${tl('net position within its range of the last','posizione netta nel suo intervallo delle ultime')} ${c.range.weeks} ${tl('weeks','settimane')}: ${k(c.range.min)} … ${k(c.range.max)}"><i style="left:${pos}%"></i></span> <span class="k">${pos}%</span>`;
+      const sp=c.history&&c.history.length>2?sparkSVG(c.history,c.history[c.history.length-1]>=c.history[0]?C.up:C.down):'';
+      return`<tr><td class="l"><b>${esc(c.name)}</b> <span class="k notranslate">${c.root}</span></td><td class="num">${k(c.oi)}</td><td class="num">${k(c.long)}</td><td class="num">${k(c.short)}</td><td class="num ${cls(c.net)}"><b>${sk(c.net)}</b></td><td class="num ${cls(c.chg1w)}">${sk(c.chg1w)}</td><td class="num ${cls(c.chg4w)}">${sk(c.chg4w)}</td><td class="num ${cls(c.netPctOi)}">${fin(c.netPctOi)?(c.netPctOi>0?'+':'')+c.netPctOi.toFixed(1)+'%':'—'}</td><td class="l">${bar}</td><td>${sp}</td><td class="num ${cls(c.commNet)}">${sk(c.commNet)}</td><td>${chip(d.status==='STALE'?S.STALE:S.LIVE,'CFTC · '+c.date)}</td></tr>`;}).join('')).join('');
+    body.innerHTML=`<div class="tfbar" style="margin-top:0">${tb7('cgrp',[['ALL',tl('ALL','TUTTI')]].concat(groups.map(g=>[g,tl(g,GI[g]||g)])),st.grp)}</div>
+      <div class="src-line">${chip(d.status==='STALE'?S.STALE:S.LIVE)} <a href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">${esc(d.source)}</a> · ${esc(d.report)} · ${tl('positions as of','posizioni al')} <b>${fmtDay(date)}</b> (${tl('Tuesday; published Friday','martedì; pubblicate venerdì')})</div>
+      <div style="overflow:auto"><table class="pf cot-t"><thead><tr><th class="l">${tl('FUTURES','FUTURES')}</th><th>${tl('OPEN INT.','OPEN INT.')}</th><th title="${tl('non-commercial (speculators)','non commerciali (speculatori)')}">${tl('SPEC. LONG','SPEC. LONG')}</th><th>${tl('SPEC. SHORT','SPEC. SHORT')}</th><th>${tl('SPEC. NET','SPEC. NETTO')}</th><th>Δ 1W</th><th>Δ 4W</th><th>${tl('NET % OI','NETTO % OI')}</th><th class="l">${tl('26-WEEK RANGE','INTERVALLO 26 SETT.')}</th><th>${tl('13 WEEKS','13 SETT.')}</th><th title="${tl('commercials (hedgers)','commerciali (coperture)')}">${tl('COMM. NET','COMM. NETTO')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="scr-count">${tl('Commitments of Traders, legacy report, futures only: non-commercial positions ≈ speculators, commercial ≈ hedgers. Net = long − short. Changes, % of open interest, the place in the 26-week range and the 13-week line are DERIVED from the weekly reports. Positioning, not prices: futures prices are licensed by the exchanges (N/A).','Commitments of Traders, rapporto legacy, solo futures: posizioni non commerciali ≈ speculatori, commerciali ≈ coperture. Netto = long − short. Variazioni, % dell\'open interest, posizione nell\'intervallo di 26 settimane e la linea di 13 settimane sono DERIVED dai rapporti settimanali. Posizionamento, non prezzi: i prezzi dei futures sono sotto licenza delle borse (N/A).')}</div>`;
+    setProv(win,{'ds:cot':d.status==='STALE'?S.STALE:S.LIVE,'ds:cot-calc':S.DERIVED},'Futures positioning: CFTC');
+    $$('[data-cgrp]',body).forEach(b=>b.onclick=()=>{st.grp=b.dataset.cgrp;paintWin(win);});}
+
+  // ---------- ETF: ETFs by asset class (Alpaca prices; ETF prices, not the assets they hold) ----------
+  const ETF_GI={'US equity':'Azioni USA','Factors':'Fattori','Treasuries':'Titoli di Stato USA','Credit and aggregate':'Credito e aggregato','Commodities':'Materie prime','Real estate':'Immobiliare','International':'Internazionali','Currencies':'Valute','Volatility':'Volatilità','Crypto':'Cripto'};
+  function renderEtfBoard(body,win){const st=win.state;st.metric=st.metric||'1D';st.grp=st.grp||'ALL';st.sort=st.sort||'class';spxEnsure(st.metric,'ETF');const M=mapSt('ETF'),U=M.u;let rows=(spxRows(st.metric,'ETF')||[]).slice();
+    const groups=U&&U.items?[...new Set(U.items.map(x=>x.sector))]:[],bondG=['Treasuries','Credit and aggregate'];
+    rows=rows.filter(r=>st.grp==='ALL'||(st.grp==='BONDS'?bondG.includes(r.sector):r.sector===st.grp));
+    const srt={dv:(a,b)=>(b.dv||0)-(a.dv||0),best:(a,b)=>(fin(b.chg)?b.chg:-1e9)-(fin(a.chg)?a.chg:-1e9),worst:(a,b)=>(fin(a.chg)?a.chg:1e9)-(fin(b.chg)?b.chg:1e9)};if(srt[st.sort])rows.sort(srt[st.sort]);
+    const err=M.err.live&&M.err.recent?M.err.live:st.metric!=='1D'?M.err['ref:'+st.metric]:null,L=M.live,liveMode=!!(L&&L.live);
+    let last=null;const tr=rows.map(x=>{const head=st.sort==='class'&&x.sector!==last?`<tr class="grp"><td colspan="7">${esc(tl(x.sector,ETF_GI[x.sector]||x.sector).toUpperCase())}</td></tr>`:'';last=x.sector;
+      return head+`<tr data-sym="${esc(x.sym)}" tabindex="0" role="button"><td><b>${esc(x.sym)}</b></td><td class="l nm">${esc(x.name||'')}</td><td class="l k">${esc(tl(x.sector,ETF_GI[x.sector]||x.sector))}</td><td class="num">${fin(x.last)?money(x.last):naS()}</td><td class="num ${cls(x.chg)}">${fin(x.chg)?pct(x.chg):naS()}</td><td class="num">${bigUsd(x.dv)}</td><td class="k">${esc(x.baseD||'—')}</td></tr>`;}).join('');
+    body.style.padding='0';body.style.display='flex';body.style.flexDirection='column';
+    body.innerHTML=`<div class="spx-bar"><div class="grp"><span>${tl('CLASS','CLASSE')}</span>${tb7('egrp',[['ALL',tl('ALL','TUTTE')],['BONDS',tl('ALL BONDS','TUTTI I BOND')]].concat(groups.map(g=>[g,tl(g,ETF_GI[g]||g)])),st.grp)}</div></div>
+      <div class="spx-bar"><div class="grp"><span>${tl('CHANGE','VARIAZIONE')}</span>${tb7('metric',SPX_METRICS.map(m=>[m,m]),st.metric)}</div><div class="grp"><span>${tl('SORT','ORDINA')}</span>${tb7('sort',[['class',tl('BY CLASS','PER CLASSE')],['best',tl('BEST','MIGLIORI')],['worst',tl('WORST','PEGGIORI')],['dv',tl('TRADED VALUE','CONTROVALORE')]],st.sort)}</div><button class="sr-b e-map">${tl('HEAT MAP','HEAT MAP')}</button></div>${err?naB(tl('prices unavailable','prezzi non disponibili'),err):''}
+      ${U?`<div style="overflow:auto;flex:1 1 auto;margin:0 8px"><table class="pf"><thead><tr><th>SYM</th><th class="l">ETF</th><th class="l">${tl('CLASS','CLASSE')}</th><th>${tl('LAST','ULTIMO')}</th><th>${st.metric} ${tl('CHG','VAR.')}</th><th>${tl('TRADED VALUE','CONTROVALORE')}</th><th>${tl('BASE DATE','DATA BASE')}</th></tr></thead><tbody>${tr}</tbody></table></div>`:M.err.u?naB(tl('ETF list unavailable','lista ETF non disponibile'),M.err.u):`<div class="empty">${tl('Loading…','Caricamento…')}</div>`}
+      <div class="spx-foot">${rows.length} ETF · ${tl('prices','prezzi')}: ${liveMode?tl('Alpaca, latest IEX trade','Alpaca, ultimo scambio IEX'):tl('Alpaca, consolidated close','Alpaca, chiusura consolidata')} · ${tl('ETF prices — not the price of the bonds, commodities or currencies they hold','prezzi degli ETF — non il prezzo di bond, materie prime o valute che detengono')} · ${tl('changes DERIVED','variazioni DERIVED')}</div>`;
+    const ps=spxPriceStatus('ETF');setProv(win,{'ds:etf-prices':ps,'ds:etf-chg':rows.some(r=>fin(r.chg))?(ps===S.STALE?S.STALE:S.DERIVED):rows.length?S.NA:S.LOADING},'ETFs: Alpaca prices; changes computed here');
+    $$('[data-egrp]',body).forEach(b=>b.onclick=()=>{st.grp=b.dataset.egrp;paintWin(win);});$$('[data-metric]',body).forEach(b=>b.onclick=()=>{st.metric=b.dataset.metric;paintWin(win);});$$('[data-sort]',body).forEach(b=>b.onclick=()=>{st.sort=b.dataset.sort;paintWin(win);});
+    body.querySelector('.e-map').onclick=()=>openMap('ETF');bindFocusRows(body);}
+
   /* ---------- window types ---------- */
   const WINTYPES={
     GP:{tag:'GP',w:560,h:470,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
@@ -1894,7 +1970,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     BT:{tag:'BT',w:880,h:680,title:w=>`BACKTEST · ${w.state.sym||''}`,render:renderBt},
     ALRT:{tag:'ALRT',w:900,h:500,title:()=>'PRICE ALERTS',render:renderAlrt},
     NOTE:{tag:'NOTE',w:640,h:580,title:()=>'NOTES',render:renderNote},
-    SYS:{tag:'SYS',w:820,h:640,title:()=>'SYSTEM STATUS',render:renderSys}
+    SYS:{tag:'SYS',w:820,h:640,title:()=>'SYSTEM STATUS',render:renderSys},
+    BOND:{tag:'BOND',w:1000,h:660,title:()=>'WORLD GOVERNMENT BONDS',render:renderBond},
+    COT:{tag:'COT',w:1080,h:660,title:()=>'FUTURES POSITIONING · CFTC',render:renderCot},
+    ETFB:{tag:'ETF',w:900,h:640,title:()=>'ETFs BY ASSET CLASS',render:renderEtfBoard}
   };
   function liveRepaint(w){const b=w.bodyEl,s=b.scrollTop;paintWin(w);b.scrollTop=s;}
 
@@ -1921,7 +2000,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
-  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};return{};}
+  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
   function closeWin(w,batch){const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
@@ -1973,7 +2052,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"YLD",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"YLD",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
   const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP"]);
   function applyFunc(f,ticker){

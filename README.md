@@ -46,7 +46,10 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Portfolio (PF) | your transactions (Workers KV, private behind Access) · live quotes (Twelve Data) · ECB euro reference rates (trade-date cost in EUR) | starts empty; BUY/SELL with date, qty, price, fees; average-cost positions; value and P&L in EUR (live EUR/currency rate, DERIVED); realised P&L; no risk / attribution / quant analytics yet |
 | Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
-| Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
+| Yields (YLD) | U.S.: FRED (Federal Reserve H.15, with `FRED_KEY`) or the Treasury XML · euro area AAA: ECB · Germany: Deutsche Bundesbank (term structure) · UK: Bank of England (gilt par yields 5/10/20Y) · Japan: Ministry of Finance (JGB rates) · Switzerland: SNB (individual Confederation bonds, the one nearest each maturity, named) · Canada: Bank of Canada (benchmark bonds) | each curve as its source publishes it, with its date; Δ bp vs the previous publication and 2s10s DERIVED; country filter |
+| World government bonds (BOND) | the curves above + FRED | 2Y/5Y/10Y/20Y/30Y by country, change over 1 publication / ~1 week / ~1 month (bp, DERIVED, heat-coloured), 10Y spread vs the Bund only on the same date (DERIVED); U.S. TIPS real yields, breakevens, IG / HY yields and spreads (ICE BofA), SOFR, 30-year mortgage (FRED). Italy, France, Spain, China, Australia N/A (no free official daily source connected) |
+| Futures positioning (COT) | CFTC Commitments of Traders (legacy, futures only; public Socrata API) | 39 major contracts (equity indices, Treasuries, SOFR, energy, metals, currencies, crypto, agriculture): open interest, speculators long / short / net, Δ 1W / 4W, net % OI, place in the 26-week range, 13-week line, commercials net — all derived from the weekly reports; positions as of Tuesday, published Friday. Futures prices stay N/A (licensed) |
+| ETFs by asset class (ETF) | Alpaca prices; fixed list chosen with TradingView's largest / most traded as a reference | 56 ETFs: US equity, factors, Treasuries, credit and aggregate, commodities, real estate, international, currencies, volatility, crypto; 1D…1Y change, traded value; also a MAP universe. ETF prices, never shown as the price of what they hold |
 | Calendar | WORLD: Forex Factory weekly export (`nfs.faireconomy.media/ff_calendar_thisweek.json`), archived weekly in KV; market reaction from 1-minute prices (Twelve Data FX, Alpaca SPY/TLT); US OFFICIAL: BLS + BEA ICS schedules | WORLD (default): this week + the last 4 days (archive); filters by impact (HIGH / HIGH + MEDIUM / ALL) and currency (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), remembered in the browser; forecast/previous as published, actual N/A (not in the export); REACTION 15M for released high-impact events (price just before vs +15 / +60 min, DERIVED; ≤ 3 new per request, 1 Twelve Data credit each, then kept); click an event for details and past releases (archive since 7 Oct 2026); countdown for the next 24 h; NEXT HIGH-IMPACT banner + status-bar countdown. US OFFICIAL: actual/previous N/A until a FRED key is configured. The briefing uses the high-impact world events. |
 | News | Top publishers' own public RSS feeds: Financial Times, Bloomberg, The Wall Street Journal, MarketWatch; official releases of the Federal Reserve (press + speeches), ECB and Bank of England; SEC EDGAR filings for the watchlist | headline, section, time, link only — never article text; tabs ALL (publishers + central banks) / FT / BLOOMBERG / WSJ / MARKETWATCH / CENTRAL BANKS / SEC FILINGS. No wire or aggregator (the GDELT feed was removed: it indexed any site). |
 | Equities (EQ) | the heat-map lists and prices (IVV / QQQ / DIA holdings; Alpaca) | S&P 500, Nasdaq-100 or Dow 30 members as a board: weight, last, 1D…1Y change, base date; sector filter, text filter, sort; breadth and equal / index-weighted change (DERIVED) |
@@ -82,7 +85,7 @@ Editions are written at their time whether or not the terminal is open: Daily 07
 (Mon–Fri), Weekly 08:00 (Saturday), Monthly 08:00 (first Saturday), Rome time (CET/CEST handled by the
 time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21 * * *`, UTC).
 - Free plan = 10 ms CPU per run, so **one run does one thing**: from ~15 minutes before the slot, each
-  minute fetches one source with the same loaders the terminal uses (IVV universe, yields, world calendar,
+  minute fetches one source with the same loaders the terminal uses (IVV universe, yields, the German, UK and Japanese curves (one each), world calendar,
   FT, Bloomberg, WSJ, MarketWatch, central banks, Alpaca closes, Twelve Data FX; weekly/monthly also the
   1W/1M references and FX daily series), plus two retry minutes for anything that failed.
 - Inputs are staged in Workers KV (`stage/…`, ≤ 3 days), not in the per-location cache: scheduled runs
@@ -118,6 +121,8 @@ warrants: search the ticker); indices are not in the provider's search.
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
+- `GET /api/yields` → `{ curves: { US, EA, DE, UK, JP, CH, CA }, errors, notConnected }` · `GET /api/bonds` → `{ countries: [{ id, tenors: { "10Y": { value, d1, w1, m1, note? } }, date, source, status }], spreads, fred: { groups } }`
+- `GET /api/cot` → `{ contracts: [{ code, name, group, root, date, oi, long, short, net, chg1w, chg4w, netPctOi, range, history, commNet }] }`
 - `GET /api/cb` → `{ banks: [{ id, name, ccy, page, label, rate: { date, value, previous, changedOn | unchangedSince }, target?, others?, status }] }`
 - `GET /api/sprd` → `{ series: { EA: { points: [{ date, y2, y10, bp }], source, status }, US: { status: "N/A" } } }`
 - `GET /api/energy` → `{ spot: [{ series, name, unit, date, value, chg1, chg5, chg21, history }], curves: [{ id, name, unit, dates, latest, week, month }] }` (503 `eia_not_configured` without `EIA_KEY`)
@@ -186,9 +191,9 @@ and FX conversion were removed. Fundamentals and earnings came back only from ap
 ## Optional secrets
 - `ALPACA_KEY_ID`, `ALPACA_SECRET_KEY` — Alpaca market data (free plan) for the S&P 500 heat map. Without
   them the map shows the real constituents and weights only, every change N/A.
-- `FRED_KEY` — enables actual/previous values in the calendar (not configured yet).
 - `SEC_CONTACT` — contact for the SEC fair-access User-Agent, if SEC starts refusing requests.
 - `FINNHUB_KEY` — Finnhub (free) for the earnings calendar (ERN); sent only in the `X-Finnhub-Token` header.
+- `FRED_KEY` — FRED (free): the U.S. curve (instead of the Treasury XML, which times out from Cloudflare) and U.S. inflation / credit in BOND. FRED accepts the key only as a URL parameter: it travels only in the Worker's request to `api.stlouisfed.org`.
 - `EIA_KEY` — U.S. EIA Open Data (free) for CMDTY and FCRV; EIA accepts the key only as a URL parameter, so it
   travels only in the Worker's request to `api.eia.gov` and is never logged or returned.
 
@@ -212,6 +217,7 @@ node test/i18n.test.mjs         # T06: interface translations (stable, data-safe
 node test/maps.test.mjs         # T06: Nasdaq-100 / Dow / ETF / crypto maps, xlsx reader, world exchanges, portfolio
 node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
+node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, FRED), BOND changes/spreads, CFTC COT, ETF list
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)

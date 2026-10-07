@@ -116,10 +116,11 @@ export function sourcesStatus(env) {
     { id: "alpaca", name: "Alpaca", use: "U.S. consolidated daily bars, trades, crypto, options (indicative)", configured: !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY) },
     { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: !!env.FINNHUB_KEY },
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and futures curves (CMDTY, FCRV)", configured: !!env.EIA_KEY },
+    { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
     { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },
     { id: "ai", name: "Workers AI", use: "briefing editions", configured: !!env.AI },
     { id: "kv", name: "Workers KV", use: "briefings, portfolio, alerts, notes, boards, calendar archive", configured: !!env.BRIEFS },
-    { id: "public", name: "Public sources (no key)", use: "ECB, NY Fed, BoE, SNB, BoC, Forex Factory, press feeds, iShares, Invesco, SPDR", configured: true },
+    { id: "public", name: "Public sources (no key)", use: "ECB, Bundesbank, NY Fed, BoE, SNB, BoC, Japan MOF, CFTC, Forex Factory, press feeds, iShares, Invesco, SPDR", configured: true },
   ];
 }
 // Twelve Data's own counter of credits used this minute and today. Each check costs 1 credit, so it runs only when
