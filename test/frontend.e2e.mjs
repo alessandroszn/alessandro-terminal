@@ -459,12 +459,16 @@ const OK_API = {
   ok("[A] briefing: an empty period says when it is written (no text invented)", /No weekly briefing yet\. Written automatically on Saturday mornings at 08:00/.test(br.text) && brfState.writes.length === 1);
   await page.click('.win [data-period="daily"]'); await page.waitForTimeout(300);
   // world exchanges
-  await cmd(page, "EXCH"); await page.waitForTimeout(500);
-  let ex = await winOf(page, "WORLD EXCHANGES");
+  await cmd(page, "EXCH"); await page.waitForTimeout(900);
+  let ex = await winOf(page, "WORLD MARKETS");
+  const wm = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "WORLD MARKETS"); return { open: w.querySelectorAll(".wm-bar.wm-open").length, next: w.querySelectorAll(".wm-bar.wm-next").length, rows: w.querySelectorAll(".wm-row:not(.wm-ax)").length, now: w.querySelectorAll(".wm-now").length }; });
+  ok("[A] world markets (timeline): 15 markets on a 24-hour axis in your time, open/closed and countdowns from the provider, the open session green, the next one from the provider's open", /1 of 15 open · your local time/.test(ex.text) && /OPEN\s+London[\s\S]*?closes in 3h30/.test(ex.text) && /CLOSED\s+New York\s+-0\.24%\s+opens in 2h15/.test(ex.text) && /CLOSED\s+Tokyo\s+-0\.92%\s+opens in 14h00/.test(ex.text) && /N\/A\s+Sydney/.test(ex.text) && wm.open === 1 && wm.next === 2 && wm.rows === 15 && wm.now === 15, JSON.stringify(wm) + " " + ex.text.slice(0, 600));
+  await page.click('.win [data-exv="table"]'); await page.waitForTimeout(300);
+  ex = await winOf(page, "WORLD MARKETS");
   ok("[A] exchanges: open now / next open from the provider, grouped by region with local time and countdown", /OPEN NOW · LSE/.test(ex.text) && /NEXT · NYSE opens in 2h 15m/.test(ex.text) && /EUROPE & AFRICA · 1\/1 OPEN/.test(ex.text) && /LSE\s+London\s+OPEN\s+closes in 3h 30m/.test(ex.text) && /NYSE\s+New York\s+CLOSED\s+opens in 2h 15m/.test(ex.text) && !/Other Exchange/.test(ex.text) && /not in the provider's list: XNAS/.test(ex.text), ex.text.slice(0, 700));
   ok("[A] exchanges: the top bar shows how many markets are open (every exchange the provider reports)", /^2\/4 open$/.test(await page.$eval("#mktsOpen", (x) => x.textContent)));
   await page.click('.win [data-scope="all"]'); await page.waitForTimeout(200);
-  ex = await winOf(page, "WORLD EXCHANGES");
+  ex = await winOf(page, "WORLD MARKETS");
   ok("[A] exchanges: ALL lists every exchange the provider returns (local time N/A without a time zone)", /Other Exchange/.test(ex.text));
   // heat maps: other universes and the FX matrix
   await cmd(page, "MAP"); await page.waitForTimeout(400);
@@ -676,6 +680,9 @@ const OK_API = {
   // every window open in Italian: the page stays responsive (a translation that re-matched itself once froze it)
   for (const c of ["EXCH", "MAP", "MOV", "SCR", "COMP", "CORR", "HEAT", "SET", "YLD", "MKT", "WL", "SRCH"]) await cmd(page, c);
   await page.waitForTimeout(1500);
+  const wmIt = (await winOf(page, "MERCATI MONDIALI")).text;
+  ok("[G] Italian: world markets timeline in Italian (aperta / chiusa, apre tra / chiude tra, city names)", /1 su 15 aperte · la tua ora locale/.test(wmIt) && /APERTA\s+Londra[\s\S]*?chiude tra 3h\d\d/.test(wmIt) && /CHIUSA\s+New York\s+-0\.24%\s+apre tra 2h1\d/.test(wmIt), wmIt.slice(0, 500));
+  await page.evaluate(() => document.querySelector('.win [data-exv="table"]').click()); await page.waitForTimeout(400);
   const t0 = Date.now(); const regions = await page.evaluate(() => [...document.querySelectorAll(".ex-t tr.grp td")].map((td) => td.textContent).join(" | "));
   ok("[G] Italian: all windows open, page responsive, region names translated once", Date.now() - t0 < 2000 && /ASIA-PACIFICO · 0\/1 APERTE/.test(regions) && !/PACIFICOO/.test(regions) && /EUROPA E AFRICA · 1\/1 APERTE/.test(regions), regions);
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(600);

@@ -396,6 +396,20 @@
 .fx-strength{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;margin:4px 0}
 .ex-st{display:inline-block;min-width:54px;text-align:center;font-size:10px;letter-spacing:.06em;padding:1px 4px;border-radius:2px}
 .ex-OPEN{background:var(--up);color:var(--bg)}.ex-CLOSED{background:var(--panel-2);color:var(--muted)}
+.wm-head{margin:8px 0 6px;font-size:11.5px;color:var(--muted)}.wm-head b{color:var(--fg)}
+.wm{margin-top:4px}
+.wm-row{display:grid;grid-template-columns:60px 104px minmax(0,1fr) 64px 118px;align-items:center;column-gap:10px;height:30px}
+.wm-row .ex-st{min-width:0;width:100%}
+.wm-city{font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wm-track{position:relative;height:100%;background:linear-gradient(transparent 7px,var(--panel-2) 7px,var(--panel-2) calc(100% - 7px),transparent calc(100% - 7px))}
+.wm-bar{position:absolute;top:8px;bottom:8px;border-radius:2px;background:#3a414c}
+.wm-bar.wm-past{opacity:.55}.wm-bar.wm-open{background:var(--up)}.wm-bar.wm-next{background:#4a525e}
+.wm-now{position:absolute;top:0;bottom:0;width:1px;background:var(--amber);margin-left:-.5px;z-index:2}
+.wm-ax{height:22px}.wm-axis{position:relative;height:100%;font-size:10px;color:var(--dim)}
+.wm-axis span{position:absolute;top:4px;transform:translateX(-50%);white-space:nowrap}
+.wm-axis .wm-nowl{color:var(--amber);font-weight:600}
+.wm-chg{text-align:right;font-variant-numeric:tabular-nums}
+.wm-cd{text-align:right;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}.wm-cd.on{color:var(--fg)}
 tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
 .pf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
 .pf-k{border:1px solid var(--line);padding:6px 8px;display:flex;flex-direction:column;gap:2px}.pf-k span{font-size:10px;letter-spacing:.06em;color:var(--muted)}.pf-k b{font-size:16px;font-variant-numeric:tabular-nums}.pf-k b small{font-size:11px}.pf-k i{font-style:normal;font-size:10px;color:var(--dim)}
@@ -495,7 +509,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>CURVE US IT DE</code><span>Yield curves of up to 6 countries on one chart, or one country at several dates</span></div>
     <div class="help-row"><code>CAL</code><span>Economic calendar: world high-impact events (Forex Factory) with market reaction, plus official US schedules</span></div>
     <div class="help-row"><code>PF</code><span>Portfolio: your transactions, positions, value and P&amp;L in EUR (starts empty)</span></div>
-    <div class="help-row"><code>EXCH</code><span>World exchanges: which markets are open now, local time, time to open / close</span></div>
+    <div class="help-row"><code>EXCH</code><span>World markets: each session on a 24-hour line in your time, open / closed, time to open / close, the main index (TABLE: every exchange)</span></div>
     <div class="help-row"><code>N</code><span>News: FT, Bloomberg, WSJ, MarketWatch, central banks; SEC filings for the watchlist</span></div>
     <div class="help-row"><code>BRF</code><span>Briefing: AI summary of the real data above, with sources</span></div>
     <div class="help-row"><code>MOV</code><span>Movers: gainers, losers, most active</span></div>
@@ -1046,7 +1060,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // 1M, YTD and the 52-week range DERIVED here from the real daily history; nothing filled in where a source stops ----
   const IDX_G=['us','eu','world'],IDX_IDS=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','SXXP','DAX','MDAX','SX7E','N225','MXEA','MXEF'];
   const idxGName=g=>({us:tl('UNITED STATES','STATI UNITI'),eu:tl('EUROPE','EUROPA'),world:tl('ASIA & GLOBAL','ASIA E GLOBALI')})[g]||g;
-  const idxG=g=>get7('/api/indices?g='+g,60000,['IDX','MKT']);
+  const idxG=g=>get7('/api/indices?g='+g,60000,['IDX','MKT','EXCH']);
   const idxH=id=>get7('/api/indices/history?id='+id,1800000,['IDX']);
   const idxS=r=>({LIVE:S.LIVE,STALE:S.STALE,DERIVED:S.DERIVED})[r&&r.status]||S.NA;
   const lvl=v=>fin(v)?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
@@ -1312,9 +1326,62 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // an open/close the cached state predicted has passed: ask again (the Worker refreshes at that moment too)
     if(maj.some(e=>exchNow(e,now).moved)&&now>exchRefetchAt){exchRefetchAt=now+120000;loadExt('exchanges',true);}}
   const fmtIn2=ms=>{const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60),d=Math.floor(h/24);return d?`${d}d ${h%24}h`:h?`${h}h ${String(m%60).padStart(2,'0')}m`:`${m}m`;};
-  function renderExchanges(body,win){const st=win.state;st.scope=st.scope||'major';loadExt('exchanges');const e=EXT.exchanges,d=e.data;
-    const tabs=`<div class="tfbar"><button class="tf" data-scope="major" aria-pressed="${st.scope==='major'}">MAJOR</button><button class="tf" data-scope="all" aria-pressed="${st.scope==='all'}">ALL (PROVIDER)</button></div>`;
-    const bind=()=>$$('[data-scope]',body).forEach(b=>b.onclick=()=>{st.scope=b.dataset.scope;paintWin(win);});
+  // ---- WORLD MARKETS timeline (Nico's layout, written from scratch): each market's session on one 24-hour axis in your time,
+  // from 6 hours ago to 18 hours ahead. OPEN / CLOSED, the open session and the next open come from Twelve Data market_state
+  // (holidays and early closes included); a session's length and earlier sessions follow the exchange's regular hours
+  // (reference data, lunch breaks not drawn). The % is the latest change of the market's main index where IDX has a source.
+  // [city, MIC, IANA time zone, regular open, regular close (local), index id in IDX or null]
+  const WM=[['Sydney','XASX','Australia/Sydney','10:00','16:00',null],['Tokyo','XJPX','Asia/Tokyo','09:00','15:30','N225'],['Seoul','XKRX','Asia/Seoul','09:00','15:30',null],
+    ['Shanghai','XSHG','Asia/Shanghai','09:30','15:00',null],['Hong Kong','XHKG','Asia/Hong_Kong','09:30','16:00',null],['Mumbai','XNSE','Asia/Kolkata','09:15','15:30',null],
+    ['Frankfurt','XETR','Europe/Berlin','09:00','17:30','DAX'],['Milan','XMIL','Europe/Rome','09:00','17:30',null],['Paris','XPAR','Europe/Paris','09:00','17:30',null],
+    ['Zurich','XSWX','Europe/Zurich','09:00','17:30',null],['Madrid','XMAD','Europe/Madrid','09:00','17:30',null],['London','XLON','Europe/London','08:00','16:30',null],
+    ['São Paulo','BVMF','America/Sao_Paulo','10:00','17:00',null],['Toronto','XTSE','America/Toronto','09:30','16:00',null],['New York','XNYS','America/New_York','09:30','16:00','SPX']];
+  const WM_NOIDX={XASX:'S&P/ASX 200',XKRX:'KOSPI',XSHG:'SSE Composite',XHKG:'Hang Seng',XNSE:'Nifty 50',XMIL:'FTSE MIB',XPAR:'CAC 40',XSWX:'SMI',XMAD:'IBEX 35',XLON:'FTSE 100',BVMF:'Ibovespa',XTSE:'S&P/TSX Composite'};
+  // wall-clock time in a time zone → UTC instant
+  function zonedMs(tz,y,mo,d,hh,mm){const g=Date.UTC(y,mo-1,d,hh,mm);let t=g-tzOffMin(tz,g)*60000;t=g-tzOffMin(tz,t)*60000;return t;}
+  // the exchange's regular sessions (Mon–Fri local) for the local days around now
+  function wmRegular(tz,o,c,now){const out=[],[oh,om]=o.split(':').map(Number),[ch,cm]=c.split(':').map(Number);
+    for(let k=-2;k<=2;k++){const p={};new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',weekday:'short'}).formatToParts(new Date(now+k*86400000)).forEach(x=>p[x.type]=x.value);
+      if(p.weekday==='Sat'||p.weekday==='Sun')continue;const s=zonedMs(tz,+p.year,+p.month,+p.day,oh,om),e=zonedMs(tz,+p.year,+p.month,+p.day,ch,cm);if(!out.some(x=>x.s===s))out.push({s,e});}
+    return out.sort((a,b)=>a.s-b.s);}
+  // the bars to draw: the open session (provider times), the next session (provider open + regular length), earlier sessions (regular)
+  function wmBars(x,ex,now){const R=wmRegular(x[2],x[3],x[4],now),n=exchNow(ex,now),bars=[];
+    if(n.open&&!n.moved){const cur=R.find(r=>r.s<=now&&r.e>now)||{s:now,e:now};const s=ex.openedAt||cur.s,e=ex.closesAt||cur.e;R.filter(r=>r.e<=s).forEach(r=>bars.push({s:r.s,e:r.e,k:'past'}));bars.push({s,e,k:'open'});}
+    else{R.filter(r=>r.e<=now).forEach(r=>bars.push({s:r.s,e:r.e,k:'past'}));
+      if(ex.opensAt&&!n.moved){const S=R.find(r=>r.e>ex.opensAt&&r.s<=ex.opensAt+90*60000);
+        if(S&&S.s<now){bars.push({s:S.s,e:now,k:'past'});bars.push({s:ex.opensAt,e:S.e,k:'next'});}
+        else bars.push({s:ex.opensAt,e:S?S.e:ex.opensAt+((R[0]&&R[0].e-R[0].s)||390*60000),k:'next'});}}
+    return{bars,open:n.open,moved:n.moved};}
+  const fmtHm=ms=>{const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60),d=Math.floor(h/24);return d?`${d}d ${h%24}h`:h?`${h}h${String(m%60).padStart(2,'0')}`:`${m}m`;};
+  function wmIdx(id){if(!id)return null;for(const g of IDX_G){const d=(X7['/api/indices?g='+g]||{}).data;const r=d&&Array.isArray(d.indices)?d.indices.find(i=>i.id===id):null;if(r)return r;}return null;}
+  function renderWorldMarkets(body,win,tabs,bind){const e=EXT.exchanges,d=e.data;IDX_G.forEach(g=>idxG(g));
+    if(!d&&!e.err){setProv(win,{'ds:EXCH':S.LOADING});body.innerHTML=tabs+`<div class="empty">${tl('Loading exchange status…','Caricamento dello stato delle borse…')}</div>`;bind();return;}
+    if(!d||d.error||!Array.isArray(d.exchanges)){setProv(win,{'ds:EXCH':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — ${tl('exchange status unavailable','stato delle borse non disponibile')} (${esc(P.errorText((d&&d.error)||e.err||'network'))}). ${tl('No open/closed state is guessed.','Nessuno stato aperto/chiuso viene ipotizzato.')}</div>`;bind();return;}
+    const now=Date.now(),W0=now-6*3600000,W1=now+18*3600000,pos=t=>Math.max(0,Math.min(100,(t-W0)/(W1-W0)*100)),items={'ds:exch':d.status==='STALE'?S.STALE:S.LIVE,'ds:exch-times':S.DERIVED};
+    const rows=WM.map(x=>{const ex=d.exchanges.find(y=>y.code===x[1]);return ex?{x,ex,...wmBars(x,ex,now)}:{x,ex:null,bars:[],open:false};});
+    const key=r=>!r.ex?9e15:r.open?8e15+(r.ex.openedAt||now):(r.ex.opensAt||7e15);
+    rows.sort((a,b)=>key(a)-key(b));
+    // axis: every 3 hours of your clock, and now
+    let ax='';for(let t=Math.ceil(W0/3600000)*3600000;t<=W1;t+=3600000){if(new Date(t).getHours()%3)continue;const p=pos(t);if(p>3&&p<97&&Math.abs(t-now)>45*60000)ax+=`<span style="left:${p}%">${new Date(t).toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'})}</span>`;}
+    ax+=`<span class="wm-nowl" style="left:${pos(now)}%">${tl('now','ora')} ${new Date(now).toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'})}</span>`;
+    const yours=t=>new Date(t).toLocaleString(I18N.locale(),{weekday:'short',hour:'2-digit',minute:'2-digit'});
+    const html=rows.map(({x,ex,bars,open,moved})=>{
+      if(!ex)return`<div class="wm-row"><span class="ex-st ex-CLOSED">N/A</span><span class="wm-city">${esc(tl(x[0],x[0]))}</span><div class="wm-track"><i class="wm-now" style="left:${pos(now)}%"></i></div><span class="wm-chg dim">—</span><span class="wm-cd dim" title="${tl('not in the provider’s market_state','assente dal market_state del fornitore')}">N/A</span></div>`;
+      const b=bars.filter(z=>z.e>W0&&z.s<W1).map(z=>`<i class="wm-bar wm-${z.k}" style="left:${pos(z.s)}%;width:${Math.max(0.4,pos(z.e)-pos(z.s))}%" title="${esc(yours(z.s)+' – '+yours(z.e))}${z.k==='past'?' · '+tl('regular hours','orario regolare'):z.k==='next'?' · '+tl('opening from the provider, length from the regular hours','apertura dal fornitore, durata dall\'orario regolare'):' · '+tl('open now (provider times)','aperta ora (orari del fornitore)')}"></i>`).join('');
+      const ix=wmIdx(x[5]),chg=ix&&fin(ix.chgPct)?ix.chgPct:null;if(ix)items['idx:'+ix.id]=idxS(ix);
+      const ct=chg!=null?`<span class="wm-chg ${cls(chg)}" title="${esc(ix.name+' · '+(ix.kind==='delayed'?tl('15-min delayed','ritardo 15 min'):tl('close','chiusura')+' '+dmy(ix.date))+' · '+ix.source)}">${pctN(chg)}</span>`
+        :`<span class="wm-chg dim" title="${esc((WM_NOIDX[x[1]]||tl('index','indice'))+': '+(x[5]?tl('loading or unavailable','in caricamento o non disponibile'):tl('no free official source connected','nessuna fonte ufficiale gratuita collegata')))}">—</span>`;
+      const cd=moved?tl('updating…','aggiornamento…'):open?(ex.closesAt?`${tl('closes in','chiude tra')} ${fmtHm(ex.closesAt-now)}`:tl('open','aperta')):(ex.opensAt?`${tl('opens in','apre tra')} ${fmtHm(ex.opensAt-now)}`:tl('next open not given','prossima apertura non indicata'));
+      return`<div class="wm-row" title="${esc(ex.name)} · ${esc(x[1])} · ${tl('local time','ora locale')} ${new Date(now).toLocaleTimeString(I18N.locale(),{timeZone:x[2],hour:'2-digit',minute:'2-digit'})}"><span class="ex-st ex-${open?'OPEN':'CLOSED'}">${open?tl('OPEN','APERTA'):tl('CLOSED','CHIUSA')}</span><span class="wm-city">${esc(tl(x[0],{'São Paulo':'San Paolo','Zurich':'Zurigo','Frankfurt':'Francoforte','Milan':'Milano','Paris':'Parigi','London':'Londra','Seoul':'Seul','Tokyo':'Tokyo','New York':'New York','Hong Kong':'Hong Kong','Shanghai':'Shanghai','Mumbai':'Mumbai','Madrid':'Madrid','Toronto':'Toronto','Sydney':'Sydney'}[x[0]]||x[0]))}</span><div class="wm-track">${b}<i class="wm-now" style="left:${pos(now)}%"></i></div>${ct}<span class="wm-cd${open?' on':''}">${cd}</span></div>`;}).join('');
+    const nOpen=rows.filter(r=>r.ex&&r.open).length,tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';
+    body.innerHTML=tabs+`<div class="wm-head"><b>${nOpen}</b> ${tl('of','su')} ${rows.length} ${tl('open','aperte')} · ${tl('your local time','la tua ora locale')} <span class="k">${esc(tz)}</span> ${chip(d.status==='STALE'?S.STALE:S.LIVE,d.staleReason?'refresh failed: '+P.errorText(d.staleReason):'Twelve Data market_state · '+fmtTime(d.fetchedAt))}</div>
+      <div class="wm"><div class="wm-row wm-ax"><span></span><span></span><div class="wm-axis">${ax}</div><span class="wm-chg k" title="${tl('latest change of the market’s main index (IDX)','ultima variazione dell\'indice principale del mercato (IDX)')}">${tl('INDEX','INDICE')}</span><span></span></div>${html}</div>
+      <div class="scr-count">${tl('Open / closed, the open session and the next open: Twelve Data market_state (holidays and early closes included). Session lengths and earlier sessions: each exchange’s regular hours; lunch breaks in Asia not drawn. Index %: S&P 500 (Cboe, 15-min delayed), DAX (STOXX close), Nikkei 225 (Nikkei close); the other markets’ indices have no free official source connected.','Aperta / chiusa, la seduta in corso e la prossima apertura: Twelve Data market_state (festività e chiusure anticipate incluse). Durata delle sedute e sedute precedenti: orario regolare di ogni borsa; pause pranzo in Asia non disegnate. % dell\'indice: S&P 500 (Cboe, ritardo 15 min), DAX (chiusura STOXX), Nikkei 225 (chiusura Nikkei); per gli indici degli altri mercati non è collegata una fonte ufficiale gratuita.')}</div>`;
+    bind();setProv(win,items,'World markets: Twelve Data market_state; indices from IDX');}
+  function renderExchanges(body,win){const st=win.state;st.scope=st.scope||'major';st.view=st.view||'timeline';loadExt('exchanges');const e=EXT.exchanges,d=e.data;
+    const tabs=`<div class="tfbar"><button class="tf" data-exv="timeline" aria-pressed="${st.view==='timeline'}">${tl('TIMELINE','LINEA DEL TEMPO')}</button><button class="tf" data-exv="table" aria-pressed="${st.view==='table'}">${tl('TABLE','TABELLA')}</button>${st.view==='table'?`<span class="tb-sep" style="display:inline-block;margin:0 6px;vertical-align:middle"></span><button class="tf" data-scope="major" aria-pressed="${st.scope==='major'}">MAJOR</button><button class="tf" data-scope="all" aria-pressed="${st.scope==='all'}">ALL (PROVIDER)</button>`:''}</div>`;
+    const bind=()=>{$$('[data-scope]',body).forEach(b=>b.onclick=()=>{st.scope=b.dataset.scope;paintWin(win);});$$('[data-exv]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.exv;paintWin(win);});};
+    if(st.view==='timeline')return renderWorldMarkets(body,win,tabs,bind);
     if(!d&&!e.err){setProv(win,{'ds:EXCH':S.LOADING});body.innerHTML=tabs+'<div class="empty">Loading exchange status…</div>';bind();return;}
     if(!d||d.error||!Array.isArray(d.exchanges)){setProv(win,{'ds:EXCH':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — exchange status unavailable (${esc(P.errorText((d&&d.error)||e.err||'network'))}). No open/closed state is guessed.</div>`;bind();return;}
     const now=Date.now(),L=d.exchanges.filter(x=>st.scope==='all'||x.major);
@@ -2360,7 +2427,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
     N:{tag:'N',w:620,h:500,title:()=>'NEWS',render:renderNews},
     BRF:{tag:'BRF',w:860,h:620,title:w=>`BRIEFING · ${(w.state.period||'daily').toUpperCase()}`,render:renderBriefing},
-    EXCH:{tag:'EXCH',w:760,h:560,title:()=>'WORLD EXCHANGES · OPEN NOW',render:renderExchanges},
+    EXCH:{tag:'EXCH',w:980,h:600,title:()=>'WORLD MARKETS',render:renderExchanges},
     PF:{tag:'PF',w:980,h:640,title:()=>'PORTFOLIO · EUR',render:renderPortfolio},
     SET:{tag:'SET',w:460,h:430,title:()=>'SETTINGS',render:renderSettings},
     EQ:{tag:'EQ',w:920,h:620,title:w=>`EQUITIES · ${(EQU.find(x=>x[0]===(w.state.u||'SPX'))||[])[1]||''}`,render:renderEq},
