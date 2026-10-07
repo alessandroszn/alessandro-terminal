@@ -4,7 +4,7 @@
 //   node test/yields-world.test.mjs
 import { deflateRawSync } from "node:zlib";
 import { app as worker } from "../src/worker.mjs";
-import { parseBde, parseNbbCsv, parseBpstat, parseNorgesBank, parseOenb, parseRbaF2, parseRbnzB2, unzipText, parseChinaBond, parseHkma, parseBnm, parseSarb, parseBcrp, bondTenor, pastCurves, spreadVs, yieldCatalog, YIELD_IDS, CURVES, oecdId } from "../src/yields.mjs";
+import { parseMofTail, parseBde, parseNbbCsv, parseBpstat, parseNorgesBank, parseOenb, parseRbaF2, parseRbnzB2, unzipText, parseChinaBond, parseHkma, parseBnm, parseSarb, parseBcrp, bondTenor, pastCurves, spreadVs, yieldCatalog, YIELD_IDS, CURVES, oecdId } from "../src/yields.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -92,6 +92,11 @@ ok("nearest standard maturity: within a quarter-year or a fifth of the maturity,
 // ---------- Peru (BCRP JSON, Spanish months) ----------
 const pe = parseBcrp({ config: {}, periods: [{ name: "30.Set.26", values: ["6.66"] }, { name: "05.Oct.26", values: ["6.56"] }, { name: "06.Oct.26", values: ["n.d."] }] });
 ok("Peru: Spanish month names (Set = September); n.d. is missing", val(pe, "2026-09-30", "10Y") === 6.66 && val(pe, "2026-10-05", "10Y") === 6.56 && !pe.some((r) => r.date === "2026-10-06"));
+
+// ---------- Japan: the long history file, header and last rows only ----------
+const MOFALL = "Interest Rate,,,(Unit : %)\nDate,1Y,2Y,10Y\n1974/9/24,10.327,9.362,-\n" + Array.from({ length: 400 }, (_, i) => `2025/${1 + Math.floor(i / 28) % 12}/${1 + (i % 28)},0.5,0.6,1.${i % 10}`).join("\n") + "\n2026/9/30,0.9,1.0,1.68\n";
+const jp = parseMofTail(MOFALL, 50);
+ok("Japan history file: only its last rows are read, with the header's columns", jp.length <= 56 && jp[jp.length - 1].date === "2026-09-30" && val(jp, "2026-09-30", "10Y") === 1.68 && !jp.some((r) => r.date.startsWith("1974")));
 
 // ---------- past curves and spreads ----------
 const mk = (d, v) => ({ date: d, points: [{ tenor: "10Y", months: 120, value: v }] });

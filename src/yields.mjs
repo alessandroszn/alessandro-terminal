@@ -156,6 +156,21 @@ export function parseMof(text) {
   }
   return rowsFrom(byDate, JP_TENORS);
 }
+// the history file (since 1974, up to the previous month) is large: only its header and last rows are parsed
+export const JP_ALL_URL = "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/historical/jgbcme_all.csv";
+export function parseMofTail(text, n = HIST) {
+  const lines = String(text || "").split(/\r?\n/), hi = lines.findIndex((l) => /^Date,/.test(l));
+  if (hi < 0) return [];
+  return parseMof([lines[hi], ...lines.slice(Math.max(hi + 1, lines.length - n - 5))].join("\n"));
+}
+async function loadJp() {
+  const [all, cur] = await Promise.all([fetchText(JP_ALL_URL, { timeoutMs: 20000, headers: { accept: "text/csv,*/*" } }), fetchText(JP_URL, { timeoutMs: 15000, headers: { accept: "text/csv,*/*" } })]);
+  const byDate = new Map();
+  for (const r of all.text ? parseMofTail(all.text) : []) byDate.set(r.date, r);
+  for (const r of cur.text ? parseMof(cur.text) : []) byDate.set(r.date, r);
+  const rows = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+  return rows.length ? { data: rows.slice(-HIST) } : { err: cur.err || all.err || "no_data" };
+}
 // Switzerland — SNB: yields of individual Confederation bonds; each maturity = the bond whose residual maturity is closest
 export const CH_TENORS = [["2Y", 24], ["5Y", 60], ["10Y", 120], ["20Y", 240], ["30Y", 360]];
 export const chUrl = (now) => `https://data.snb.ch/api/cube/rendoeid/data/csv/en?fromDate=${isoDaysAgo(now, 45)}`;
@@ -463,7 +478,7 @@ export const CURVES = {
   EA: { name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", maxAgeDays: 4, key: "yields/ea", load: () => loadEcb() },
   DE: { name: "Germany — Federal securities (Bunds)", kind: "yield from the term structure (Svensson), daily", source: "Deutsche Bundesbank", sourceUrl: "https://www.bundesbank.de/en/statistics/money-and-capital-markets/interest-rates-and-yields/term-structure-of-interest-rates", maxAgeDays: 4, key: "yields/de2", load: () => csvLoad(DE_URL, parseBundesbank) },
   UK: { name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/statistics/yield-curves", maxAgeDays: 6, key: "yields/uk2", load: (now) => csvLoad(ukUrl(now), parseBoeYields) },
-  JP: { name: "Japan — JGBs", kind: "JGB interest rate, daily (current month)", source: "Ministry of Finance Japan", sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/", maxAgeDays: 5, key: "yields/jp", load: () => csvLoad(JP_URL, parseMof) },
+  JP: { name: "Japan — JGBs", kind: "JGB interest rate, daily", source: "Ministry of Finance Japan", sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/", maxAgeDays: 5, key: "yields/jp2", load: () => loadJp() },
   CH: { name: "Switzerland — Confederation bonds", kind: "yield of the Confederation bond nearest each maturity, daily (published with a lag)", source: "Swiss National Bank", sourceUrl: "https://data.snb.ch/en/topics/ziredev/cube/rendoeid", maxAgeDays: 14, key: "yields/ch", load: (now) => csvLoad(chUrl(now), parseSnbBonds) },
   CA: { name: "Canada — benchmark bonds", kind: "benchmark bond yield, daily (LONG = long-term benchmark)", source: "Bank of Canada", sourceUrl: "https://www.bankofcanada.ca/rates/interest-rates/canadian-bonds/", maxAgeDays: 5, key: "yields/ca", load: async () => { const f = await fetchText(CA_URL, { timeoutMs: 12000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const rows = parseBocBonds(j); return rows.length ? { data: rows.slice(-HIST) } : { err: "no_data" }; } },
   ES: { name: "Spain — government bonds", kind: "average yield of spot trades by residual maturity, daily", source: "Banco de España", sourceUrl: "https://www.bde.es/wbe/en/estadisticas/temas/tipos-interes/", maxAgeDays: 5, key: "yields/es", load: () => jsonLoad(ES_URL, parseBde) },
@@ -489,7 +504,8 @@ export const WORLD_IDS = ["DE", "UK", "JP", "CH", "CA"];
 export const REGIONS = [
   ["Americas", ["US", "CA", "MX", "CL", "PE"]],
   ["Europe", ["EA", "DE", "UK", "FR", "IT", "ES", "NL", "BE", "AT", "PT", "IE", "GR", "FI", "CH", "SE", "NO", "DK", "PL", "CZ", "HU", "SK", "SI", "LU"]],
-  ["Asia-Pacific", ["JP", "CN", "AU", "NZ", "KR", "HK", "MY"]],
+  // Hong Kong (HKMA) is not listed: its API does not answer the Worker (checked 7 Oct 2026)
+  ["Asia-Pacific", ["JP", "CN", "AU", "NZ", "KR", "MY"]],
   ["Middle East & Africa", ["ZA", "IL"]],
 ];
 export const YIELD_IDS = REGIONS.flatMap(([, ids]) => ids);
@@ -583,7 +599,7 @@ export async function handleYields(url, env, ctx, H, json) {
     return send({ curves, errors, meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
   }
   const { curves, errors, cache } = await getYieldCurves(url.origin, ctx, now, env, ["US", "EA", ...WORLD_IDS]);
-  const r = send({ curves, errors, catalog: yieldCatalog(env), notConnected: ["Brazil", "Turkey", "India", "Indonesia", "Singapore", "Taiwan", "Thailand", "Philippines", "Colombia", "Saudi Arabia"], meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
+  const r = send({ curves, errors, catalog: yieldCatalog(env), notConnected: ["Brazil", "Turkey", "India", "Indonesia", "Singapore", "Taiwan", "Thailand", "Philippines", "Colombia", "Saudi Arabia", "Hong Kong (the HKMA API does not answer the server)"], meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
   r.headers.set("x-cache", cache.join(","));
   return r;
 }
