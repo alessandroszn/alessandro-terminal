@@ -46,8 +46,8 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
 | Calendar | BLS + BEA ICS schedules | actual/previous N/A until a FRED key is configured; forecast/importance N/A |
-| News | GDELT DOC 2.0, SEC EDGAR | headline, source, time, link only |
-| Briefing | Cloudflare Workers AI (Llama 3.3 70B) | summary of the real inputs above, sources listed, every figure checked |
+| News | Financial Times + Bloomberg (publishers' public RSS feeds), GDELT DOC 2.0, SEC EDGAR | headline, section, time, link only — never article text; filter ALL / FT / BLOOMBERG / WIRE / SEC |
+| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT/Bloomberg/wire headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. |
 
 ## Symbol discovery (T05)
 search → select → fetch. Nothing is preloaded and no ticker list is maintained by hand.
@@ -70,6 +70,9 @@ warrants: search the ticker); indices are not in the provider's search.
 - `GET /api/spx/universe` → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
 - `GET /api/spx/closes?ref=recent|1W|1M|3M|6M|YTD|1Y` → `{ ref, target, todayET, todayBarFinal, closes: { SYM: [date, close] | [[date, close]…] } }`
 - `GET /api/spx/live` → `{ trades: { SYM: [price, time] }, live, medianTradeAgeSec }` (cache 60 s)
+- `GET /api/headlines?source=FT|BLOOMBERG` → `{ items: [{ title, url, timestamp, section }], feeds, status }`
+- `GET /api/briefs?period=daily|evening|weekly|monthly` → `{ due: { id, d, writable }, dueWritten, briefs: [{ id, d, title }], schedule }`
+- `GET /api/briefs/item?id=daily-2026-10-07` · `POST /api/briefs/write?period=daily&symbols=…`
 - `GET /api/search?q=Roche` → `{ q, count, results: [{ id, symbol, name, exchange, mic, country, currency, type, planRequired, quotable }], plan, quotable, source, fetchedAt, status, truncated, credits }`
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
@@ -135,6 +138,8 @@ node test/provenance.test.mjs   # T04: client status rules
 node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
 node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes/history, plan errors
 node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca bars/trades, live phase)
+node test/press.test.mjs        # T06: FT / Bloomberg RSS parsing and endpoint
+node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)

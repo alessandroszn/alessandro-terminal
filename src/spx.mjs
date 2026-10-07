@@ -122,8 +122,8 @@ export function livePhase(trades, now = Date.now()) {
 // a daily bar dated today is final only once the session (and the 15-minute delay) is over
 export function todayBarFinal(now = Date.now()) { const { weekday, minutes } = etClock(now); return ["Sat", "Sun"].includes(weekday) || minutes >= 990; }
 
-// ---------- handlers ----------
-async function getUniverse(origin, ctx) {
+// ---------- loaders (shared by the heat map endpoints and the briefing) ----------
+export async function getUniverse(origin, ctx) {
   return cachedSource({
     origin, key: "spx/universe", ttlMs: 12 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 10 * 60_000,
     load: async () => {
@@ -134,8 +134,36 @@ async function getUniverse(origin, ctx) {
     },
   });
 }
+export const alpacaConfigured = (env) => !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY);
 
-const notConfigured = (env) => !env.ALPACA_KEY_ID || !env.ALPACA_SECRET_KEY;
+// consolidated closes: ref "recent" → last ≤ 3 sessions per symbol; 1W…1Y → last close ≤ the reference date
+export async function getCloses(origin, env, ctx, ref, symbols, now = Date.now()) {
+  const today = easternDate(new Date(now));
+  const target = ref === "recent" ? today : refTarget(ref, today);
+  const start = shiftDate(target, { days: ref === "recent" ? -14 : -10 });
+  // the free plan reads consolidated data up to 15 minutes ago
+  const end = ref === "recent" ? new Date(now - 16 * 60_000).toISOString() : `${target}T23:59:59Z`;
+  const r = await cachedSource({
+    origin, key: `spx/closes/${ref}/${target}`, ttlMs: ref === "recent" ? 30 * 60_000 : 24 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 2 * 60_000,
+    load: async () => {
+      const b = await alpacaDailyBars(env, symbols, start, end);
+      if (b.err) return b;
+      const closes = {};
+      for (const [s, list] of Object.entries(b.data)) {
+        const ok = list.filter(([d]) => d <= target);
+        if (!ok.length) continue;
+        closes[s] = ref === "recent" ? ok.slice(-3) : ok[ok.length - 1];
+      }
+      return Object.keys(closes).length ? { data: closes } : { err: "no_data" };
+    },
+  });
+  return { ...r, target, today };
+}
+export async function getLive(origin, env, ctx, symbols) {
+  return cachedSource({ origin, key: "spx/live", ttlMs: 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 30_000, load: () => alpacaLatestTrades(env, symbols) });
+}
+
+// ---------- handlers ----------
 const NA = (json, H, error, status, extra = {}) => json({ error, status: "N/A", ...extra }, H, status);
 const send = (json, H, body, cache) => { const r = json(body, H); r.headers.set("cache-control", "no-store"); r.headers.set("x-cache", cache); return r; };
 
@@ -151,7 +179,7 @@ export async function handleSpx(url, env, ctx, H, json) {
     }, u.cache);
   }
   if (part !== "closes" && part !== "live") return json({ error: "not found" }, H, 404);
-  if (notConfigured(env)) return NA(json, H, "alpaca_not_configured", 503, { message: "Alpaca API keys are not set in the Worker (ALPACA_KEY_ID, ALPACA_SECRET_KEY)" });
+  if (!alpacaConfigured(env)) return NA(json, H, "alpaca_not_configured", 503, { message: "Alpaca API keys are not set in the Worker (ALPACA_KEY_ID, ALPACA_SECRET_KEY)" });
   const u = await getUniverse(url.origin, ctx);
   if (u.err) return NA(json, H, "universe_unavailable", 502);
   const symbols = u.data.items.map((x) => x.sym);
@@ -160,36 +188,16 @@ export async function handleSpx(url, env, ctx, H, json) {
   if (part === "closes") {
     const ref = url.searchParams.get("ref") || "recent";
     if (ref !== "recent" && !REFS.includes(ref)) return json({ error: "bad_request", message: `ref must be recent or ${REFS.join(",")}` }, H, 400);
-    const target = ref === "recent" ? today : refTarget(ref, today);
-    const start = shiftDate(target, { days: ref === "recent" ? -14 : -10 });
-    // the free plan reads consolidated data up to 15 minutes ago
-    const end = ref === "recent" ? new Date(now - 16 * 60_000).toISOString() : `${target}T23:59:59Z`;
-    const r = await cachedSource({
-      origin: url.origin, key: `spx/closes/${ref}/${target}`, ttlMs: ref === "recent" ? 30 * 60_000 : 24 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 2 * 60_000,
-      load: async () => {
-        const b = await alpacaDailyBars(env, symbols, start, end);
-        if (b.err) return b;
-        const closes = {};
-        for (const [s, list] of Object.entries(b.data)) {
-          const ok = list.filter(([d]) => d <= target);
-          if (!ok.length) continue;
-          closes[s] = ref === "recent" ? ok.slice(-3) : ok[ok.length - 1];
-        }
-        return Object.keys(closes).length ? { data: closes } : { err: "no_data" };
-      },
-    });
+    const r = await getCloses(url.origin, env, ctx, ref, symbols, now);
     if (r.err) return NA(json, H, r.err, r.err === "rate_limited" ? 429 : 502, { ref });
     return send(json, H, {
-      ref, target, todayET: today, todayBarFinal: todayBarFinal(now), closes: r.data, count: Object.keys(r.data).length,
+      ref, target: r.target, todayET: today, todayBarFinal: todayBarFinal(now), closes: r.data, count: Object.keys(r.data).length,
       source: "Alpaca — consolidated (SIP) daily bars, split-adjusted", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
     }, r.cache);
   }
 
   // live
-  const r = await cachedSource({
-    origin: url.origin, key: "spx/live", ttlMs: 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 30_000,
-    load: () => alpacaLatestTrades(env, symbols),
-  });
+  const r = await getLive(url.origin, env, ctx, symbols);
   if (r.err) return NA(json, H, r.err, r.err === "rate_limited" ? 429 : 502);
   const phase = livePhase(r.data, now);
   return send(json, H, {

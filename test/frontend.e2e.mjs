@@ -79,6 +79,21 @@ const spxApi = (path, u, { configured = true } = {}) => {
   return { body: { ref, target: dShift(ET, -30), todayET: ET, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [dShift(ET, -31), v * 0.9]])), fetchedAt: now, status: "LIVE" } };
 };
 
+// briefing archive fixtures (shape of /api/briefs responses)
+const BRF_TODAY = new Date().toISOString().slice(0, 10), BRF_PREV = dShift(BRF_TODAY, -1);
+const BRIEF_ITEM = (id, d, title) => ({ id, period: "daily", d, title, created: Math.floor(Date.now() / 1000) - 600, n: 400, status: "DERIVED", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", provider: "Cloudflare Workers AI",
+  body: "## In one line\nS&P 500 constituents rose 0.41% on an IVV-weighted basis.\n## Equities\n`NVDA` added 0.14% while `XYZ` is not a chip. [FT](https://www.ft.com/content/test-1)\n## Rates and currencies\n`EUR/USD` fell 0.52%.\n## Commodities and crypto\nData is not available.\n## Today\n- Consumer Price Index at 08:30 ET.",
+  verification: { checked: 3, unverified: [], removedLinks: [], missingSections: [] }, symbols: ["NVDA", "EUR/USD"],
+  windows: [{ type: "MAP", state: { metric: "1D", size: "weight", view: "map" }, label: "S&P 500 heat map · 1D", why: "Where the moves were." }, { type: "GP", state: { ticker: "NVDA", tf: "1W" }, label: "NVDA · largest positive contribution", why: "NVIDIA" }, { type: "YLD", state: {}, label: "Government curves", why: "Curves" }],
+  sources: [{ name: "European Central Bank", timestamp: BRF_TODAY, url: "https://data.ecb.europa.eu/x" }], inputData: "EQUITY S&P 500 constituents ... +0.41%", disclaimer: "AI-written summary of the real data listed below. Not investment advice." });
+const briefsApi = (u, method, state) => {
+  if (u.pathname === "/api/briefs/write") { state.writes.push(u.search); state.written = true; return { status: 201, body: BRIEF_ITEM(`daily-${BRF_TODAY}`, BRF_TODAY, "Constituents edge up while the euro slips") }; }
+  if (u.pathname === "/api/briefs/item") { const id = u.searchParams.get("id"); return { body: BRIEF_ITEM(id, id.slice(6), id.endsWith(BRF_TODAY) ? "Constituents edge up while the euro slips" : "Yesterday's edition") }; }
+  const period = u.searchParams.get("period");
+  const list = period === "daily" ? [...(state.written ? [{ id: `daily-${BRF_TODAY}`, period, d: BRF_TODAY, title: "Constituents edge up while the euro slips", created: 1, n: 400 }] : []), { id: `daily-${BRF_PREV}`, period, d: BRF_PREV, title: "Yesterday's edition", created: 1, n: 400 }] : [];
+  return { body: { period, label: period[0].toUpperCase() + period.slice(1), schedule: period === "weekly" ? "Written on Saturday mornings from 08:00 (Rome time)." : "Written on weekday mornings from 07:30 (Rome time).", chipTf: "1W", due: period === "daily" ? { id: `daily-${BRF_TODAY}`, d: BRF_TODAY, writable: true } : null, dueWritten: period === "daily" ? !!state.written : false, briefs: list } };
+};
+
 // ---------- harness ----------
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
@@ -88,7 +103,7 @@ const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|MODEL —|hypothetica
 
 async function openTerminal(api, html = htmlFast) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const requests = [], errors = [], quoteBatches = [], spxCalls = [];
+  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false };
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -99,6 +114,7 @@ async function openTerminal(api, html = htmlFast) {
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/briefs")) return send(api.briefs ? api.briefs(u) : briefsApi(u, route.request().method(), brfState));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
@@ -106,7 +122,7 @@ async function openTerminal(api, html = htmlFast) {
     return route.abort();
   });
   await page.goto(ORIGIN + "/terminal/");
-  return { page, requests, errors, quoteBatches, spxCalls };
+  return { page, requests, errors, quoteBatches, spxCalls, brfState };
 }
 const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "", pillTitle: w.querySelector(".w-pv .pv")?.getAttribute("title") || "" } : null; }, prefix);
 const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(500); return page.evaluate(() => document.querySelector("#cmd").value !== ""); };
@@ -124,7 +140,7 @@ const OK_API = {
 
 // =============== A. every section on real-shaped data ===============
 {
-  const { page, requests, errors, quoteBatches } = await openTerminal(OK_API);
+  const { page, requests, errors, quoteBatches, brfState } = await openTerminal(OK_API);
   await page.evaluate(() => localStorage.removeItem("at-watchlist"));
   await page.reload();
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
@@ -173,11 +189,21 @@ const OK_API = {
   ok("[A] news: source filter (BLOOMBERG only)", /Test Bloomberg economics headline/.test(nwB.text) && !/Test FT markets headline/.test(nwB.text) && !/Stocks close higher/.test(nwB.text));
   await page.click('.win [data-src="ALL"]'); await page.waitForTimeout(200);
   ok("[A] news request carries the watchlist equities only", requests.some((u) => u.includes("/api/news?tickers=NVDA%2CAAPL%2CMSFT%2CAMZN%2CGOOGL%2CJPM")));
-  // briefing
-  await cmd(page, "BRF");
-  const br = await winOf(page, "BRIEFING");
-  ok("[A] briefing: AI-generated label, model, time, disclaimer, sources, number check", /AI-GENERATED\s*DRV/.test(br.text) && /llama/.test(br.text) && /Not investment advice/.test(br.text) && /Number check: all 1 figures match/.test(br.text) && /SOURCES[\s\S]*U\.S\. Department of the Treasury/.test(br.text));
-  ok("[A] briefing request carries watchlist + markets symbols", requests.some((u) => /\/api\/briefing\?symbols=NVDA.*EUR%2FUSD/.test(u)));
+  // briefing (reference format: editions, archive, chips, attached windows)
+  await cmd(page, "BRF"); await page.waitForTimeout(900);
+  let br = await winOf(page, "BRIEFING");
+  ok("[A] briefing: the due daily edition is written once (POST) with the watchlist + markets symbols", brfState.writes.length === 1 && /period=daily/.test(brfState.writes[0]) && /symbols=NVDA.*EUR%2FUSD/.test(brfState.writes[0]));
+  ok("[A] briefing: period tabs, archive list, title, sections, DERIVED label, model, disclaimer", /DAILY\s*EVENING\s*WEEKLY\s*MONTHLY/.test(br.text) && /Constituents edge up while the euro slips/.test(br.text) && /Yesterday's edition/.test(br.text) && /IN ONE LINE/i.test(br.text) && /RATES AND CURRENCIES/i.test(br.text) && /DRV/.test(br.text) && /llama/.test(br.text) && /Not investment advice/.test(br.text) && br.pill === "DERIVED", JSON.stringify(br.text.slice(0, 600)) + " pill=" + br.pill);
+  ok("[A] briefing: tickers from DATA become chips; others stay plain; links kept", (await page.$$eval(".brief-sym", (b) => b.map((x) => x.textContent).join())) === "NVDA,EUR/USD" && /XYZ/.test(br.text) && (await page.$$eval(".brf-art a", (a) => a.some((x) => x.href === "https://www.ft.com/content/test-1"))));
+  ok("[A] briefing: number check and sources shown", /Number check: all 3 figures match the source data/.test(br.text) && /SOURCES[\s\S]*European Central Bank/.test(br.text));
+  await page.click('.brief-sym[data-sym="NVDA"]'); await page.waitForTimeout(500);
+  ok("[A] briefing: a chip opens the instrument at the edition's range (daily → 1W)", await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("NVDA")); return !!w && w.querySelector('.tf[aria-pressed="true"]').textContent === "1W"; }));
+  await page.click('[data-allwin="1"]'); await page.waitForTimeout(900);
+  ok("[A] briefing: 'Open all as a view' opens the attached windows (heat map, chart, curves)", (await page.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent))).filter((x) => ["MAP", "YLD"].includes(x)).length === 2);
+  await page.click('.win [data-period="weekly"]'); await page.waitForTimeout(500);
+  br = await winOf(page, "BRIEFING");
+  ok("[A] briefing: an empty period says when it is written (no text invented)", /No weekly briefing yet\. Written on Saturday mornings/.test(br.text) && brfState.writes.length === 1);
+  await page.click('.win [data-period="daily"]'); await page.waitForTimeout(300);
   // global checks
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
@@ -192,6 +218,7 @@ const OK_API = {
 // =============== B. every provider down: N/A everywhere, nothing invented ===============
 {
   const DOWN = {
+    briefs: () => ({ status: 503, body: { error: "storage_not_configured", status: "N/A" } }),
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
     history: () => ({ status: 429, body: { error: "rate_limited", status: "N/A" } }),
     ext: (name) => ({ status: name === "briefing" ? 503 : 502, body: name === "yields" ? { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } }, notConnected: [] } : name === "briefing" ? { error: "model_unavailable", status: "N/A" } : { events: [], items: [], filings: [], sources: [], errors: { X: { error: "provider_unreachable", status: "N/A" } } } }),
@@ -204,7 +231,7 @@ const OK_API = {
   ok("[B] no price anywhere (no fallback value)", !/\$\d/.test(body) && !/\d\.\d{3,}/.test(body), (body.match(/.{20}(\$\d|\d\.\d{3,}).{10}/) || [])[0]);
   ok("[B] yields: N/A with the provider reason, no curve", /UNITED STATES · U\.S\. TREASURY\s*N\/A[\s\S]*provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text));
   ok("[B] calendar and news: NO DATA with the reason", /NO DATA/.test((await winOf(page, "ECONOMIC CALENDAR")).text) && /provider unreachable/.test((await winOf(page, "NEWS")).text));
-  ok("[B] briefing: N/A, no text produced", /briefing unavailable/.test((await winOf(page, "BRIEFING")).text) && (await winOf(page, "BRIEFING")).pill === "N/A");
+  ok("[B] briefing: N/A, no text produced", /briefing archive unavailable/.test((await winOf(page, "BRIEFING")).text) && (await winOf(page, "BRIEFING")).pill === "N/A" && !(await page.$(".brf-art")));
   ok("[B] no NaN rendered; no JavaScript errors", !/NaN/.test(body) && errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(600); await page.screenshot({ path: SHOTS + "/e2e-t05-down.png" }); }
   await page.close();

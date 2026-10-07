@@ -18,6 +18,7 @@ import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
 import { handleSpx } from "./spx.mjs";
 import { handleHeadlines } from "./press.mjs";
+import { handleBriefs } from "./briefs.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -386,7 +387,7 @@ export function historyStaleAfterMs(intraday, interval) {
 }
 
 // today's date at the exchange (for flagging an in-progress, venue-subset last bar)
-export function exchangeToday(tz, now = new Date()) {
+export function exchangeToday(tz, now = new Date(Date.now())) {
   try { return now.toLocaleDateString("en-CA", { timeZone: tz || "America/New_York" }); } catch { return isoDate(now); }
 }
 
@@ -471,6 +472,7 @@ export const app = {
     if (url.pathname === "/api/search") return handleSearch(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/spx/")) return handleSpx(url, env, ctx, H, json);
     if (url.pathname === "/api/headlines") return handleHeadlines(url, env, ctx, H, json);
+    if (url.pathname === "/api/briefs" || url.pathname.startsWith("/api/briefs/")) return handleBriefs(url, env, ctx, H, json, req);
     return json({ error: "not found" }, H, 404);
   },
 };

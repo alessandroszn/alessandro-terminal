@@ -168,6 +168,26 @@
   .news-item .tm{color:var(--dim);font-size:10px;white-space:nowrap}
   table.cal tr.past td{opacity:.55}
   .brief{font-size:12.5px;line-height:1.55;color:var(--fg);margin:10px 0}
+  .brf-wrap{display:grid;grid-template-columns:minmax(150px,200px) 1fr;gap:14px;align-items:start}
+  .brf-list{display:flex;flex-direction:column;gap:2px;max-height:100%;overflow:auto}
+  .brf-list button{all:unset;cursor:pointer;padding:6px 8px;border-left:2px solid transparent;font-size:10.5px;color:var(--muted);line-height:1.35}
+  .brf-list button .dt{display:block;color:var(--dim);font-size:9.5px;letter-spacing:.06em}
+  .brf-list button.on{border-left-color:var(--amber);color:var(--fg);background:var(--panel-2)}
+  .brf-list button:hover{color:var(--fg)}
+  .brf-art h2{font-size:15px;line-height:1.35;margin:2px 0 4px;color:var(--fg)}
+  .brf-art .meta{font-size:10px;color:var(--dim);margin-bottom:10px}
+  .brf-art h3{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin:16px 0 6px;font-weight:600}
+  .brf-art p,.brf-art li{font-size:12.5px;line-height:1.6;color:var(--fg);margin:0 0 8px}
+  .brf-art ul{margin:0 0 8px;padding-left:18px}
+  .brf-art a{color:var(--fg);text-decoration:underline;text-decoration-color:var(--line-2)}
+  .brf-art code{font-size:11px;color:var(--muted)}
+  .brief-sym{all:unset;cursor:pointer;font-size:11px;font-weight:600;color:var(--amber);background:var(--amber-soft);border:1px solid #3a2c0e;border-radius:3px;padding:0 4px;line-height:15px}
+  .brief-sym:hover{border-color:var(--amber)}
+  .brf-open{display:flex;flex-wrap:wrap;gap:4px;margin:12px 0 4px}
+  .brf-open button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:3px 8px;font:inherit;font-size:10px;cursor:pointer}
+  .brf-open button:hover{color:var(--fg);border-color:var(--amber)}
+  .brf-open .all{color:var(--amber)}
+  @media (max-width:880px){.brf-wrap{grid-template-columns:1fr}.brf-list{flex-direction:row;overflow-x:auto}}
   .brief-in{white-space:pre-wrap;font-size:10px;color:var(--muted);max-height:220px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:3px}
 
   /* ---- movers ---- */
@@ -480,7 +500,7 @@
     sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
       if(st===S.NA&&t.q){clearMarket(t);t.qErr=t.qErr||'expired';st=instStatus(t);}
       if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();
-      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D');});},
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D');if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
@@ -510,7 +530,7 @@
   const EXT={yields:{},calendar:{},news:{},briefing:{},ft:{},bloomberg:{}};
   const EXT_TTL={yields:1800000,calendar:3600000,news:600000,briefing:3600000,ft:600000,bloomberg:600000};
   const EXT_PATH={ft:'/api/headlines?source=FT',bloomberg:'/api/headlines?source=BLOOMBERG'},EXT_OWNER={ft:'N',bloomberg:'N'};
-  const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news',BRF:'briefing'};
+  const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news'};
   async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
     let path=EXT_PATH[name]||'/api/'+name;
     if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')&&!x.includes(':')).join(','));
@@ -747,20 +767,71 @@
     $$('[data-src]',body).forEach(b=>b.onclick=()=>{st.src=b.dataset.src;paintWin(win);});
     const items=extItems(d,'news:');press.forEach(p=>items['news:'+p.id]=p.status);setProv(win,items);}
 
-  // ---- BRIEFING: model analysis of the real data above, with sources and a number check ----
-  function renderBriefing(body,win){const e=EXT.briefing;loadExt('briefing');
-    if(!e.data&&!e.err){setProv(win,{'ds:BRF':S.LOADING});body.innerHTML='<div class="empty">Generating the briefing from real data…</div>';return;}
-    const d=e.data||{};
-    if(!d.text){setProv(win,{'ds:BRF':S.NA});body.innerHTML=`<div class="banner warn"><b>N/A</b> — briefing unavailable: ${esc(P.errorText(d.error||e.err||'model_error'))}. No text is produced without real inputs and a working model.</div><button class="set-reset brf-re">RETRY</button>`;body.querySelector('.brf-re').onclick=()=>loadExt('briefing',true);return;}
-    const v=d.verification||{checked:0,unverified:[]};
-    setProv(win,{'ds:BRF':S.DERIVED},'AI analysis of real data');
-    body.innerHTML=`<div class="banner"><b>AI-GENERATED</b> ${chip(S.DERIVED,'model analysis of real data')} · ${esc(d.provider||'')} · ${esc(d.model||'')} · ${fmtDT(d.generatedAt)}${d.cache==='HIT'?' (cached)':''} · ${esc(d.disclaimer||'')}</div>
-      <div class="brief">${esc(d.text).replace(/\n+/g,'<br><br>')}</div>
-      <div class="${v.unverified.length?'banner warn':'scr-count'}">${v.unverified.length?`<b>CHECK</b> — ${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`:`Number check: all ${v.checked} figures match the source data.`}</div>
-      <div class="set-grp" style="margin-top:10px">SOURCES</div>${(d.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
-      <details><summary class="scr-count">Input data given to the model</summary><pre class="brief-in">${esc(d.inputData||'')}</pre></details>
-      <button class="set-reset brf-re">REGENERATE</button>`;
-    body.querySelector('.brf-re').onclick=()=>loadExt('briefing',true);}
+  // ---- BRIEFING: Daily / Evening / Weekly / Monthly editions, written once from real data and archived ----
+  const BRF={idx:{},at:{},items:{},writing:{},fail:{},loading:{}};
+  const BRF_PERIODS=[['daily','DAILY'],['evening','EVENING'],['weekly','WEEKLY'],['monthly','MONTHLY']];
+  function brfRepaint(){wins.forEach(w=>{if(!w.min&&w.type==='BRF')liveRepaint(w);});updateGlobal();}
+  async function brfIndex(period,force){if(BRF.loading['i:'+period])return;if(!force&&BRF.at[period]&&Date.now()-BRF.at[period]<300000)return;BRF.loading['i:'+period]=true;
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs?period=${period}`,{cache:'no-store'});const j=await r.json();BRF.idx[period]=j;BRF.fail['i:'+period]=j.error||null;}
+    catch(e){BRF.fail['i:'+period]='network';}
+    finally{BRF.loading['i:'+period]=false;BRF.at[period]=Date.now();brfRepaint();}}
+  async function brfItem(id){if(BRF.items[id]||BRF.loading[id])return;BRF.loading[id]=true;
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/briefs/item?id=${encodeURIComponent(id)}`,{cache:'no-store'});const j=await r.json();if(j&&j.body)BRF.items[id]=j;else BRF.fail[id]=(j&&j.error)||'not_found';}
+    catch(e){BRF.fail[id]='network';}finally{BRF.loading[id]=false;brfRepaint();}}
+  // write the edition that is due: warm the real inputs first (each in its own request), then ask the Worker to write it
+  async function brfWrite(period,force){if(BRF.writing[period])return;BRF.writing[period]=true;BRF.fail['w:'+period]=null;brfRepaint();
+    try{const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x]._pending);
+      await Promise.all([spxGet('u','/api/spx/universe'),spxGet('recent','/api/spx/closes?ref=recent'),loadExt('news'),loadExt('ft'),loadExt('bloomberg'),loadExt('yields'),loadExt('calendar'),missing.length?DATA.fetchNow(missing):null]);
+      const syms=WATCH.concat(MARKET_SYMS).join(',');
+      for(let tries=0;tries<6;tries++){
+        const r=await fetch(`${CONFIG.proxyBase}/api/briefs/write?period=${period}${force?'&force=1':''}&symbols=${encodeURIComponent(syms)}`,{method:'POST',cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
+        if(r.status===202){await new Promise(z=>setTimeout(z,15000));force=false;continue;}
+        if(!j||!j.body){BRF.fail['w:'+period]=(j&&j.error)||('http '+r.status);break;}
+        BRF.items[j.id]=j;wins.forEach(w=>{if(w.type==='BRF'&&(w.state.period||'daily')===period)w.state.id=j.id;});break;}}
+    catch(e){BRF.fail['w:'+period]='network';}
+    finally{BRF.writing[period]=false;await brfIndex(period,true);}}
+  function brfMd(text,symbols,tf){const ok=new Set(symbols||[]);
+    const inl=t=>esc(t).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:]|$)/g,'$1<i>$2</i>')
+      .replace(/`([^`]+)`/g,(m,x)=>ok.has(x)?`<button class="brief-sym" data-sym="${x}" title="Open ${x} (${tf})">${x}</button>`:`<code>${x}</code>`);
+    const out=[];let para=[],list=null;const flush=()=>{if(para.length){out.push(`<p>${inl(para.join(' '))}</p>`);para=[];}if(list){out.push(`<ul>${list.map(li=>`<li>${inl(li)}</li>`).join('')}</ul>`);list=null;}};
+    String(text||'').split('\n').forEach(l=>{const h=/^#{1,3}\s+(.*)$/.exec(l),b=/^\s*[-*]\s+(.*)$/.exec(l);
+      if(h){flush();out.push(`<h3>${inl(h[1])}</h3>`);}else if(b){if(para.length){out.push(`<p>${inl(para.join(' '))}</p>`);para=[];}(list=list||[]).push(b[1]);}else if(!l.trim())flush();else{if(list){out.push(`<ul>${list.map(li=>`<li>${inl(li)}</li>`).join('')}</ul>`);list=null;}para.push(l.trim());}});
+    flush();return out.join('');}
+  function brfOpenWindow(spec){if(spec.type==='GP'){const w=openSecurity(spec.state.ticker);if(w&&spec.state.tf){w.state.tf=spec.state.tf;paintWin(w);}return;}
+    const w=openOrFocus(spec.type,Object.assign(defaultState(spec.type),spec.state||{}));if(w&&spec.state){Object.assign(w.state,spec.state);paintWin(w);}}
+  function renderBriefing(body,win){const st=win.state;st.period=st.period||'daily';const period=st.period;brfIndex(period);
+    const ix=BRF.idx[period],tabs=`<div class="tfbar">${BRF_PERIODS.map(([v,l])=>`<button class="tf" data-period="${v}" aria-pressed="${v===period}">${l}</button>`).join('')}</div>`;
+    const bind=()=>{$$('[data-period]',body).forEach(b=>b.onclick=()=>{st.period=b.dataset.period;st.id=null;paintWin(win);});};
+    if(!ix){setProv(win,{'ds:BRF':BRF.fail['i:'+period]?S.NA:S.LOADING});body.innerHTML=tabs+(BRF.fail['i:'+period]?`<div class="banner warn"><b>N/A</b> — briefing archive unavailable: ${esc(P.errorText(BRF.fail['i:'+period]))}.</div>`:'<div class="empty">Loading the briefing archive…</div>');bind();return;}
+    if(ix.error){setProv(win,{'ds:BRF':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — briefing archive unavailable: ${esc(P.errorText(ix.error))}.</div>`;bind();return;}
+    const briefs=ix.briefs||[];
+    // the edition that is due and not written yet is written now, once
+    if(ix.due&&ix.due.writable&&!ix.dueWritten&&!BRF.writing[period]&&!BRF.fail['w:'+period])brfWrite(period);
+    const curId=st.id||(briefs[0]&&briefs[0].id)||null;if(curId)brfItem(curId);
+    const b=curId?BRF.items[curId]:null;
+    const list=`<div class="brf-list">${BRF.writing[period]?`<button class="on"><span class="dt">${esc(ix.due?ix.due.d:'')}</span>writing…</button>`:''}${briefs.map(x=>`<button data-id="${esc(x.id)}" class="${x.id===curId?'on':''}"><span class="dt">${esc(x.d)}</span>${esc(x.title)}</button>`).join('')||(BRF.writing[period]?'':`<div class="scr-count">No ${esc(ix.label.toLowerCase())} edition yet.</div>`)}</div>`;
+    let art='';
+    if(BRF.writing[period]&&!b)art=`<div class="empty">Writing the ${esc(ix.label)} briefing for ${esc(ix.due?ix.due.d:'')} from real data… (model: Workers AI, about 20 s)</div>`;
+    else if(BRF.fail['w:'+period]&&!b)art=`<div class="banner warn"><b>N/A</b> — the ${esc(ix.label.toLowerCase())} briefing could not be written: ${esc(P.errorText(BRF.fail['w:'+period]))}. No text is produced without real inputs and a working model.</div><button class="set-reset brf-retry">RETRY</button>`;
+    else if(!b)art=curId?'<div class="empty">Loading…</div>':`<div class="empty">No ${esc(ix.label.toLowerCase())} briefing yet. ${esc(ix.schedule)}${ix.due&&!ix.due.writable&&!ix.dueWritten?' The '+esc(ix.due.d)+' edition was not written in its window, so it is not written later with newer data.':''}</div>`;
+    else{const v=b.verification||{checked:0,unverified:[]},tf=ix.chipTf||'1M';
+      const wl=(b.windows||[]).map((w,i)=>`<button data-win="${i}" title="${esc(w.why||'')}">${esc(w.label)}</button>`).join('');
+      const issues=[];if(v.unverified&&v.unverified.length)issues.push(`${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`);if(v.removedLinks&&v.removedLinks.length)issues.push(`${v.removedLinks.length} link(s) not in the source data removed`);if(v.missingSections&&v.missingSections.length)issues.push(`missing section(s): ${esc(v.missingSections.join(', '))}`);
+      art=`<article class="brf-art"><h2>${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
+        ${brfMd(b.body,b.symbols,tf)}
+        ${wl?`<div class="brf-open"><button class="all" data-allwin="1" title="Open these windows and tile them next to the briefing">▦ Open all ${b.windows.length} as a view</button>${wl}</div>`:''}
+        <div class="${issues.length?'banner warn':'scr-count'}">${issues.length?'<b>CHECK</b> — '+issues.join(' · '):`Number check: all ${v.checked} figures match the source data.`}</div>
+        <div class="set-grp" style="margin-top:10px">SOURCES</div>${(b.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
+        <details><summary class="scr-count">Input data given to the model</summary><pre class="brief-in">${esc(b.inputData||'')}</pre></details>
+        <div class="scr-count">${esc(b.disclaimer||'')} ${ix.due&&ix.due.writable&&b.id===ix.due.id?'<button class="set-reset brf-rewrite" style="margin-left:8px">REWRITE</button>':''}</div></article>`;}
+    body.innerHTML=tabs+`<div class="brf-wrap">${list}<div>${art}</div></div>`;bind();
+    setProv(win,{'ds:BRF':b?S.DERIVED:BRF.writing[period]?S.LOADING:S.NA},'AI-written from real data');
+    $$('[data-id]',body).forEach(x=>x.onclick=()=>{st.id=x.dataset.id;paintWin(win);});
+    $$('.brief-sym',body).forEach(x=>x.onclick=()=>{const w=openSecurity(x.dataset.sym);if(w&&ix.chipTf){w.state.tf=ix.chipTf;paintWin(w);}});
+    $$('[data-win]',body).forEach(x=>x.onclick=()=>brfOpenWindow(b.windows[+x.dataset.win]));
+    const all=body.querySelector('[data-allwin]');if(all)all.onclick=()=>{b.windows.forEach(brfOpenWindow);bringFront(win);if(!isMobile())tileAll();};
+    const rt=body.querySelector('.brf-retry');if(rt)rt.onclick=()=>{BRF.fail['w:'+period]=null;brfWrite(period);};
+    const rw=body.querySelector('.brf-rewrite');if(rw)rw.onclick=()=>{delete BRF.items[b.id];brfWrite(period,true);};}
 
   function renderHeat(body,win){const groups={},items={};UNI.forEach(t=>{(groups[t.sect]=groups[t.sect]||[]).push(t);items[t.sym]=instStatus(t);});
     let html='<div class="heat-wrap">';
@@ -1012,7 +1083,7 @@
     YLD:{tag:'YLD',w:680,h:560,title:()=>'GOVERNMENT YIELDS',render:renderYields},
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
     N:{tag:'N',w:620,h:500,title:()=>'NEWS',render:renderNews},
-    BRF:{tag:'BRF',w:600,h:520,title:()=>'BRIEFING',render:renderBriefing},
+    BRF:{tag:'BRF',w:860,h:620,title:w=>`BRIEFING · ${(w.state.period||'daily').toUpperCase()}`,render:renderBriefing},
     SET:{tag:'SET',w:460,h:430,title:()=>'SETTINGS',render:renderSettings}
   };
   function liveRepaint(w){const b=w.bodyEl,s=b.scrollTop;paintWin(w);b.scrollTop=s;}

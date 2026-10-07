@@ -22,6 +22,11 @@ directory = "./public"
 [ai]
 binding = "AI"
 
+# briefing archive (Daily / Evening / Weekly / Monthly editions)
+[[kv_namespaces]]
+binding = "BRIEFS"
+id = "96055847b5bc43aeb3d57eb5a15abcb3"
+
 [vars]
 ALLOWED_ORIGIN = "https://alessandrozanichelli.com"
 # Cloudflare Access (Zero Trust): the Worker re-checks the Access JWT on every /api request.
