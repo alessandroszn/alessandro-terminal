@@ -578,6 +578,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
       if(st===S.NA&&t.q){clearMarket(t);t.qErr=t.qErr||'expired';st=instStatus(t);}
       if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();
+      // the U.S. open: quotes fetched while closed are refreshed as soon as the exchange status says New York is open
+      const ny=EXT.exchanges.data&&Array.isArray(EXT.exchanges.data.exchanges)?EXT.exchanges.data.exchanges.find(x=>x.code==='XNYS'):null;
+      if(ny&&exchNow(ny,Date.now()).open&&UNI.some(t=>t.q&&t.q.marketOpen===false)&&Date.now()-(this.lastPull||0)>120000)this.refresh();
       wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='EQ')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='CRYPTO')spxEnsure(w.state.metric||'1D','CRYPTO');if(!w.min&&w._load)w._load();if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
