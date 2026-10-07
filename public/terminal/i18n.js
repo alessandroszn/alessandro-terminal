@@ -79,10 +79,43 @@
     "Real, from the provider, within its refresh window": "Reale, dal fornitore, entro la sua finestra di aggiornamento",
     "Computed by the terminal from real data": "Calcolato dal terminale su dati reali", "No real source: nothing is estimated or invented": "Nessuna fonte reale: nulla è stimato o inventato",
     "Data on screen now": "Dati ora sullo schermo",
+    "SYM · DATA": "SIMB. · DATI", "TIME": "ORA", "DATA": "DATI", "INDEX": "INDICE", "BRIEFING · DAILY": "BRIEFING · GIORNALIERO", "BRIEFING · EVENING": "BRIEFING · SERALE",
+    "BRIEFING · WEEKLY": "BRIEFING · SETTIMANALE", "BRIEFING · MONTHLY": "BRIEFING · MENSILE", "Sector heatmap": "Mappa dei settori", "Equity screener with filters": "Screener azioni con filtri",
+    "Compare instruments, rebased or % change": "Confronta strumenti, base 100 o variazione %", "Correlation matrix of daily returns": "Matrice di correlazione dei rendimenti giornalieri",
+    "Price graph & security overview": "Grafico del prezzo e scheda del titolo", "Movers: gainers, losers, most active": "Movimenti: migliori, peggiori, più scambiati",
+    "Markets: equities, FX, crypto, metals (real quotes)": "Mercati: azioni, valute, cripto, metalli (quotazioni reali)",
+    "Symbol search: find any listed instrument, open it, add it to the watchlist": "Ricerca strumenti: trova qualsiasi strumento quotato, aprilo, aggiungilo alla watchlist",
+    "World indices — NO DATA until a licensed source is connected": "Indici mondiali — NESSUN DATO finché non c'è una fonte con licenza",
+    "Government yields: U.S. Treasury, ECB euro area": "Rendimenti dei titoli di Stato: Tesoro USA, BCE area euro",
+    "Briefing: AI summary of the real data above, with sources": "Briefing: sintesi AI dei dati reali qui sopra, con le fonti",
+    "Settings: colours & themes": "Impostazioni: colori e temi", "Move a window; drag the corner grip to resize": "Sposta una finestra; trascina l'angolo per ridimensionarla",
+    "Economic calendar: world high-impact events (Forex Factory) with market reaction, plus official US schedules": "Calendario economico: eventi mondiali ad alto impatto (Forex Factory) con la reazione dei mercati, più i calendari ufficiali USA",
+    "Heat maps: S&P 500, Nasdaq-100, Dow 30, sectors, countries, crypto, FX — coloured by 1D / 1W / 1M / 3M / 6M / YTD / 1Y change": "Heat map: S&P 500, Nasdaq-100, Dow 30, settori, paesi, cripto, valute — colorate per variazione 1D / 1W / 1M / 3M / 6M / YTD / 1Y",
+    "drag title": "trascina il titolo", "double-click": "doppio clic", "venue-subset volume.": "volume del sottoinsieme di sedi.",
+    "from real closes aligned by date.": "da chiusure reali allineate per data.", "move together,": "si muovono insieme,", "move apart.": "si muovono in direzioni opposte.",
+    "U.S. Bureau of Labor Statistics": "U.S. Bureau of Labor Statistics", "Daily": "Giornaliero", "Evening": "Serale", "Weekly": "Settimanale", "Monthly": "Mensile",
+
   };
 
   // fragments inside longer texts (sentences, notes, banners); longest match first
   var PHRASES = [
+    ["US, Europe (UK, CH, DE, FR, IT, NL, ES), Canada, Japan, Hong Kong, ETFs, FX and crypto.", "USA, Europa (UK, CH, DE, FR, IT, NL, ES), Canada, Giappone, Hong Kong, ETF, valute e cripto."],
+    ["daily closes, split-adjusted", "chiusure giornaliere, rettificate per i frazionamenti"],
+    ["Equity volume is PARTIAL (venue subset). The provider sends no volume for FX, crypto and gold: N/A.", "Il volume delle azioni è PARZIALE (sottoinsieme di sedi). Il fornitore non invia volumi per valute, cripto e oro: N/A."],
+    ["no real index source is connected. The current plan has no index data (test 2026-10-06: SPX and NDX need a higher plan; DJI, IXIC, RUT and VIX are not available), and index vendors (S&P DJI, Nasdaq, Cboe, STOXX, Deutsche Börse) license even delayed values for display. ETFs are not shown as substitutes.",
+      "nessuna fonte reale per gli indici è collegata. Il piano attuale non ha dati sugli indici (test 2026-10-06: SPX e NDX richiedono un piano superiore; DJI, IXIC, RUT e VIX non sono disponibili), e i fornitori degli indici (S&P DJI, Nasdaq, Cboe, STOXX, Deutsche Börse) concedono in licenza anche i valori ritardati. Gli ETF non vengono mostrati come sostituti."],
+    ["No values are shown in its place.", "Nessun valore al suo posto."],
+    ["AAA GOVERNMENT BONDS SPOT CURVE", "CURVA SPOT DEI TITOLI DI STATO AAA"], ["EURO AREA", "AREA EURO"], ["TREASURY PAR YIELD CURVE", "CURVA PAR DEL TESORO"], ["UNITED STATES", "STATI UNITI"],
+    ["spot rate (Svensson), end of day", "tasso spot (Svensson), fine giornata"], ["par yield, end of day", "rendimento par, fine giornata"],
+    ["— N/A until an approved official source is added. Maturities a source does not publish stay N/A; nothing is interpolated.", "— N/A finché non si aggiunge una fonte ufficiale approvata. Le scadenze che una fonte non pubblica restano N/A; nulla è interpolato."],
+    ["Not connected:", "Non collegati:"], ["EUROPE & AFRICA", "EUROPA E AFRICA"], ["ASIA-PACIFIC", "ASIA-PACIFICO"], ["AMERICAS", "AMERICHE"], ["United Kingdom", "Regno Unito"], ["Germany", "Germania"], ["Italy", "Italia"], ["France", "Francia"], ["Japan", "Giappone"],
+    ["difference between the two latest official publications", "differenza tra le due ultime pubblicazioni ufficiali"], ["10Y minus 2Y, same publication", "10A meno 2A, stessa pubblicazione"],
+    ["S&P 500 constituents: Alpaca prices, iShares IVV weights (derived)", "componenti S&P 500: prezzi Alpaca, pesi iShares IVV (derivati)"],
+    ["Twelve Data (FX, crypto, gold, watchlist)", "Twelve Data (valute, cripto, oro, watchlist)"], ["Headlines:", "Titoli:"],
+    ["Rankings cover the", "Le classifiche coprono i"], ["watchlist instruments. Most active ranks by", "strumenti della watchlist. I più scambiati sono ordinati per"],
+    ["market cap and P/E removed: no fundamentals source (N/A)", "capitalizzazione e P/E rimossi: nessuna fonte di fondamentali (N/A)"],
+    ["Pearson correlation of daily returns over the last 90 sessions,", "Correlazione di Pearson dei rendimenti giornalieri nelle ultime 90 sedute,"],
+    ["written", "scritto"], ["as of", "al"], ["obs", "oss."], ["source", "fonte"],
     ["Written automatically on weekday mornings at 07:30 (Rome time).", "Scritto automaticamente nei giorni feriali alle 07:30 (ora di Roma)."],
     ["Written automatically on weekday evenings at 22:30 (Rome time), after the US close.", "Scritto automaticamente nei giorni feriali alle 22:30 (ora di Roma), dopo la chiusura USA."],
     ["Written automatically on Saturday mornings at 08:00 (Rome time).", "Scritto automaticamente il sabato alle 08:00 (ora di Roma)."],
@@ -172,9 +205,12 @@
   ];
   // dynamic patterns
   var PATTERNS = [
+    [/^DATA AS OF /, "DATI AL "],
+    [/^(\d+) results of (\d+)/, "$1 risultati su $2"],
+    [/^(Daily|Evening|Weekly|Monthly) · /, function (m, p) { return { Daily: "Giornaliero", Evening: "Serale", Weekly: "Settimanale", Monthly: "Mensile" }[p] + " · "; }],
     [/^No (daily|evening|weekly|monthly) briefing yet\./, function (m, p) { return "Nessun briefing " + { daily: "giornaliero", evening: "serale", weekly: "settimanale", monthly: "mensile" }[p] + " ancora."; }],
     [/^No (daily|evening|weekly|monthly) edition yet\./, function (m, p) { return "Nessuna edizione " + { daily: "giornaliera", evening: "serale", weekly: "settimanale", monthly: "mensile" }[p] + " ancora."; }],
-    [/\bWriting the (Daily|Evening|Weekly|Monthly) briefing\b/, function (m, p) { return "Scrittura del briefing " + { Daily: "giornaliero", Evening: "serale", Weekly: "settimanale", Monthly: "mensile" }[p]; }],
+    [/\bWriting the (Daily|Evening|Weekly|Monthly) briefing( for)?\b/, function (m, p, f) { return "Scrittura del briefing " + { Daily: "giornaliero", Evening: "serale", Weekly: "settimanale", Monthly: "mensile" }[p] + (f ? " del" : ""); }],
     [/^(\d+)\/(\d+) open$/, "$1/$2 aperte"],
     [/ (\d+)\/(\d+) OPEN$/, " $1/$2 APERTE"],
     [/(^|\s)in (\d+[dhm])/g, "$1tra $2"],
@@ -198,9 +234,9 @@
     var ex = EXACT_MAP.get(t);
     if (ex != null) return s.replace(t, ex);
     var o = s;
+    // known phrases first (only inside texts of several words: a lone word may be data), then dynamic patterns
+    if (t.split(/\s+/).length > 1) o = o.replace(PHR_RE, function (m) { return PHR_MAP.get(m); });
     for (var i = 0; i < PATTERNS.length; i++) o = o.replace(PATTERNS[i][0], PATTERNS[i][1]);
-    // words like "the", "local" only change inside sentences the dictionary knows; keep short single words out of data-like strings
-    if (t.split(/\s+/).length > 1 || o !== s) o = o.replace(PHR_RE, function (m) { return PHR_MAP.get(m); });
     return o;
   }
   var SKIP = ".notranslate,.nm,script,style,textarea,code,pre";
