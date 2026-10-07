@@ -7,7 +7,13 @@
 //   GET /api/spx/live                latest trade per constituent (IEX feed, the free real-time feed) — Alpaca
 // Changes (1D, 1W, …) are computed by the page from these real prices and labelled DERIVED.
 // Alpaca keys are Worker secrets (ALPACA_KEY_ID, ALPACA_SECRET_KEY), sent only as request headers.
-import { fetchText, cachedSource, parseCsv, iso, easternDate } from "./lib.mjs";
+// Other heat maps use the same endpoints with ?u= (default SPX):
+//   NDX     Nasdaq-100 — Invesco QQQ daily holdings (Invesco's own holdings API), prices Alpaca
+//   DJI     Dow Jones Industrial Average — SPDR DIA daily holdings file (.xlsx), prices Alpaca
+//   SECT    US sectors — the 11 SPDR Select Sector ETFs, prices Alpaca (ETF prices, not index levels)
+//   CTRY    Countries — single-country ETFs listed in New York (iShares MSCI …), prices Alpaca
+//   CRYPTO  Crypto — Alpaca crypto data (USD pairs; 24/7, days in UTC)
+import { fetchText, fetchBinary, xlsxRows, cachedSource, parseCsv, iso, easternDate } from "./lib.mjs";
 
 export const IVV_URL = "https://www.ishares.com/us/products/239726/ishares-core-s-p-500-etf/latest-holdings.csv";
 export const IVV_PAGE = "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf";
@@ -78,7 +84,7 @@ const alpacaHeaders = (env) => ({ "APCA-API-KEY-ID": env.ALPACA_KEY_ID, "APCA-AP
 const alpacaErr = (f) => (f.http === 401 || f.http === 403 ? "provider_auth" : f.err);
 
 // all daily bars (consolidated SIP feed, split-adjusted) for the symbols in [start, end], following pages
-export async function alpacaDailyBars(env, symbols, start, end) {
+export async function alpacaDailyBars(env, symbols, start, end, withDv = false) {
   const out = {};
   let token = null, pages = 0;
   do {
@@ -89,11 +95,50 @@ export async function alpacaDailyBars(env, symbols, start, end) {
     let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
     for (const [s, bars] of Object.entries(j.bars || {})) {
       const list = out[s] || (out[s] = []);
-      for (const b of bars || []) if (b && b.t && Number.isFinite(b.c)) list.push([barDate(b.t), b.c]);
+      for (const b of bars || []) if (b && b.t && Number.isFinite(b.c)) list.push(withDv && Number.isFinite(b.v) ? [barDate(b.t), b.c, Math.round(b.c * b.v)] : [barDate(b.t), b.c]);
     }
     token = j.next_page_token || null;
   } while (token && ++pages < 6);
   return { data: out };
+}
+
+// ---------- Alpaca crypto (24/7; daily bars in UTC days; only completed days count as closes) ----------
+export const ALPACA_CRYPTO = "https://data.alpaca.markets/v1beta3/crypto/us";
+export async function alpacaCryptoBars(env, symbols, start, end, now = Date.now()) {
+  const qs = new URLSearchParams({ symbols: symbols.join(","), timeframe: "1Day", start: `${start}T00:00:00Z`, end, limit: "10000", sort: "asc" });
+  const f = await fetchText(`${ALPACA_CRYPTO}/bars?${qs}`, { timeoutMs: 15000, headers: alpacaHeaders(env) });
+  if (f.err) return { err: alpacaErr(f) };
+  let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+  const out = {};
+  for (const [s, bars] of Object.entries(j.bars || {})) for (const b of bars || []) {
+    if (!b || !b.t || !Number.isFinite(b.c) || Date.parse(b.t) + 86400_000 > now) continue; // the running day is not a close
+    (out[s] = out[s] || []).push([barDate(b.t), b.c, Number.isFinite(b.v) ? Math.round(b.c * b.v) : null]);
+  }
+  return { data: out };
+}
+export async function alpacaCryptoTrades(env, symbols) {
+  const f = await fetchText(`${ALPACA_CRYPTO}/latest/trades?${new URLSearchParams({ symbols: symbols.join(",") })}`, { timeoutMs: 10000, headers: alpacaHeaders(env) });
+  if (f.err) return { err: alpacaErr(f) };
+  let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+  const out = {};
+  for (const [s, t] of Object.entries(j.trades || {})) if (t && Number.isFinite(t.p) && t.t) out[s] = [t.p, new Date(t.t).toISOString()];
+  return { data: out };
+}
+const utcDate = (now) => new Date(now).toISOString().slice(0, 10);
+async function getCryptoCloses(origin, env, ctx, ref, symbols, now) {
+  const today = utcDate(now), target = ref === "recent" ? today : refTarget(ref, today);
+  const start = shiftDate(target, { days: ref === "recent" ? -6 : -10 });
+  const r = await cachedSource({
+    origin, key: `map/CRYPTO/closes/${ref}/${target}`, ttlMs: ref === "recent" ? 30 * 60_000 : 24 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 2 * 60_000,
+    load: async () => {
+      const b = await alpacaCryptoBars(env, symbols, start, new Date(now).toISOString(), now);
+      if (b.err) return b;
+      const closes = {};
+      for (const [s, list] of Object.entries(b.data)) { const ok = list.filter(([d]) => d <= target); if (ok.length) closes[s] = ref === "recent" ? ok.slice(-3) : ok[ok.length - 1].slice(0, 2); }
+      return Object.keys(closes).length ? { data: closes } : { err: "no_data" };
+    },
+  });
+  return { ...r, target, today };
 }
 
 // latest trade per symbol on the IEX feed (free plan); chunks keep URLs short
@@ -122,8 +167,80 @@ export function livePhase(trades, now = Date.now()) {
 // a daily bar dated today is final only once the session (and the 15-minute delay) is over
 export function todayBarFinal(now = Date.now()) { const { weekday, minutes } = etClock(now); return ["Sat", "Sun"].includes(weekday) || minutes >= 990; }
 
+// ---------- universes other than the S&P 500 ----------
+export const QQQ_URL = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ/holdings/fund?idType=ticker&interval=monthly&productType=ETF";
+export const QQQ_PAGE = "https://www.invesco.com/qqq-etf/en/home.html";
+export const DIA_URL = "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/holdings-daily-us-en-dia.xlsx";
+export const DIA_PAGE = "https://www.ssga.com/us/en/intermediary/etfs/spdr-dow-jones-industrial-average-etf-trust-dia";
+const etf = (sym, name, group, short) => ({ sym, name, sector: group, short, weight: null });
+export const SECTOR_ETFS = [
+  ["XLK", "Technology"], ["XLF", "Financials"], ["XLV", "Health Care"], ["XLY", "Consumer Discretionary"], ["XLP", "Consumer Staples"],
+  ["XLE", "Energy"], ["XLI", "Industrials"], ["XLB", "Materials"], ["XLU", "Utilities"], ["XLRE", "Real Estate"], ["XLC", "Communication Services"],
+].map(([s, n]) => etf(s, `${n} Select Sector SPDR (${s})`, "US sectors", n.toUpperCase()));
+export const COUNTRY_ETFS = [
+  ["Americas", [["SPY", "United States", "SPDR S&P 500"], ["EWC", "Canada"], ["EWW", "Mexico"], ["EWZ", "Brazil"], ["ECH", "Chile"]]],
+  ["Europe", [["EWU", "United Kingdom"], ["EWG", "Germany"], ["EWQ", "France"], ["EWI", "Italy"], ["EWP", "Spain"], ["EWL", "Switzerland"], ["EWN", "Netherlands"], ["EWD", "Sweden"], ["EWK", "Belgium"], ["EDEN", "Denmark"], ["ENOR", "Norway"], ["EWO", "Austria"], ["EIRL", "Ireland"], ["EPOL", "Poland"], ["TUR", "Turkey"]]],
+  ["Asia-Pacific", [["EWJ", "Japan"], ["MCHI", "China"], ["EWH", "Hong Kong"], ["EWT", "Taiwan"], ["EWY", "South Korea"], ["INDA", "India"], ["EWA", "Australia"], ["EWS", "Singapore"], ["EWM", "Malaysia"], ["EIDO", "Indonesia"], ["THD", "Thailand"], ["EPHE", "Philippines"], ["ENZL", "New Zealand"]]],
+  ["Middle East & Africa", [["EIS", "Israel"], ["KSA", "Saudi Arabia"], ["QAT", "Qatar"], ["UAE", "United Arab Emirates"], ["EZA", "South Africa"]]],
+].flatMap(([g, list]) => list.map(([s, c, issuer]) => etf(s, `${c} — ${issuer || "iShares MSCI " + c} (${s})`, g, c.toUpperCase())));
+export const CRYPTO_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "AVAX", "LINK", "LTC", "BCH", "DOT", "UNI", "AAVE", "SHIB", "PEPE", "XTZ", "CRV", "GRT", "BAT", "SUSHI", "YFI", "MKR", "TRUMP"]
+  .map((c) => ({ sym: `${c}/USD`, name: `${c} / US dollar`, sector: "Crypto", short: c, weight: null }));
+
+// Invesco holdings JSON → equities with weights (cash, futures, money market excluded)
+export function parseQqq(j) {
+  const list = j && Array.isArray(j.holdings) ? j.holdings : [];
+  const items = [], seen = new Set();
+  for (const h of list) {
+    const sym = String(h.ticker || "").trim().replace(/[\s/]+/g, "."), weight = numC(h.percentageOfTotalNetAssets);
+    if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym) || weight == null || weight <= 0 || seen.has(sym)) continue;
+    if (/cash|money market|future|treasury/i.test(`${h.securityTypeName || ""} ${h.issuerName || ""}`)) continue;
+    seen.add(sym);
+    items.push({ sym, name: String(h.issuerName || "").trim() || null, sector: null, weight });
+  }
+  return { asOf: /^\d{4}-\d{2}-\d{2}$/.test(j && j.effectiveDate) ? j.effectiveDate : null, items };
+}
+// SPDR holdings sheet → equities with weight and sector
+export function parseSpdrRows(rows) {
+  let asOf = null, h = -1;
+  const MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+  for (let i = 0; i < rows.length && h < 0; i++) {
+    const line = rows[i].join(" ");
+    const m = /As of (\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(line);
+    if (m && MON[m[2].toUpperCase()]) asOf = `${m[3]}-${pad(MON[m[2].toUpperCase()])}-${pad(m[1])}`;
+    if (rows[i].some((c) => /^Ticker$/i.test(String(c).trim())) && rows[i].some((c) => /^Weight$/i.test(String(c).trim()))) h = i;
+  }
+  if (h < 0) return { asOf, items: [] };
+  const head = rows[h].map((x) => String(x).trim().toLowerCase()), c = (n) => head.indexOf(n);
+  const iT = c("ticker"), iN = c("name"), iW = c("weight"), iS = c("sector");
+  const items = [], seen = new Set();
+  for (const r of rows.slice(h + 1)) {
+    const sym = String(r[iT] || "").trim().replace(/\s+/g, "."), weight = numC(r[iW]);
+    if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym) || weight == null || weight <= 0 || seen.has(sym)) continue;
+    seen.add(sym);
+    items.push({ sym, name: String(r[iN] || "").trim() || null, sector: iS >= 0 ? String(r[iS] || "").trim() || null : null, weight });
+  }
+  return { asOf, items };
+}
+
+export const UNIVERSES = {
+  SPX: { label: "S&P 500", kind: "stocks" },
+  NDX: { label: "Nasdaq-100", kind: "stocks", source: "Invesco QQQ Trust — daily holdings", sourceUrl: QQQ_PAGE, weightBasis: "weight in QQQ (proxy for the Nasdaq-100 index weight)", min: 90,
+    load: async () => { const f = await fetchText(QQQ_URL, { timeoutMs: 12000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } return { data: parseQqq(j) }; } },
+  DJI: { label: "Dow Jones Industrial Average", kind: "stocks", source: "SPDR Dow Jones Industrial Average ETF (DIA) — daily holdings", sourceUrl: DIA_PAGE, weightBasis: "weight in DIA (the Dow is price-weighted: weight follows the share price)", min: 28,
+    load: async () => { const f = await fetchBinary(DIA_URL, { timeoutMs: 12000 }); if (f.err) return { err: f.err }; try { return { data: parseSpdrRows(await xlsxRows(f.buf)) }; } catch { return { err: "provider_error" }; } } },
+  SECT: { label: "US sectors (SPDR sector ETFs)", kind: "stocks", static: SECTOR_ETFS, source: "SPDR Select Sector ETFs (fixed list)", weightBasis: "none — size: traded value or equal" },
+  CTRY: { label: "Countries (single-country ETFs in New York)", kind: "stocks", static: COUNTRY_ETFS, source: "single-country ETFs listed in New York (fixed list)", weightBasis: "none — size: traded value or equal" },
+  CRYPTO: { label: "Crypto (USD pairs)", kind: "crypto", static: CRYPTO_PAIRS, source: "Alpaca crypto USD pairs (fixed list)", weightBasis: "none — size: traded value or equal" },
+};
+
 // ---------- loaders (shared by the heat map endpoints and the briefing) ----------
-export async function getUniverse(origin, ctx) {
+export async function getUniverse(origin, ctx, u = "SPX") {
+  const U = UNIVERSES[u];
+  if (U.static) return { data: { asOf: null, items: U.static }, fetchedAt: Date.now(), cache: "STATIC" };
+  if (u !== "SPX") return cachedSource({
+    origin, key: `map/${u}/universe`, ttlMs: 12 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 10 * 60_000,
+    load: async () => { const r = await U.load(); return r.data && r.data.items.length >= U.min ? r : { err: r.err || "provider_error" }; },
+  });
   return cachedSource({
     origin, key: "spx/universe", ttlMs: 12 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 10 * 60_000,
     load: async () => {
@@ -137,30 +254,39 @@ export async function getUniverse(origin, ctx) {
 export const alpacaConfigured = (env) => !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY);
 
 // consolidated closes: ref "recent" → last ≤ 3 sessions per symbol; 1W…1Y → last close ≤ the reference date
-export async function getCloses(origin, env, ctx, ref, symbols, now = Date.now()) {
+export async function getCloses(origin, env, ctx, ref, symbols, now = Date.now(), u = "SPX") {
+  if (UNIVERSES[u].kind === "crypto") return getCryptoCloses(origin, env, ctx, ref, symbols, now);
   const today = easternDate(new Date(now));
   const target = ref === "recent" ? today : refTarget(ref, today);
   const start = shiftDate(target, { days: ref === "recent" ? -14 : -10 });
   // the free plan reads consolidated data up to 15 minutes ago
   const end = ref === "recent" ? new Date(now - 16 * 60_000).toISOString() : `${target}T23:59:59Z`;
+  const withDv = u !== "SPX"; // traded value (close × volume) for the "size by traded value" option
   const r = await cachedSource({
-    origin, key: `spx/closes/${ref}/${target}`, ttlMs: ref === "recent" ? 30 * 60_000 : 24 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 2 * 60_000,
+    origin, key: u === "SPX" ? `spx/closes/${ref}/${target}` : `map/${u}/closes/${ref}/${target}`, ttlMs: ref === "recent" ? 30 * 60_000 : 24 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 2 * 60_000,
     load: async () => {
-      const b = await alpacaDailyBars(env, symbols, start, end);
+      const b = await alpacaDailyBars(env, symbols, start, end, withDv);
       if (b.err) return b;
       const closes = {};
       for (const [s, list] of Object.entries(b.data)) {
         const ok = list.filter(([d]) => d <= target);
         if (!ok.length) continue;
-        closes[s] = ref === "recent" ? ok.slice(-3) : ok[ok.length - 1];
+        closes[s] = ref === "recent" ? ok.slice(-3) : ok[ok.length - 1].slice(0, 2);
       }
       return Object.keys(closes).length ? { data: closes } : { err: "no_data" };
     },
   });
   return { ...r, target, today };
 }
-export async function getLive(origin, env, ctx, symbols) {
-  return cachedSource({ origin, key: "spx/live", ttlMs: 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 30_000, load: () => alpacaLatestTrades(env, symbols) });
+export async function getLive(origin, env, ctx, symbols, u = "SPX") {
+  const crypto = UNIVERSES[u].kind === "crypto";
+  return cachedSource({ origin, key: u === "SPX" ? "spx/live" : `map/${u}/live`, ttlMs: 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 30_000, load: () => (crypto ? alpacaCryptoTrades(env, symbols) : alpacaLatestTrades(env, symbols)) });
+}
+// crypto trades around the clock: live when the trades are recent
+export function cryptoPhase(trades, now = Date.now()) {
+  const ages = Object.values(trades).map(([, t]) => now - Date.parse(t)).filter(Number.isFinite).sort((a, b) => a - b);
+  const median = ages.length ? ages[Math.floor(ages.length / 2)] : Infinity;
+  return { live: median <= 20 * 60_000, medianAgeSec: Number.isFinite(median) ? Math.round(median / 1000) : null };
 }
 
 // ---------- handlers ----------
@@ -169,39 +295,44 @@ const send = (json, H, body, cache) => { const r = json(body, H); r.headers.set(
 
 export async function handleSpx(url, env, ctx, H, json) {
   const part = url.pathname.slice("/api/spx/".length);
+  const uid = String(url.searchParams.get("u") || "SPX").toUpperCase(), U = UNIVERSES[uid];
+  if (!U) return json({ error: "bad_request", message: `u must be one of ${Object.keys(UNIVERSES).join(",")}` }, H, 400);
   if (part === "universe") {
-    const u = await getUniverse(url.origin, ctx);
-    if (u.err) return NA(json, H, u.err, 502, { source: "iShares IVV holdings", sourceUrl: IVV_PAGE });
+    const u = await getUniverse(url.origin, ctx, uid);
+    const src = uid === "SPX" ? { source: "iShares Core S&P 500 ETF (IVV) — daily holdings", sourceUrl: IVV_PAGE, weightBasis: "weight in IVV (proxy for the S&P 500 index weight)" } : { source: U.source, sourceUrl: U.sourceUrl || null, weightBasis: U.weightBasis };
+    if (u.err) return NA(json, H, u.err, 502, { universe: uid, ...src });
     return send(json, H, {
-      source: "iShares Core S&P 500 ETF (IVV) — daily holdings", sourceUrl: IVV_PAGE, weightBasis: "weight in IVV (proxy for the S&P 500 index weight)",
+      universe: uid, label: U.label, kind: U.kind, ...src,
       holdingsAsOf: u.data.asOf, count: u.data.items.length, items: u.data.items,
       fetchedAt: iso(u.fetchedAt), status: u.cache === "STALE" ? "STALE" : "LIVE",
     }, u.cache);
   }
   if (part !== "closes" && part !== "live") return json({ error: "not found" }, H, 404);
   if (!alpacaConfigured(env)) return NA(json, H, "alpaca_not_configured", 503, { message: "Alpaca API keys are not set in the Worker (ALPACA_KEY_ID, ALPACA_SECRET_KEY)" });
-  const u = await getUniverse(url.origin, ctx);
+  const u = await getUniverse(url.origin, ctx, uid);
   if (u.err) return NA(json, H, "universe_unavailable", 502);
   const symbols = u.data.items.map((x) => x.sym);
-  const now = Date.now(), today = easternDate(new Date(now));
+  const crypto = U.kind === "crypto";
+  const now = Date.now(), today = crypto ? utcDate(now) : easternDate(new Date(now));
 
   if (part === "closes") {
     const ref = url.searchParams.get("ref") || "recent";
     if (ref !== "recent" && !REFS.includes(ref)) return json({ error: "bad_request", message: `ref must be recent or ${REFS.join(",")}` }, H, 400);
-    const r = await getCloses(url.origin, env, ctx, ref, symbols, now);
+    const r = await getCloses(url.origin, env, ctx, ref, symbols, now, uid);
     if (r.err) return NA(json, H, r.err, r.err === "rate_limited" ? 429 : 502, { ref });
     return send(json, H, {
-      ref, target: r.target, todayET: today, todayBarFinal: todayBarFinal(now), closes: r.data, count: Object.keys(r.data).length,
-      source: "Alpaca — consolidated (SIP) daily bars, split-adjusted", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
+      universe: uid, ref, target: r.target, todayET: today, todayBarFinal: crypto ? true : todayBarFinal(now), closes: r.data, count: Object.keys(r.data).length,
+      ...(crypto ? { dayBasis: "UTC day; closes are completed days only" } : {}),
+      source: crypto ? "Alpaca — crypto daily bars (US venues)" : "Alpaca — consolidated (SIP) daily bars, split-adjusted", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
     }, r.cache);
   }
 
   // live
-  const r = await getLive(url.origin, env, ctx, symbols);
+  const r = await getLive(url.origin, env, ctx, symbols, uid);
   if (r.err) return NA(json, H, r.err, r.err === "rate_limited" ? 429 : 502);
-  const phase = livePhase(r.data, now);
+  const phase = crypto ? cryptoPhase(r.data, now) : livePhase(r.data, now);
   return send(json, H, {
-    trades: r.data, count: Object.keys(r.data).length, live: phase.live, medianTradeAgeSec: phase.medianAgeSec, todayET: today,
-    source: "Alpaca — latest trade, IEX feed (one venue: real prices, partial volume)", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
+    universe: uid, trades: r.data, count: Object.keys(r.data).length, live: phase.live, medianTradeAgeSec: phase.medianAgeSec, todayET: today,
+    source: crypto ? "Alpaca — latest crypto trade (US venues)" : "Alpaca — latest trade, IEX feed (one venue: real prices, partial volume)", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
   }, r.cache);
 }

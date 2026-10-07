@@ -328,6 +328,18 @@
     .live .pulse{animation:none}
     #cmd.err{animation:none}
   }
+.news-item .newtag{font-size:9px;letter-spacing:.06em;color:var(--bg,#111);background:var(--up,#3fb950);padding:0 4px;margin-right:6px;border-radius:2px;align-self:center}
+.news-item.fresh a.h{font-weight:600}
+.spx-ubar{border-bottom:1px solid var(--line)}
+.fx-m{margin-top:8px}.fx-m th,.fx-m td{text-align:center}.fx-m td.fx-c{color:#fff;font-variant-numeric:tabular-nums;min-width:52px}.fx-m td.fx-diag{background:var(--panel-2)}
+.fx-strength{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;margin:4px 0}
+.ex-st{display:inline-block;min-width:54px;text-align:center;font-size:10px;letter-spacing:.06em;padding:1px 4px;border-radius:2px}
+.ex-OPEN{background:var(--up);color:var(--bg)}.ex-CLOSED{background:var(--panel-2);color:var(--muted)}
+tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
+.pf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
+.pf-k{border:1px solid var(--line);padding:6px 8px;display:flex;flex-direction:column;gap:2px}.pf-k span{font-size:10px;letter-spacing:.06em;color:var(--muted)}.pf-k b{font-size:16px;font-variant-numeric:tabular-nums}.pf-k b small{font-size:11px}.pf-k i{font-style:normal;font-size:10px;color:var(--dim)}
+.pf-form{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0}.pf-form input,.pf-form select{background:var(--panel-2);color:var(--fg);border:1px solid var(--line-2);font:inherit;font-size:12px;padding:3px 5px}
+.pf-empty{padding:24px 8px}
 </style>
 
 <div id="app">
@@ -353,6 +365,7 @@
     <span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span>
     <span>US MARKET <b id="sess">—</b></span>
     <span>BREADTH <b id="breadth">—</b></span>
+    <span title="major exchanges open now (Twelve Data market_state)">MKTS <b id="mktsOpen">—</b></span>
     <span title="next high-impact event (Forex Factory)">NEXT <b id="nextEv">—</b></span>
     <div class="s-right">
       <span id="dataPull"></span>
@@ -385,6 +398,8 @@
     <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
     <div class="help-row"><code>YLD</code><span>Government yields: U.S. Treasury, ECB euro area</span></div>
     <div class="help-row"><code>CAL</code><span>Economic calendar: official BLS / BEA schedules</span></div>
+    <div class="help-row"><code>PF</code><span>Portfolio: your transactions, positions, value and P&amp;L in EUR (starts empty)</span></div>
+    <div class="help-row"><code>EXCH</code><span>World exchanges: which markets are open now, local time, time to open / close</span></div>
     <div class="help-row"><code>N</code><span>News: FT, Bloomberg, WSJ, MarketWatch, central banks; SEC filings for the watchlist</span></div>
     <div class="help-row"><code>BRF</code><span>Briefing: AI summary of the real data above, with sources</span></div>
     <div class="help-row"><code>MOV</code><span>Movers: gainers, losers, most active</span></div>
@@ -492,7 +507,7 @@
     interval(){const qs=UNI.filter(t=>t.q);const closed=qs.length&&qs.every(t=>t.q.marketOpen===false);return closed?CONFIG.quoteRefreshClosedMs:CONFIG.quoteRefreshOpenMs;},
     schedule(){clearTimeout(this._timer);this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
     // symbols on screen: watchlist, the markets board when open, open security windows
-    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&(w.type==='MKT'||w.type==='BRF')))MARKET_SYMS.forEach(x=>s.add(x));wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
+    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&(w.type==='MKT'||w.type==='BRF')))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PF'))pfNeeded().forEach(x=>{inst(x);s.add(x);});wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
     // quotes in chunks of ≤7 symbols, each waiting for room in the per-minute credit budget
     async fetchNow(syms){syms=syms.filter(x=>BY[x]&&!BY[x]._pending&&!BY[x]._planBlocked);syms.forEach(x=>BY[x]._pending=true);
       try{for(let i=0;i<syms.length;i+=7){const chunk=syms.slice(i,i+7);await Budget.take(chunk.length);
@@ -505,7 +520,7 @@
     sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
       if(st===S.NA&&t.q){clearMarket(t);t.qErr=t.qErr||'expired';st=instStatus(t);}
       if(st!==t._st){t._st=st;changed=true;}});if(changed)repaintAll();
-      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D');if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
@@ -535,9 +550,13 @@
   // top publishers and central banks: one /api/headlines source each (the publishers' own feeds)
   const PRESS_SRC=[['ft','FT','Financial Times'],['bloomberg','BLOOMBERG','Bloomberg'],['wsj','WSJ','The Wall Street Journal'],['marketwatch','MARKETWATCH','MarketWatch'],['cb','CB','Central banks']];
   const EXT={yields:{},calendar:{},news:{},briefing:{}},EXT_TTL={yields:1800000,calendar:3600000,news:600000,briefing:3600000},EXT_PATH={},EXT_OWNER={};
-  PRESS_SRC.forEach(([k,id])=>{EXT[k]={};EXT_TTL[k]=600000;EXT_PATH[k]='/api/headlines?source='+id;EXT_OWNER[k]='N';});
+  PRESS_SRC.forEach(([k,id])=>{EXT[k]={};EXT_TTL[k]=300000;EXT_PATH[k]='/api/headlines?source='+id;EXT_OWNER[k]='N';});
+  // headlines that arrived after the first load of their source are marked NEW for 30 minutes
+  const NEWS_NEW={};
+  function markNewHeadlines(k){const e=EXT[k],j=e.data;if(!j||!Array.isArray(j.items))return;const first=!e.seen;e.seen=e.seen||new Set();j.items.forEach(n=>{if(!e.seen.has(n.url)){if(!first)NEWS_NEW[n.url]=Date.now();e.seen.add(n.url);}});}
   const loadPress=()=>Promise.all(PRESS_SRC.map(([k])=>loadExt(k)));
-  const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news'};
+  const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news',EXCH:'exchanges'};
+  EXT.exchanges={};EXT_TTL.exchanges=600000;
   async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
     let path=EXT_PATH[name]||'/api/'+name;
     if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')&&!x.includes(':')).join(','));
@@ -545,7 +564,7 @@
     try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
       if(!j)throw new Error('http '+r.status);e.data=j;e.err=null;}
     catch(x){e.err='network';console.warn('[data]',name,'failed:',x&&x.message);}
-    finally{e.loading=false;e.at=Date.now();wins.forEach(w=>{if(!w.min&&(EXT_WIN[w.type]===name||EXT_OWNER[name]===w.type))liveRepaint(w);});updateGlobal();if(name==='calendar')updateNextEvent();}}
+    finally{e.loading=false;e.at=Date.now();if(EXT_PATH[name])markNewHeadlines(name);wins.forEach(w=>{if(!w.min&&(EXT_WIN[w.type]===name||EXT_OWNER[name]===w.type))liveRepaint(w);});updateGlobal();if(name==='calendar')updateNextEvent();if(name==='exchanges')updateMktsOpen();}}
   function instStatus(t){return P.instrumentStatus(t.q,{error:t.qErr});}
   function fStatus(t,key){return P.fieldStatus(t.q,key,instStatus(t));}
   function histStatus(t,intraday){return P.historyStatus(intraday?t._intraMeta:t._histMeta,{error:intraday?t._intraErr:t._histErr});}
@@ -771,6 +790,119 @@
     body.innerHTML=tabs+html;bind();
     setProv(win,extItems(d,'cal:'),st.view==='world'?'world calendar':'official schedules');updateNextEvent();}
 
+  // ---- WORLD EXCHANGES: open / closed now from Twelve Data market_state (holidays and early closes included).
+  //      Local time from the exchange's time zone; countdowns from the provider's own open / close times (DERIVED) ----
+  function exchNow(e,now){if(e.open&&e.closesAt&&now>=e.closesAt)return{open:false,moved:true};if(!e.open&&e.opensAt&&now>=e.opensAt)return{open:true,moved:true};return{open:e.open,moved:false};}
+  function exchList(){const d=EXT.exchanges.data;return d&&Array.isArray(d.exchanges)?d.exchanges:null;}
+  let exchRefetchAt=0;
+  function updateMktsOpen(){const el=$('#mktsOpen');const L=exchList();if(!el)return;if(!L){el.textContent=EXT.exchanges.err||(EXT.exchanges.data&&EXT.exchanges.data.error)?'N/A':'—';return;}
+    const now=Date.now(),maj=L.filter(e=>e.major),open=maj.filter(e=>exchNow(e,now).open);
+    el.textContent=`${open.length}/${maj.length} open`;el.title=open.length?'Open now: '+open.map(e=>e.label).join(', '):'No major exchange open now';
+    // an open/close the cached state predicted has passed: ask again (the Worker refreshes at that moment too)
+    if(maj.some(e=>exchNow(e,now).moved)&&now>exchRefetchAt){exchRefetchAt=now+120000;loadExt('exchanges',true);}}
+  const fmtIn2=ms=>{const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60),d=Math.floor(h/24);return d?`${d}d ${h%24}h`:h?`${h}h ${String(m%60).padStart(2,'0')}m`:`${m}m`;};
+  function renderExchanges(body,win){const st=win.state;st.scope=st.scope||'major';loadExt('exchanges');const e=EXT.exchanges,d=e.data;
+    const tabs=`<div class="tfbar"><button class="tf" data-scope="major" aria-pressed="${st.scope==='major'}">MAJOR</button><button class="tf" data-scope="all" aria-pressed="${st.scope==='all'}">ALL (PROVIDER)</button></div>`;
+    const bind=()=>$$('[data-scope]',body).forEach(b=>b.onclick=()=>{st.scope=b.dataset.scope;paintWin(win);});
+    if(!d&&!e.err){setProv(win,{'ds:EXCH':S.LOADING});body.innerHTML=tabs+'<div class="empty">Loading exchange status…</div>';bind();return;}
+    if(!d||d.error||!Array.isArray(d.exchanges)){setProv(win,{'ds:EXCH':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — exchange status unavailable (${esc(P.errorText((d&&d.error)||e.err||'network'))}). No open/closed state is guessed.</div>`;bind();return;}
+    const now=Date.now(),L=d.exchanges.filter(x=>st.scope==='all'||x.major);
+    const local=x=>x.tz?new Date(now).toLocaleTimeString('en-GB',{timeZone:x.tz,hour:'2-digit',minute:'2-digit'})+' <span class="k">'+new Date(now).toLocaleDateString('en-GB',{timeZone:x.tz,weekday:'short'})+'</span>':'<span class="na" title="no time zone on file for this exchange">—</span>';
+    const yours=t=>{const dt=new Date(t),same=new Date(now).toDateString()===dt.toDateString();return(same?'':dt.toLocaleDateString('en-GB',{weekday:'short'})+' ')+dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});};
+    const row=x=>{const n=exchNow(x,now),stc=n.open?'OPEN':'CLOSED';
+      const next=n.moved?'<span class="k">updating…</span>':n.open?(x.closesAt?`closes in <b>${fmtIn2(x.closesAt-now)}</b> <span class="k">(${yours(x.closesAt)})</span>`:'<span class="k">close time not given</span>'):(x.opensAt?`opens in <b>${fmtIn2(x.opensAt-now)}</b> <span class="k">(${yours(x.opensAt)})</span>`:'<span class="k">next open not given</span>');
+      const sess=n.open&&!n.moved&&x.openedAt&&x.closesAt?`${yours(x.openedAt)}–${yours(x.closesAt)}`:'—';
+      return`<tr class="${n.open?'ex-open':''}"><td class="l">${local(x)}</td><td class="l" title="${esc(x.name)}${x.country?' · '+esc(x.country):''}"><b>${esc(x.label||x.name)}</b>${x.city?` <span class="k">${esc(x.city)}</span>`:''}</td><td class="l"><span class="ex-st ex-${stc}">${stc}</span></td><td class="l">${next}</td><td class="l">${sess}</td><td class="l k">${esc(x.code)}</td></tr>`;};
+    const groups=st.scope==='major'?['Americas','Europe & Africa','Asia-Pacific']:[null];
+    const order=(a,b)=>(exchNow(b,now).open-exchNow(a,now).open)||String(a.label||a.name).localeCompare(String(b.label||b.name));
+    const tbody=groups.map(g=>{const list=L.filter(x=>!g||x.region===g).sort(order);return(g?`<tr class="grp"><td colspan="6">${g.toUpperCase()} · ${list.filter(x=>exchNow(x,now).open).length}/${list.length} OPEN</td></tr>`:'')+list.map(row).join('');}).join('');
+    const maj=d.exchanges.filter(x=>x.major),openNow=maj.filter(x=>exchNow(x,now).open),nextOpen=maj.filter(x=>!exchNow(x,now).open&&x.opensAt).sort((a,b)=>a.opensAt-b.opensAt)[0];
+    const top=`<div class="banner" style="margin:8px 0"><b>OPEN NOW</b> · ${openNow.length?openNow.map(x=>esc(x.label)).join(' · '):'no major exchange'}${nextOpen?` &nbsp;|&nbsp; <b>NEXT</b> · ${esc(nextOpen.label)} opens in ${fmtIn2(nextOpen.opensAt-now)} (${yours(nextOpen.opensAt)})`:''}</div>`;
+    body.innerHTML=tabs+`<div class="src-line">${chip(d.status==='STALE'?S.STALE:S.LIVE,d.staleReason?'refresh failed: '+P.errorText(d.staleReason):'Twelve Data market_state')} Twelve Data market_state · fetched ${fmtTime(d.fetchedAt)}${d.missingMajor&&d.missingMajor.length&&st.scope==='major'?` · not in the provider's list: ${esc(d.missingMajor.join(', '))}`:''}</div>${top}
+      <table class="pf ex-t"><thead><tr><th class="l">LOCAL TIME</th><th class="l">EXCHANGE</th><th class="l">STATUS</th><th class="l">NEXT</th><th class="l">SESSION (YOUR TIME)</th><th class="l">MIC</th></tr></thead><tbody>${tbody}</tbody></table>
+      <div class="scr-count">Open / closed: Twelve Data, regular session, holidays and early closes included. Countdowns and session times are computed from the provider's time to open / close (DERIVED); lunch breaks show as closed when the provider reports them. Times in your time zone unless marked local.</div>`;
+    bind();setProv(win,{'ds:exch':d.status==='STALE'?S.STALE:S.LIVE,'ds:exch-times':S.DERIVED},'World exchanges: Twelve Data market_state');}
+
+  // ---- PORTFOLIO (EUR): transactions you enter (stored privately on the server), positions derived (average cost);
+  //      value from live quotes, EUR at the live EUR/<currency> rate; cost in EUR at the ECB rate of the trade date ----
+  const PF={data:null,err:null,loading:false,at:0,busy:false,msg:'',form:{side:'BUY'},confirm:null};
+  async function pfLoad(force){if(PF.loading)return;if(!force&&PF.at&&Date.now()-PF.at<300000)return;PF.loading=true;
+    try{const r=await fetch(CONFIG.proxyBase+'/api/portfolio',{cache:'no-store'});const j=await r.json();if(j&&!j.error&&Array.isArray(j.transactions)){PF.data=j;PF.err=null;}else PF.err=(j&&j.error)||('http '+r.status);}
+    catch(e){PF.err='network';}finally{PF.loading=false;PF.at=Date.now();pfRepaint();}}
+  function pfRepaint(){wins.forEach(w=>{if(!w.min&&w.type==='PF')liveRepaint(w);});}
+  const pfMajor=c=>({GBp:'GBP',GBX:'GBP',ZAc:'ZAR',ILA:'ILS'})[c]||c, pfMinor=c=>({GBp:.01,GBX:.01,ZAc:.01,ILA:.01})[c]||1;
+  // symbols whose live quotes the portfolio needs: open positions + one EUR/<currency> rate per currency
+  function pfNeeded(){const d=PF.data;if(!d)return[];const pos=d.positions.filter(p=>p.open);const fx=[...new Set(pos.map(p=>pfMajor(p.ccy)).filter(c=>c!=='EUR'))].map(c=>'EUR/'+c);return[...new Set(pos.map(p=>p.sym).concat(fx))];}
+  // EUR per 1 unit of currency c, live (DERIVED from the EUR/c quote); null if not available
+  function pfEurPer(c){if(c==='EUR')return 1;const maj=pfMajor(c);if(maj==='EUR')return pfMinor(c);const t=BY['EUR/'+maj];return t&&fin(t.px)&&t.px>0?pfMinor(c)/t.px:null;}
+  function pfEurPerPrev(c){if(c==='EUR')return 1;const maj=pfMajor(c);if(maj==='EUR')return pfMinor(c);const t=BY['EUR/'+maj];return t&&fin(t.prev)&&t.prev>0?pfMinor(c)/t.prev:null;}
+  const eur=v=>fin(v)?'€'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  const num6=v=>fin(v)?v.toLocaleString('en-US',{maximumFractionDigits:6}):'—';
+  async function pfSend(method,path,body){PF.busy=true;PF.msg='';pfRepaint();
+    try{const r=await fetch(CONFIG.proxyBase+path,{method,cache:'no-store',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>null);
+      if(!r.ok||!j||j.error){PF.msg=`Not saved: ${(j&&(j.message||j.error))||'http '+r.status}`;return false;}
+      PF.data=j;PF.at=Date.now();PF.err=null;const miss=pfNeeded().filter(x=>{inst(x);return!BY[x].q&&!BY[x]._pending&&!BY[x]._planBlocked;});if(miss.length)DATA.fetchNow(miss);return true;}
+    catch(e){PF.msg='Not saved: '+P.errorText('network');return false;}finally{PF.busy=false;pfRepaint();}}
+  // the symbol is checked against the provider before a trade is recorded (currency and last price from the quote)
+  async function pfCheckSym(raw){const sym=String(raw||'').trim().toUpperCase();const f=PF.form;f.sym=sym;f.checked=null;f.ccy=f.ccyManual||'';if(!SYMBOL_OK.test(sym)){PF.msg=sym?`"${raw}" is not a ticker — use SEARCH to find it`:'';pfRepaint();return;}
+    const t=inst(sym);PF.msg=`Checking ${sym}…`;pfRepaint();
+    if(!t.q&&!t._planBlocked){try{await Budget.take(1);const j=await DATA.provider.quotes([sym]);applyQuotes(j,[sym]);}catch(e){}}
+    if(t.q&&fin(t.px)){f.checked=sym;f.ccy=t.cur||(sym.includes('/')?sym.split('/')[1]:'');if(!f.price)f.price=String(t.px);PF.msg=`${sym} · ${t.name||''} · last ${pxText(t)}${t.cur?' '+t.cur:''} — price prefilled, edit it to your execution price`;}
+    else{f.checked=null;PF.msg=`${sym}: no live quote (${P.errorText(t.qErr||'no_data')}). You can still record it: choose its currency; its value will be N/A until a quote exists.`;}
+    pfRepaint();}
+  function renderPortfolio(body,win){pfLoad();const d=PF.data,f=PF.form;
+    if(!d&&!PF.err){setProv(win,{'ds:PF':S.LOADING});body.innerHTML='<div class="empty">Loading your portfolio…</div>';return;}
+    if(!d){setProv(win,{'ds:PF':S.NA});body.innerHTML=`<div class="banner warn"><b>N/A</b> — portfolio storage unavailable (${esc(P.errorText(PF.err))}).</div>`;return;}
+    const miss=pfNeeded().filter(x=>{inst(x);return!BY[x].q&&!BY[x].qErr&&!BY[x]._pending&&!BY[x]._planBlocked;});if(miss.length&&DATA.provider)DATA.fetchNow(miss);
+    const open=d.positions.filter(p=>p.open);
+    const rows=open.map(p=>{const t=BY[p.sym],px=t&&fin(t.px)?t.px:null,prev=t&&fin(t.prev)?t.prev:null,k=pfEurPer(p.ccy),kp=pfEurPerPrev(p.ccy);
+      const val=fin(px)?p.qty*px:null,valE=fin(val)&&fin(k)?val*k:null,dayE=fin(px)&&fin(prev)&&fin(k)&&fin(kp)?p.qty*(px*k-prev*kp):null;
+      const plE=fin(valE)&&fin(p.costEur)?valE-p.costEur:null,plL=fin(val)?val-p.cost:null;
+      return Object.assign({},p,{t,px,val,valE,dayE,plE,plL,st:t?instStatus(t):S.NA});});
+    const allVal=rows.length&&rows.every(r=>fin(r.valE)),sumV=rows.reduce((a,r)=>a+(fin(r.valE)?r.valE:0),0),sumC=rows.reduce((a,r)=>a+(fin(r.costEur)?r.costEur:0),0),sumD=rows.reduce((a,r)=>a+(fin(r.dayE)?r.dayE:0),0);
+    const allCost=rows.every(r=>fin(r.costEur)),pl=allVal&&allCost?sumV-sumC:null,plPct=fin(pl)&&sumC>0?pl/sumC*100:null,dayAll=rows.every(r=>fin(r.dayE));
+    rows.forEach(r=>{r.w=allVal&&sumV>0?r.valE/sumV*100:null;});
+    const kpi=(l,v,c,note)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${note?`<i>${note}</i>`:''}</div>`;
+    const partial=rows.length&&!allVal?`${rows.filter(r=>!fin(r.valE)).length} position(s) without a live price or rate`:'';
+    const head=`<div class="pf-kpis">${kpi('MARKET VALUE',rows.length?(allVal?eur(sumV):eur(sumV)+' *'):eur(0),'',partial?'* partial — '+partial:'live quotes · DERIVED')}${kpi('COST (EUR)',rows.length?(allCost?eur(sumC):'N/A'):eur(0),'','ECB rate on each trade date')}${kpi('UNREALISED P&L',fin(pl)?eur(pl)+` <small>${pct(plPct)}</small>`:rows.length?'N/A':eur(0),cls(pl),'price + currency effect')}${kpi('TODAY',rows.length?(dayAll?eur(sumD):'N/A'):eur(0),cls(sumD),'vs previous close')}${kpi('REALISED P&L',fin(d.realized.eur)?eur(d.realized.eur):'N/A',cls(d.realized.eur),'closed sales, EUR')}</div>`;
+    const ptab=rows.length?`<table class="pf"><thead><tr><th>SYM</th><th class="l">NAME</th><th>QTY</th><th>AVG COST</th><th>LAST</th><th>DAY</th><th>VALUE</th><th>VALUE €</th><th>WEIGHT</th><th>P&amp;L €</th><th>P&amp;L %</th></tr></thead><tbody>${rows.map(r=>`<tr data-open="${esc(r.sym)}" tabindex="0" role="button"><td>${esc(r.sym)} ${chip(r.st,instTitle(r.t||inst(r.sym)))}</td><td class="l nm">${esc(r.t&&r.t.name||'—')}</td><td class="num">${num6(r.qty)}</td><td class="num">${num6(r.avgCost)} <span class="k">${esc(r.ccy)}</span></td><td class="num">${fin(r.px)?pxText(r.t,r.px):'<span class="na">N/A</span>'}</td><td class="num ${cls(r.t&&r.t.chg)}">${r.t&&fin(r.t.chg)?pct(r.t.chg):'—'}</td><td class="num">${fin(r.val)?num6(+r.val.toFixed(2))+' <span class="k">'+esc(r.ccy)+'</span>':'<span class="na">N/A</span>'}</td><td class="num">${fin(r.valE)?eur(r.valE):'<span class="na">N/A</span>'}</td><td class="num">${fin(r.w)?r.w.toFixed(1)+'%':'—'}</td><td class="num ${cls(r.plE)}">${fin(r.plE)?eur(r.plE):'<span class="na">N/A</span>'}</td><td class="num ${cls(r.plE)}">${fin(r.plE)&&r.costEur>0?pct(r.plE/r.costEur*100):'—'}</td></tr>`).join('')}</tbody></table>`:`<div class="empty pf-empty">Your portfolio is empty. Record your first trade above — symbol, quantity, price and date. Nothing is preloaded.</div>`;
+    const closed=d.positions.filter(p=>!p.open);
+    const ctab=closed.length?`<div class="set-grp" style="margin-top:12px">CLOSED POSITIONS</div><table class="pf"><thead><tr><th>SYM</th><th class="l">FIRST TRADE</th><th>TRADES</th><th>REALISED</th><th>REALISED €</th></tr></thead><tbody>${closed.map(p=>`<tr><td>${esc(p.sym)}</td><td class="l">${esc(p.firstDate)}</td><td class="num">${p.txCount}</td><td class="num ${cls(p.realized)}">${num6(+p.realized.toFixed(2))} <span class="k">${esc(p.ccy)}</span></td><td class="num ${cls(p.realizedEur)}">${fin(p.realizedEur)?eur(p.realizedEur):'N/A'}</td></tr>`).join('')}</tbody></table>`:'';
+    const today=new Date().toISOString().slice(0,10),ccyOpts=['','USD','EUR','GBP','GBp','CHF','JPY','CAD','AUD','HKD','SEK','NOK','DKK','PLN','CNY','INR','KRW','BRL','MXN','ZAR'];
+    const form=`<form class="pf-form" autocomplete="off"><select name="side" aria-label="side"><option ${f.side==='BUY'?'selected':''}>BUY</option><option ${f.side==='SELL'?'selected':''}>SELL</option></select>
+      <input name="sym" placeholder="SYMBOL (e.g. AAPL, NOVN:XSWX)" value="${esc(f.sym||'')}" aria-label="symbol" style="width:170px"><button type="button" class="tf pf-chk">CHECK</button>
+      <input name="qty" type="number" step="any" min="0" placeholder="QTY" value="${esc(f.qty||'')}" aria-label="quantity" style="width:90px">
+      <input name="price" type="number" step="any" min="0" placeholder="PRICE" value="${esc(f.price||'')}" aria-label="price" style="width:110px">
+      <select name="ccy" aria-label="currency" ${f.checked&&f.ccy?'disabled':''}>${ccyOpts.map(c=>`<option value="${c}" ${c===(f.ccy||'')?'selected':''}>${c||'CCY'}</option>`).join('')}</select>
+      <input name="fees" type="number" step="any" min="0" placeholder="FEES" value="${esc(f.fees||'')}" aria-label="fees" style="width:80px">
+      <input name="date" type="date" max="${today}" value="${esc(f.date||today)}" aria-label="trade date">
+      <input name="note" placeholder="note (optional)" value="${esc(f.note||'')}" aria-label="note" style="width:140px">
+      <button type="submit" class="set-reset" ${PF.busy?'disabled':''}>${PF.busy?'SAVING…':'ADD TRADE'}</button></form>
+      <div class="scr-count pf-msg">${esc(PF.msg||'Fees in the trade currency. A sale must not exceed the quantity held on that date. Values in EUR use the live EUR/currency rate (Twelve Data); cost uses the ECB rate of the trade date.')}</div>`;
+    const tx=d.transactions;
+    const ttab=tx.length?`<div class="set-grp" style="margin-top:12px">TRANSACTIONS · ${tx.length}</div><table class="pf pf-tx"><thead><tr><th class="l">DATE</th><th class="l">SIDE</th><th>SYM</th><th>QTY</th><th>PRICE</th><th>FEES</th><th class="l">CCY</th><th class="l">NOTE</th><th></th></tr></thead><tbody>${tx.map(t=>`<tr><td class="l">${esc(t.date)}</td><td class="l ${t.side==='BUY'?'up':'down'}">${t.side}</td><td>${esc(t.sym)}</td><td class="num">${num6(t.qty)}</td><td class="num">${num6(t.price)}</td><td class="num">${num6(t.fees)}</td><td class="l">${esc(t.ccy)}</td><td class="l k">${esc(t.note||'')}</td><td>${PF.confirm===t.id?`<button class="tf pf-del-yes" data-id="${esc(t.id)}">CONFIRM DELETE</button> <button class="tf pf-del-no">KEEP</button>`:`<button class="tf pf-del" data-id="${esc(t.id)}" title="delete this transaction">✕</button>`}</td></tr>`).join('')}</tbody></table>`:'';
+    const fx=d.costBasis&&d.costBasis.fx;
+    const foot=`<div class="scr-count" style="margin-top:10px">Average-cost method. Cost in EUR: ${fx?`${esc(fx.source)}${fx.status&&fx.status!=='LIVE'?` — ${esc(fx.status)}${fx.missing&&fx.missing.length?' (no ECB rate for '+esc(fx.missing.join(', '))+')':''}`:''}`:'ECB'}; market value: live quotes; nothing is estimated — a position without a live price is N/A. Stored privately on your server (Cloudflare Access).</div>${d.error?`<div class="banner warn"><b>CHECK</b> — ${esc(d.error)}</div>`:''}`;
+    // keep the field being typed in focused across live repaints (quotes arriving every few minutes)
+    const act=document.activeElement,focusName=act&&body.contains(act)&&act.name?act.name:null;let caret=null;try{caret=act&&act.selectionStart;}catch(e){}
+    body.innerHTML=`${head}${form}${ptab}${ctab}${ttab}${foot}`;
+    const pst=!rows.length?S.LIVE:allVal?(rows.some(r=>r.st===S.STALE)?S.STALE:S.DERIVED):S.PARTIAL;
+    setProv(win,{'ds:pf-tx':S.LIVE,'ds:pf-value':pst},'Portfolio: your transactions; value from live quotes (DERIVED)');
+    const fm=body.querySelector('.pf-form'),get=n=>fm.elements[n];
+    ['qty','price','fees','date','note'].forEach(n=>get(n).oninput=()=>{f[n]=get(n).value;});
+    get('side').onchange=()=>{f.side=get('side').value;};get('ccy').onchange=()=>{f.ccy=get('ccy').value;f.ccyManual=f.ccy;};
+    get('sym').onchange=()=>pfCheckSym(get('sym').value);body.querySelector('.pf-chk').onclick=()=>pfCheckSym(get('sym').value);
+    fm.onsubmit=async ev=>{ev.preventDefault();['qty','price','fees','date','note'].forEach(n=>f[n]=get(n).value);
+      const sym=String(get('sym').value||'').trim().toUpperCase();if(f.checked!==sym){await pfCheckSym(sym);}
+      const ccy=f.ccy||get('ccy').value;if(!ccy){PF.msg='Choose the currency of the price';pfRepaint();return;}
+      const ok=await pfSend('POST','/api/portfolio/tx',{side:f.side,sym,qty:Number(f.qty),price:Number(f.price),ccy,fees:f.fees===''||f.fees==null?0:Number(f.fees),date:f.date||today,note:f.note||''});
+      if(ok){PF.msg=`${f.side} ${sym} recorded`;PF.form={side:f.side};pfRepaint();}};
+    $$('.pf-del',body).forEach(b=>b.onclick=()=>{PF.confirm=b.dataset.id;pfRepaint();});
+    $$('.pf-del-no',body).forEach(b=>b.onclick=()=>{PF.confirm=null;pfRepaint();});
+    $$('.pf-del-yes',body).forEach(b=>b.onclick=async()=>{const id=b.dataset.id;PF.confirm=null;await pfSend('DELETE','/api/portfolio/tx?id='+encodeURIComponent(id));});
+    $$('tr[data-open]',body).forEach(tr=>tr.onclick=()=>openSecurity(tr.dataset.open));
+    if(focusName&&fm.elements[focusName]){const el=fm.elements[focusName];el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}
+
   // ---- NEWS: top publishers and central banks (their own feeds) + SEC filings — headline, source, time, link only ----
   function renderNews(body,win){const st=win.state;if(!st.src||st.src==='WIRE')st.src='ALL';const e=EXT.news;loadExt('news');loadPress();
     if(!e.data&&!e.err&&PRESS_SRC.every(([k])=>!EXT[k].data&&!EXT[k].err)){setProv(win,{'ds:N':S.LOADING});body.innerHTML='<div class="empty">Loading headlines and filings…</div>';return;}
@@ -781,12 +913,14 @@
     const lab={FT:'FT',BLOOMBERG:'BLOOMBERG',WSJ:'WSJ',MARKETWATCH:'MARKETWATCH'};
     const pressItems=press.flatMap(p=>p.items.map(n=>Object.assign({},n,{tag:p.id==='CB'?String(n.section||'').toUpperCase():lab[p.id]+(n.section?' · '+n.section.toUpperCase():''),pid:p.id})));
     const pool=st.src==='ALL'?pressItems:pressItems.filter(n=>n.pid===st.src);
-    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,80).map(n=>`<div class="news-item"><span class="tm">${fmtHM(n.timestamp)}</span><a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source||n.tag)}">${esc(n.tag)}</span></div>`).join('');
+    const isNew=n=>NEWS_NEW[n.url]&&Date.now()-NEWS_NEW[n.url]<1800000;
+    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,80).map(n=>`<div class="news-item${isNew(n)?' fresh':''}"><span class="tm">${fmtHM(n.timestamp)}</span>${isNew(n)?'<span class="newtag" title="arrived since you opened the terminal">NEW</span>':''}<a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source||n.tag)}">${esc(n.tag)}</span></div>`).join('');
     const fil=(d.filings||[]).slice(0,24).map(f=>`<div class="news-item"><span class="tm">${f.filingDate||'—'}</span><a class="h" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.ticker)} · ${esc(f.form)} · ${esc(f.company||'')}${f.description&&f.description!==f.form&&!/^form\s/i.test(f.description)?' — '+esc(f.description):''}</a><span class="src">SEC</span></div>`).join('');
     const shown=st.src==='ALL'?press:st.src==='SEC'?[]:press.filter(p=>p.id===st.src);
     const pressLine=shown.map(p=>`${chip(p.status,p.err?P.errorText(p.err):p.feeds.map(f=>f.section+': '+f.status).join(' · '))} ${p.home?`<a href="${esc(p.home)}" target="_blank" rel="noopener">${p.name}</a>`:p.name}${p.fetchedAt?' · fetched '+fmtTime(p.fetchedAt):p.err?' · '+esc(P.errorText(p.err)):''}`).join(' · ');
+    const lastCheck=Math.max(0,...PRESS_SRC.map(([k])=>EXT[k].at||0)),nNew=pool.filter(isNew).length;
     const tabs=[['ALL','ALL'],['FT','FT'],['BLOOMBERG','BLOOMBERG'],['WSJ','WSJ'],['MARKETWATCH','MARKETWATCH'],['CB','CENTRAL BANKS'],['SEC','SEC FILINGS']].map(([v,l])=>`<button class="tf" data-src="${v}" aria-pressed="${v===st.src}">${l}</button>`).join('');
-    const head=st.src==='SEC'?'':`<div class="set-grp" style="margin-top:10px">HEADLINES · ${st.src==='ALL'?'FT + BLOOMBERG + WSJ + MARKETWATCH + CENTRAL BANKS':st.src==='CB'?'FED · ECB · BANK OF ENGLAND (OFFICIAL RELEASES)':st.src} · NEWEST FIRST</div>${rows||'<div class="empty">NO DATA</div>'}`;
+    const head=st.src==='SEC'?'':`<div class="set-grp" style="margin-top:10px">HEADLINES · ${st.src==='ALL'?'FT + BLOOMBERG + WSJ + MARKETWATCH + CENTRAL BANKS':st.src==='CB'?'FED · ECB · BANK OF ENGLAND (OFFICIAL RELEASES)':st.src} · NEWEST FIRST · CHECKED ${lastCheck?fmtTime(new Date(lastCheck).toISOString()):'—'} · AUTO EVERY 5 MIN${nNew?` · ${nNew} NEW`:''}</div>${rows||'<div class="empty">NO DATA</div>'}`;
     const sec=st.src==='SEC'?`<div class="set-grp" style="margin-top:14px">SEC FILINGS · WATCHLIST</div>${fil||`<div class="empty">NO DATA${d.errors&&d.errors.SEC?' — '+esc(P.errorText(d.errors.SEC.error)):''}</div>`}`:'';
     body.innerHTML=`<div class="tfbar">${tabs}</div><div class="src-line">${st.src==='SEC'?extSources(d):pressLine}</div>${head}${sec}<div class="scr-count">Headlines and links only, no article text: the publishers' and central banks' own public RSS feeds (personal use; articles open on their site). Filings: SEC EDGAR.</div>`;
     $$('[data-src]',body).forEach(b=>b.onclick=()=>{st.src=b.dataset.src;paintWin(win);});
@@ -1005,36 +1139,48 @@
     $$('[data-open]',body).forEach(b=>b.onclick=()=>openSecurity(b.dataset.open));
     $$('[data-add]',body).forEach(b=>b.onclick=()=>{st.msg='';addToWatchlist(b.dataset.add,win);});}
 
-  // ---- S&P 500 HEAT MAP: constituents + weights (iShares IVV holdings), prices (Alpaca), changes DERIVED ----
-  const SPX={u:null,recent:null,live:null,refs:{},err:{},at:{},loading:{}};
+  // ---- HEAT MAPS: S&P 500 (IVV), Nasdaq-100 (QQQ), Dow 30 (DIA), sector / country ETFs, crypto — prices Alpaca;
+  //      FX matrix from live Twelve Data quotes. Every change is computed here from real prices: DERIVED ----
+  const MAPU=[['SPX','S&P 500'],['NDX','NASDAQ-100'],['DJI','DOW 30'],['SECT','SECTORS'],['CTRY','COUNTRIES'],['CRYPTO','CRYPTO'],['FX','FX']];
+  const MAPU_LABEL=Object.fromEntries(MAPU);
+  const MAP_DV=new Set(['SECT','CTRY','CRYPTO']); // no index weights: size by traded value (or equal)
+  const MAPS={};function mapSt(u){return MAPS[u]||(MAPS[u]={u:null,recent:null,live:null,refs:{},err:{},at:{},loading:{}});}
+  const SPX=mapSt('SPX');
+  const mapQ=(u,extra)=>u==='SPX'?(extra?'?'+extra:''):'?u='+u+(extra?'&'+extra:'');
   const SPX_METRICS=["1D","1W","1M","3M","6M","YTD","1Y"];
   const SPX_SCALE={"1D":3,"1W":5,"1M":8,"3M":12,"6M":18,"YTD":25,"1Y":30}; // colour saturates at ± this %
-  function spxTtl(key){return key==='u'?43200000:key==='recent'?1800000:key==='live'?(SPX.live&&SPX.live.live?120000:900000):21600000;}
-  async function spxGet(key,path,force){if(SPX.loading[key])return;if(!force&&SPX.at[key]&&Date.now()-SPX.at[key]<(SPX.err[key]?60000:spxTtl(key)))return;
-    SPX.loading[key]=true;
+  const MAP_MULT={CRYPTO:2,FX:1/3};
+  function spxTtl(key,M){return key==='u'?43200000:key==='recent'?1800000:key==='live'?(M.live&&M.live.live?120000:900000):21600000;}
+  async function spxGet(key,path,force,u='SPX'){const M=mapSt(u);if(M.loading[key])return;if(!force&&M.at[key]&&Date.now()-M.at[key]<(M.err[key]?60000:spxTtl(key,M)))return;
+    M.loading[key]=true;
     try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
-      if(!j||j.error){SPX.err[key]=(j&&j.error)||('http '+r.status);}
-      else{SPX.err[key]=null;if(key.startsWith('ref:'))SPX.refs[key.slice(4)]=j;else SPX[key]=j;}}
-    catch(e){SPX.err[key]='network';}
-    finally{SPX.loading[key]=false;SPX.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&w.type==='MAP')liveRepaint(w);});updateGlobal();}}
-  function spxEnsure(metric){spxGet('u','/api/spx/universe');spxGet('recent','/api/spx/closes?ref=recent');spxGet('live','/api/spx/live');
-    if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes?ref='+encodeURIComponent(metric));}
-  // per constituent: last price, base price for the chosen period, change (all from real prices; null = N/A)
-  function spxRows(metric){const u=SPX.u;if(!u||!Array.isArray(u.items))return null;
-    const R=SPX.recent,L=SPX.live,ref=metric==='1D'?null:SPX.refs[metric],liveMode=!!(L&&L.live&&L.trades);
-    return u.items.map(it=>{const bars=R&&R.closes&&R.closes[it.sym]||null;let last=null,lastT=null,src=null,base=null,baseD=null;
-      if(liveMode){const tr=L.trades[it.sym];if(tr){last=tr[0];lastT=tr[1];src='iex';}
-        if(bars){const done=bars.filter(b=>b[0]<R.todayET);if(done.length&&metric==='1D'){base=done[done.length-1][1];baseD=done[done.length-1][0];}}}
+      if(!j||j.error){M.err[key]=(j&&j.error)||('http '+r.status);}
+      else{M.err[key]=null;if(key.startsWith('ref:'))M.refs[key.slice(4)]=j;else M[key]=j;}}
+    catch(e){M.err[key]='network';}
+    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&w.type==='MAP')liveRepaint(w);});updateGlobal();}}
+  function spxEnsure(metric,u='SPX'){if(u==='FX')return fxEnsure();
+    spxGet('u','/api/spx/universe'+mapQ(u),false,u);spxGet('recent','/api/spx/closes'+mapQ(u,'ref=recent'),false,u);spxGet('live','/api/spx/live'+mapQ(u),false,u);
+    if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes'+mapQ(u,'ref='+encodeURIComponent(metric)),false,u);
+    if(u==='NDX')spxGet('u','/api/spx/universe',false,'SPX');} // GICS sectors of the Nasdaq-100 names that are also in the S&P 500
+  // per item: last price, base price for the chosen period, change (all from real prices; null = N/A)
+  function spxRows(metric,u='SPX'){const M=mapSt(u),U=M.u;if(!U||!Array.isArray(U.items))return null;
+    const R=M.recent,L=M.live,ref=metric==='1D'?null:M.refs[metric],liveMode=!!(L&&L.live&&L.trades);
+    const spxSec={};if(u==='NDX'&&SPX.u&&Array.isArray(SPX.u.items))SPX.u.items.forEach(x=>spxSec[x.sym]=x.sector);
+    return U.items.map(it=>{const bars=R&&R.closes&&R.closes[it.sym]||null;let last=null,lastT=null,src=null,base=null,baseD=null,dv=null;
+      if(liveMode){const tr=L.trades[it.sym];if(tr){last=tr[0];lastT=tr[1];src='live';}
+        if(bars){const done=bars.filter(b=>b[0]<R.todayET||(u==='CRYPTO'));if(done.length&&metric==='1D'){base=done[done.length-1][1];baseD=done[done.length-1][0];}}}
       else if(bars){const done=bars.filter(b=>b[0]<R.todayET||R.todayBarFinal);
         if(done.length){last=done[done.length-1][1];lastT=done[done.length-1][0];src='close';if(metric==='1D'&&done.length>1){base=done[done.length-2][1];baseD=done[done.length-2][0];}}}
+      if(bars){const withDv=bars.filter(b=>fin(b[2]));if(withDv.length)dv=withDv[withDv.length-1][2];}
       if(ref&&ref.closes&&ref.closes[it.sym]){base=ref.closes[it.sym][1];baseD=ref.closes[it.sym][0];}
       const chg=fin(last)&&fin(base)&&base>0?(last/base-1)*100:null;
-      return Object.assign({},it,{last,lastT,src,base,baseD,chg});});}
+      const sector=it.sector||(u==='NDX'?(spxSec[it.sym]||(SPX.u?'Not in the S&P 500 (no GICS sector)':'Sector loading')):'Other');
+      return Object.assign({},it,{sector,last,lastT,src,base,baseD,chg,dv});});}
   function mixHex(a,b,k){const p=h=>{h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[n>>16&255,n>>8&255,n&255];};
     const x=p(a),y=p(b);return'#'+x.map((v,i)=>Math.round(v+(y[i]-v)*k).toString(16).padStart(2,'0')).join('');}
   // diverging scale: theme down colour ← neutral grey → theme up colour, 3 equal steps per arm
   const SPX_NEUTRAL='#3b414d';
-  function spxColor(chg,metric){if(!fin(chg))return null;const s=SPX_SCALE[metric]||3,q=Math.round(Math.max(-1,Math.min(1,chg/s))*3)/3;
+  function spxColor(chg,metric,mult=1){if(!fin(chg))return null;const s=(SPX_SCALE[metric]||3)*mult,q=Math.round(Math.max(-1,Math.min(1,chg/s))*3)/3;
     if(q===0)return SPX_NEUTRAL;const pole=mixHex(q>0?C.up:C.down,'#000000',0.22);return mixHex(SPX_NEUTRAL,pole,Math.abs(q));}
   function squarify(items,x,y,w,h){const out=[],total=items.reduce((a,b)=>a+b.v,0);if(!total||w<=0||h<=0)return out;
     const k=w*h/total;let rest=items.map(it=>({it,a:it.v*k})),rx=x,ry=y,rw=w,rh=h;
@@ -1044,60 +1190,92 @@
       if(rw>=rh){const cw=sum/rh;let cy=ry;row.forEach(r=>{const ch=r.a/cw;out.push({it:r.it,x:rx,y:cy,w:cw,h:ch});cy+=ch;});rx+=cw;rw-=cw;}
       else{const ch=sum/rw;let cx=rx;row.forEach(r=>{const cw=r.a/ch;out.push({it:r.it,x:cx,y:ry,w:cw,h:ch});cx+=cw;});ry+=ch;rh-=ch;}}
     return out;}
-  function spxPriceStatus(){const L=SPX.live,R=SPX.recent;if(L&&L.live)return L.status==='STALE'?S.STALE:S.LIVE;if(R)return R.status==='STALE'?S.STALE:S.LIVE;return SPX.err.recent||SPX.err.live?S.NA:S.LOADING;}
-  function renderMap(body,win){const st=win.state;st.metric=st.metric||'1D';st.size=st.size||'weight';st.view=st.view||'map';spxEnsure(st.metric);
+  function spxPriceStatus(u='SPX'){const M=mapSt(u),L=M.live,R=M.recent;if(L&&L.live)return L.status==='STALE'?S.STALE:S.LIVE;if(R)return R.status==='STALE'?S.STALE:S.LIVE;return M.err.recent||M.err.live?S.NA:S.LOADING;}
+  function mapTitle(w){const u=w.state.u||'SPX';return`${MAPU_LABEL[u]||u} HEAT MAP · ${u==='FX'?'1D':w.state.metric||'1D'}`;}
+  function renderMap(body,win){const st=win.state;st.u=st.u||'SPX';const u=st.u;st.metric=st.metric||'1D';if(!st.size||(st.size==='dv'&&!MAP_DV.has(u))||(st.size==='weight'&&MAP_DV.has(u)))st.size=MAP_DV.has(u)?'dv':'weight';st.view=st.view||'map';
     body.style.padding='0';body.style.display='flex';body.style.flexDirection='column';
-    const u=SPX.u,rows=spxRows(st.metric),priceErr=SPX.err.live&&SPX.err.recent?SPX.err.live:null,refErr=st.metric!=='1D'?SPX.err['ref:'+st.metric]:null;
-    win._spxRows=rows;
-    const sc=SPX_SCALE[st.metric],steps=[-1,-2/3,-1/3,0,1/3,2/3,1];
-    const legend=`<span class="spx-legend" title="colour = ${st.metric} change; saturates at ±${sc}%; striped = N/A">`+`<span class="lb">−${sc}%</span>`+steps.map(q=>`<span class="sw" style="background:${spxColor(q*sc,st.metric)}"></span>`).join('')+`<span class="lb">+${sc}%</span><span class="sw spx-na" title="N/A"></span></span>`;
     const btns=(name,list,cur)=>list.map(([v,l])=>`<button class="tf" data-${name}="${v}" aria-pressed="${v===cur}">${l}</button>`).join('');
-    const bar=`<div class="spx-bar"><div class="grp"><span>CHANGE</span>${btns('metric',SPX_METRICS.map(m=>[m,m]),st.metric)}</div><div class="grp"><span>SIZE</span>${btns('size',[['weight','INDEX WT'],['equal','EQUAL']],st.size)}</div><div class="grp"><span>VIEW</span>${btns('view',[['map','MAP'],['table','TABLE']],st.view)}</div>${legend}</div>`;
+    const ubar=`<div class="spx-bar spx-ubar"><div class="grp"><span>MAP</span>${btns('mapu',MAPU,u)}</div></div>`;
+    const bindU=()=>$$('[data-mapu]',body).forEach(b=>b.onclick=()=>{st.u=b.dataset.mapu;st.size=null;paintWin(win);});
+    if(u==='FX'){renderFxMap(body,win,ubar);bindU();return;}
+    spxEnsure(st.metric,u);
+    const M=mapSt(u),U=M.u,rows=spxRows(st.metric,u),priceErr=M.err.live&&M.err.recent?M.err.live:null,refErr=st.metric!=='1D'?M.err['ref:'+st.metric]:null;
+    win._spxRows=rows;
+    const mult=MAP_MULT[u]||1,sc=+(SPX_SCALE[st.metric]*mult).toFixed(1),steps=[-1,-2/3,-1/3,0,1/3,2/3,1];
+    const legend=`<span class="spx-legend" title="colour = ${st.metric} change; saturates at ±${sc}%; striped = N/A">`+`<span class="lb">−${sc}%</span>`+steps.map(q=>`<span class="sw" style="background:${spxColor(q*sc,st.metric,mult)}"></span>`).join('')+`<span class="lb">+${sc}%</span><span class="sw spx-na" title="N/A"></span></span>`;
+    const sizes=MAP_DV.has(u)?[['dv','TRADED VALUE'],['equal','EQUAL']]:[['weight','INDEX WT'],['equal','EQUAL']];
+    const bar=`<div class="spx-bar"><div class="grp"><span>CHANGE</span>${btns('metric',SPX_METRICS.map(m=>[m,m]),st.metric)}</div><div class="grp"><span>SIZE</span>${btns('size',sizes,st.size)}</div><div class="grp"><span>VIEW</span>${btns('view',[['map','MAP'],['table','TABLE']],st.view)}</div>${legend}</div>`;
+    const what=u==='SPX'?'S&amp;P 500 constituents':u==='CRYPTO'?'crypto pairs':MAP_DV.has(u)?'ETF list':'constituents';
     let banner='';
-    if(!u&&SPX.err.u)banner=`<div class="banner warn" style="margin:8px"><b>N/A</b> — constituents unavailable (${esc(P.errorText(SPX.err.u))}). Nothing is drawn without the real list.</div>`;
-    else if(priceErr==='alpaca_not_configured')banner=`<div class="banner warn" style="margin:6px 8px 0"><b>NO DATA</b> — price source not connected: Alpaca API keys are not set in the Worker. Tiles show the real constituents and weights only; every change is N/A.</div>`;
+    if(!U&&M.err.u)banner=`<div class="banner warn" style="margin:8px"><b>N/A</b> — ${what} unavailable (${esc(P.errorText(M.err.u))}). Nothing is drawn without the real list.</div>`;
+    else if(priceErr==='alpaca_not_configured')banner=`<div class="banner warn" style="margin:6px 8px 0"><b>NO DATA</b> — price source not connected: Alpaca API keys are not set in the Worker. Tiles show the real list only; every change is N/A.</div>`;
     else if(priceErr||refErr)banner=`<div class="banner warn" style="margin:6px 8px 0"><b>N/A</b> — prices unavailable (${esc(P.errorText(refErr||priceErr))}). No substitute value is shown.</div>`;
     const n=rows?rows.length:0,nNA=rows?rows.filter(r=>!fin(r.chg)).length:0;
     const baseD=rows?(()=>{const c={};rows.forEach(r=>{if(r.baseD)c[r.baseD]=(c[r.baseD]||0)+1;});return Object.keys(c).sort((a,b)=>c[b]-c[a])[0]||null;})():null;
-    const L=SPX.live,R=SPX.recent,liveMode=!!(L&&L.live);
-    const foot=u?`<div class="spx-foot">${n} constituents · ${nNA} N/A · size: ${st.size==='weight'?'weight in IVV holdings (proxy for the index weight)':'equal'} · constituents &amp; weights: <a href="${esc(u.sourceUrl)}" target="_blank" rel="noopener">iShares IVV holdings</a> as of ${esc(u.holdingsAsOf||'—')} · last price: ${liveMode?`Alpaca, latest IEX trade (fetched ${fmtTime(L.fetchedAt)})`:R?`Alpaca, consolidated close ${esc(rows&&rows.find(r=>r.src==='close')?rows.find(r=>r.src==='close').lastT:'—')}`:'—'} · base: consolidated close ${esc(baseD||'—')} · changes DERIVED</div>`:'';
-    const body2=!u?(SPX.err.u?'':'<div class="empty">Loading the S&amp;P 500 constituents…</div>'):st.view==='table'?spxTable(rows,st.metric):'<div class="spx-map" aria-label="S&amp;P 500 heat map"></div>';
-    body.innerHTML=bar+banner+body2+foot;
-    const ps=spxPriceStatus(),items={'ds:spx-list':u?(u.status==='STALE'?S.STALE:S.LIVE):SPX.err.u?S.NA:S.LOADING,'ds:spx-prices':ps};
-    if(rows){items['ds:spx-changes']=nNA===n?S.NA:ps===S.STALE?S.STALE:S.DERIVED;}
-    setProv(win,items,'S&P 500 heat map: real constituents, weights and prices; changes computed here');
+    const L=M.live,R=M.recent,liveMode=!!(L&&L.live),crypto=u==='CRYPTO';
+    const sizeTxt=st.size==='equal'?'equal':st.size==='dv'?'traded value of the last completed session (close × volume, Alpaca)':u==='SPX'?'weight in IVV holdings (proxy for the index weight)':esc(U&&U.weightBasis||'index weight');
+    const listTxt=u==='SPX'?`constituents &amp; weights: <a href="${esc(U&&U.sourceUrl)}" target="_blank" rel="noopener">iShares IVV holdings</a> as of ${esc(U&&U.holdingsAsOf||'—')}`:U?`${U.sourceUrl?`<a href="${esc(U.sourceUrl)}" target="_blank" rel="noopener">${esc(U.source)}</a>`:esc(U.source)}${U.holdingsAsOf?' as of '+esc(U.holdingsAsOf):''}${u==='NDX'?' · sectors: GICS from the S&amp;P 500 list where the company is in it':''}${MAP_DV.has(u)&&!crypto?' · ETF prices, not index levels':''}`:'';
+    const priceTxt=liveMode?(crypto?`Alpaca, latest crypto trade (fetched ${fmtTime(L.fetchedAt)})`:`Alpaca, latest IEX trade (fetched ${fmtTime(L.fetchedAt)})`):R?(crypto?`Alpaca, last completed UTC day ${esc(rows&&rows.find(r=>r.src==='close')?rows.find(r=>r.src==='close').lastT:'—')}`:`Alpaca, consolidated close ${esc(rows&&rows.find(r=>r.src==='close')?rows.find(r=>r.src==='close').lastT:'—')}`):'—';
+    const foot=U?`<div class="spx-foot">${n} ${crypto?'pairs':MAP_DV.has(u)?'ETFs':'constituents'} · ${nNA} N/A · size: ${sizeTxt} · ${listTxt} · last price: ${priceTxt} · base: ${crypto?'daily close (UTC)':'consolidated close'} ${esc(baseD||'—')} · changes DERIVED</div>`:'';
+    const body2=!U?(M.err.u?'':`<div class="empty">Loading the ${what}…</div>`):st.view==='table'?spxTable(rows,st.metric,u,st.size):`<div class="spx-map" aria-label="${esc(MAPU_LABEL[u])} heat map"></div>`;
+    body.innerHTML=ubar+bar+banner+body2+foot;
+    const ps=spxPriceStatus(u),items={'ds:map-list':U?(U.status==='STALE'?S.STALE:S.LIVE):M.err.u?S.NA:S.LOADING,'ds:map-prices':ps};
+    if(rows){items['ds:map-changes']=nNA===n?S.NA:ps===S.STALE?S.STALE:S.DERIVED;}
+    setProv(win,items,`${MAPU_LABEL[u]} heat map: real list and prices; changes computed here`);
+    bindU();
     $$('[data-metric]',body).forEach(b=>b.onclick=()=>{st.metric=b.dataset.metric;paintWin(win);});
     $$('[data-size]',body).forEach(b=>b.onclick=()=>{st.size=b.dataset.size;paintWin(win);});
     $$('[data-view]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.view;paintWin(win);});
     $$('tr[data-open]',body).forEach(tr=>tr.onclick=()=>openSecurity(tr.dataset.open));
     if(st.view==='map')requestAnimationFrame(()=>drawSpx(win));}
-  function spxTable(rows,metric){if(!rows)return'';const r=rows.slice().sort((a,b)=>(fin(b.chg)?b.chg:-1e9)-(fin(a.chg)?a.chg:-1e9));
-    return`<div style="overflow:auto;flex:1 1 auto;margin:0 8px"><table class="pf"><thead><tr><th>SYM</th><th class="l">NAME</th><th class="l">SECTOR</th><th>WEIGHT</th><th>LAST</th><th>${metric} CHG</th><th>BASE DATE</th></tr></thead><tbody>`+
-      r.map(x=>`<tr data-open="${esc(x.sym)}" tabindex="0" role="button"><td>${esc(x.sym)}</td><td class="l nm">${esc(x.name||'—')}</td><td class="l">${esc(x.sector||'—')}</td><td class="num">${fin(x.weight)?x.weight.toFixed(2)+'%':'—'}</td><td class="num">${fin(x.last)?money(x.last):'<span class="na">N/A</span>'}</td><td class="num ${cls(x.chg)}">${fin(x.chg)?pct(x.chg):'<span class="na">N/A</span>'}</td><td>${esc(x.baseD||'—')}</td></tr>`).join('')+`</tbody></table></div>`;}
+  function spxTable(rows,metric,u='SPX',size='weight'){if(!rows)return'';const r=rows.slice().sort((a,b)=>(fin(b.chg)?b.chg:-1e9)-(fin(a.chg)?a.chg:-1e9));const dv=MAP_DV.has(u);
+    const big=v=>!fin(v)?'—':v>=1e9?'$'+(v/1e9).toFixed(2)+'B':v>=1e6?'$'+(v/1e6).toFixed(1)+'M':'$'+Math.round(v).toLocaleString('en-US');
+    return`<div style="overflow:auto;flex:1 1 auto;margin:0 8px"><table class="pf"><thead><tr><th>SYM</th><th class="l">NAME</th><th class="l">${u==='CTRY'?'REGION':'GROUP / SECTOR'}</th><th>${dv?'TRADED VALUE':'WEIGHT'}</th><th>LAST</th><th>${metric} CHG</th><th>BASE DATE</th></tr></thead><tbody>`+
+      r.map(x=>`<tr data-open="${esc(x.sym)}" tabindex="0" role="button"><td>${esc(x.sym)}</td><td class="l nm">${esc(x.name||'—')}</td><td class="l">${esc(x.sector||'—')}</td><td class="num">${dv?big(x.dv):fin(x.weight)?x.weight.toFixed(2)+'%':'—'}</td><td class="num">${fin(x.last)?(x.sym.includes('/')?x.last.toLocaleString('en-US',{maximumSignificantDigits:6}):money(x.last)):'<span class="na">N/A</span>'}</td><td class="num ${cls(x.chg)}">${fin(x.chg)?pct(x.chg):'<span class="na">N/A</span>'}</td><td>${esc(x.baseD||'—')}</td></tr>`).join('')+`</tbody></table></div>`;}
   function drawSpx(win){const host=win.bodyEl&&win.bodyEl.querySelector('.spx-map'),rows=win._spxRows;if(!host||!rows||!host.clientWidth)return;
-    const st=win.state,W=host.clientWidth,H=host.clientHeight,val=r=>st.size==='equal'?1:Math.max(r.weight,0.0001);
+    const st=win.state,u=st.u||'SPX',M=mapSt(u),mult=MAP_MULT[u]||1,W=host.clientWidth,H=host.clientHeight,val=r=>st.size==='equal'?1:st.size==='dv'?Math.max(r.dv||0,1):Math.max(r.weight,0.0001);
+    // traded-value size: an item with no volume yet gets the smallest visible tile, not an invented size
+    if(st.size==='dv'){const vs=rows.map(r=>r.dv).filter(fin);const mn=vs.length?Math.min(...vs):1;rows.forEach(r=>{if(!fin(r.dv))r._dvFloor=mn;});}
+    const v2=r=>st.size==='dv'&&!fin(r.dv)?Math.max(r._dvFloor||1,1):val(r);
     const bySec={};rows.forEach(r=>{(bySec[r.sector||'Other']=bySec[r.sector||'Other']||[]).push(r);});
-    const secs=Object.entries(bySec).map(([name,list])=>({name,list:list.sort((a,b)=>val(b)-val(a)),v:list.reduce((a,r)=>a+val(r),0)})).sort((a,b)=>b.v-a.v);
-    let html='';
-    squarify(secs,0,0,W,H).forEach(sb=>{const sec=sb.it,head=sb.h>40&&sb.w>60?15:0;
-      const wsum=sec.list.filter(r=>fin(r.chg)).reduce((a,r)=>a+r.weight,0),wchg=wsum?sec.list.filter(r=>fin(r.chg)).reduce((a,r)=>a+r.weight*r.chg,0)/wsum:null;
-      html+=`<div class="spx-sec" style="left:${sb.x}px;top:${sb.y}px;width:${sb.w}px;height:${sb.h}px">${head?`<div class="lbl" title="${esc(sec.name)} — weighted ${st.metric} change (DERIVED)">${esc(sec.name.toUpperCase())} <span class="${cls(wchg)}">${fin(wchg)?pct(wchg):''}</span></div>`:''}`;
-      squarify(sec.list.map(r=>({v:val(r),r})),0,head,sb.w,sb.h-head).forEach(t=>{const r=t.it.r,col=spxColor(r.chg,st.metric),fs=Math.max(8,Math.min(22,Math.min(t.w/4,t.h/2.6)));
-        const lab=t.w>=26&&t.h>=14?`<b style="font-size:${fs}px">${esc(r.sym)}</b>${t.h>=fs*2.4&&t.w>=34?`<i style="font-size:${Math.max(8,fs*0.72)}px">${fin(r.chg)?pct(r.chg):'N/A'}</i>`:''}`:'';
+    const secs=Object.entries(bySec).map(([name,list])=>({name,list:list.sort((a,b)=>v2(b)-v2(a)),v:list.reduce((a,r)=>a+v2(r),0)})).sort((a,b)=>b.v-a.v);
+    let html='';const oneGroup=secs.length===1;
+    squarify(secs,0,0,W,H).forEach(sb=>{const sec=sb.it,head=!oneGroup&&sb.h>40&&sb.w>60?15:0;
+      const ok=sec.list.filter(r=>fin(r.chg)),wsum=ok.reduce((a,r)=>a+v2(r),0),wchg=wsum?ok.reduce((a,r)=>a+v2(r)*r.chg,0)/wsum:null;
+      html+=`<div class="spx-sec" style="left:${sb.x}px;top:${sb.y}px;width:${sb.w}px;height:${sb.h}px">${head?`<div class="lbl" title="${esc(sec.name)} — ${st.size==='equal'?'average':'weighted'} ${st.metric} change (DERIVED)">${esc(sec.name.toUpperCase())} <span class="${cls(wchg)}">${fin(wchg)?pct(wchg):''}</span></div>`:''}`;
+      squarify(sec.list.map(r=>({v:v2(r),r})),0,head,sb.w,sb.h-head).forEach(t=>{const r=t.it.r,col=spxColor(r.chg,st.metric,mult),name=r.short||r.sym,fs=Math.max(8,Math.min(22,Math.min(t.w/Math.max(4,name.length*0.75),t.h/2.6)));
+        const lab=t.w>=26&&t.h>=14?`<b style="font-size:${fs}px">${esc(name)}</b>${t.h>=fs*2.4&&t.w>=34?`<i style="font-size:${Math.max(8,fs*0.72)}px">${fin(r.chg)?pct(r.chg):'N/A'}</i>`:''}`:'';
         html+=`<div class="spx-t${col?'':' spx-na'}" data-s="${esc(r.sym)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;${col?'background:'+col:''}">${lab}</div>`;});
       html+='</div>';});
     host.innerHTML=html;
     const byS={};rows.forEach(r=>byS[r.sym]=r);
     let tip=document.querySelector('.spx-tip');if(!tip){tip=document.createElement('div');tip.className='spx-tip';document.body.appendChild(tip);}
-    const L=SPX.live,liveMode=!!(L&&L.live);
+    const crypto=u==='CRYPTO',px=r=>r.sym.includes('/')?r.last.toLocaleString('en-US',{maximumSignificantDigits:6}):money(r.last),pxb=r=>r.sym.includes('/')?r.base.toLocaleString('en-US',{maximumSignificantDigits:6}):money(r.base);
     host.onpointermove=e=>{const el=e.target.closest('.spx-t');if(!el){tip.style.display='none';return;}const r=byS[el.dataset.s];if(!r)return;
       tip.innerHTML=`<div class="v ${cls(r.chg)}">${fin(r.chg)?pct(r.chg):'N/A'} <span class="k" style="font-size:10px;font-weight:400">${st.metric} ${fin(r.chg)?'· DERIVED':''}</span></div>
-        <div><b>${esc(r.sym)}</b> · ${esc(r.name||'')}</div><div class="k">${esc(r.sector||'')} · weight ${fin(r.weight)?r.weight.toFixed(2)+'%':'—'}</div>
-        <div>last ${fin(r.last)?money(r.last):'N/A'} <span class="k">${r.src==='iex'?'IEX trade '+fmtDT(r.lastT):r.src==='close'?'consolidated close '+esc(r.lastT):''}</span></div>
-        <div>base ${fin(r.base)?money(r.base):'N/A'} <span class="k">${r.baseD?'consolidated close '+esc(r.baseD):''}</span></div>`;
+        <div><b>${esc(r.sym)}</b> · ${esc(r.name||'')}</div><div class="k">${esc(r.sector||'')}${fin(r.weight)?' · weight '+r.weight.toFixed(2)+'%':''}${fin(r.dv)?' · traded value $'+(r.dv/1e6).toFixed(1)+'M':''}</div>
+        <div>last ${fin(r.last)?px(r):'N/A'} <span class="k">${r.src==='live'?(crypto?'crypto trade ':'IEX trade ')+fmtDT(r.lastT):r.src==='close'?(crypto?'daily close (UTC) ':'consolidated close ')+esc(r.lastT):''}</span></div>
+        <div>base ${fin(r.base)?pxb(r):'N/A'} <span class="k">${r.baseD?(crypto?'daily close (UTC) ':'consolidated close ')+esc(r.baseD):''}</span></div>`;
       tip.style.display='block';const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8),y=Math.min(e.clientY+14,innerHeight-tip.offsetHeight-8);tip.style.left=x+'px';tip.style.top=y+'px';};
     host.onpointerleave=()=>{tip.style.display='none';};
     host.onclick=e=>{const el=e.target.closest('.spx-t');if(el){tip.style.display='none';openSecurity(el.dataset.s);}};}
+  // ---- FX matrix: value of each row currency in each column currency, 1D, from live Twelve Data quotes vs USD (DERIVED) ----
+  const FX_CCY=['USD','EUR','GBP','JPY','CHF','CAD','AUD','NZD','CNY'];
+  const FX_PAIRS={EUR:'EUR/USD',GBP:'GBP/USD',JPY:'USD/JPY',CHF:'USD/CHF',CAD:'USD/CAD',AUD:'AUD/USD',NZD:'NZD/USD',CNY:'USD/CNY'};
+  function fxEnsure(){const syms=Object.values(FX_PAIRS);syms.forEach(inst);const miss=syms.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(miss.length&&DATA.provider)DATA.fetchNow(miss);}
+  // change of the currency's value in USD since the previous close (USD itself: 0 by definition)
+  function fxUsd(c){if(c==='USD')return 0;const p=FX_PAIRS[c],t=BY[p];if(!t||!fin(t.px)||!fin(t.prev)||!(t.prev>0))return null;const r=t.px/t.prev-1;return p.startsWith('USD/')?1/(1+r)-1:r;}
+  function renderFxMap(body,win,ubar){fxEnsure();
+    const g=Object.fromEntries(FX_CCY.map(c=>[c,fxUsd(c)])),cell=(a,b)=>fin(g[a])&&fin(g[b])?((1+g[a])/(1+g[b])-1)*100:null;
+    const strength=FX_CCY.map(a=>{const v=FX_CCY.filter(b=>b!==a).map(b=>cell(a,b));return[a,v.every(fin)?v.reduce((x,y)=>x+y,0)/v.length:null];}).sort((x,y)=>(fin(y[1])?y[1]:-1e9)-(fin(x[1])?x[1]:-1e9));
+    const head=`<tr><th class="l">${'BASE \\ QUOTE'}</th>${FX_CCY.map(c=>`<th>${c}</th>`).join('')}</tr>`;
+    const rowsH=FX_CCY.map(a=>`<tr><th class="l">${a}</th>${FX_CCY.map(b=>{if(a===b)return'<td class="fx-diag"></td>';const v=cell(a,b),col=spxColor(v,'1D',MAP_MULT.FX);return`<td class="fx-c${col?'':' spx-na'}" style="${col?'background:'+col:''}" title="${a}/${b} · 1D ${fin(v)?pct(v):'N/A'} (DERIVED)">${fin(v)?(v>=0?'+':'')+v.toFixed(2):'N/A'}</td>`;}).join('')}</tr>`).join('');
+    const pairs=Object.values(FX_PAIRS).map(p=>BY[p]),got=pairs.filter(t=>t&&fin(t.px)).length,pending=pairs.some(t=>t&&t._pending);
+    const strip=`<div class="fx-strength">${strength.map(([c,v])=>`<span class="${cls(v)}" title="average 1D change against the other 8 currencies (DERIVED)"><b>${c}</b> ${fin(v)?pct(v):'N/A'}</span>`).join('')}</div>`;
+    body.innerHTML=ubar+`<div class="spx-bar"><div class="grp"><span>CHANGE</span><button class="tf" aria-pressed="true">1D</button></div><span class="scr-count" style="margin:0">Longer periods need a daily history per pair (credits); shown for 1D only.</span></div>`
+      +`<div style="overflow:auto;flex:1 1 auto;padding:8px">${got?`<div class="set-grp">STRENGTH · AVERAGE VS THE OTHER 8</div>${strip}<table class="pf fx-m">${head}${rowsH}</table>`:pending?'<div class="empty">Loading the FX quotes…</div>':'<div class="banner warn"><b>N/A</b> — FX quotes unavailable; nothing is computed without them.</div>'}</div>`
+      +`<div class="spx-foot">Cell = % change of the row currency against the column currency since the previous close, from ${got}/8 live quotes vs USD (Twelve Data: ${Object.values(FX_PAIRS).join(', ')}) · crosses DERIVED</div>`;
+    const st=pairs.map(t=>t?instStatus(t):S.NA);setProv(win,{'ds:fx-quotes':got===8?(st.some(x=>x===S.STALE)?S.STALE:S.LIVE):got?S.PARTIAL:pending?S.LOADING:S.NA,'ds:fx-cross':got?S.DERIVED:S.NA},'FX matrix: live quotes vs USD; crosses computed here');}
 
   /* ---------- window types ---------- */
   const WINTYPES={
@@ -1110,12 +1288,14 @@
     COMP:{tag:'COMP',w:600,h:510,title:()=>'COMPARE',render:renderCompare},
     CORR:{tag:'CORR',w:560,h:420,title:()=>'CORRELATION',render:renderCorr},
     MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
-    MAP:{tag:'MAP',w:980,h:620,title:w=>`S&P 500 HEAT MAP · ${w.state.metric||'1D'}`,render:renderMap},
+    MAP:{tag:'MAP',w:980,h:620,title:mapTitle,render:renderMap},
     IDX:{tag:'IDX',w:620,h:430,title:()=>'WORLD INDICES',render:renderIndices},
     YLD:{tag:'YLD',w:680,h:560,title:()=>'GOVERNMENT YIELDS',render:renderYields},
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
     N:{tag:'N',w:620,h:500,title:()=>'NEWS',render:renderNews},
     BRF:{tag:'BRF',w:860,h:620,title:w=>`BRIEFING · ${(w.state.period||'daily').toUpperCase()}`,render:renderBriefing},
+    EXCH:{tag:'EXCH',w:760,h:560,title:()=>'WORLD EXCHANGES · OPEN NOW',render:renderExchanges},
+    PF:{tag:'PF',w:980,h:640,title:()=>'PORTFOLIO · EUR',render:renderPortfolio},
     SET:{tag:'SET',w:460,h:430,title:()=>'SETTINGS',render:renderSettings}
   };
   function liveRepaint(w){const b=w.bodyEl,s=b.scrollTop;paintWin(w);b.scrollTop=s;}
@@ -1140,7 +1320,7 @@
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
-  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{metric:'1D',size:'weight',view:'map'};return{};}
+  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
   function closeWin(w,batch){const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
@@ -1184,12 +1364,12 @@
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
       bar.appendChild(c);});}
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
-    [['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['MKT','MARKETS'],['MAP','S&P 500 MAP'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
+    [['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['PF','PORTFOLIO'],['MKT','MARKETS'],['EXCH','EXCHANGES'],['MAP','HEAT MAPS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['HEAT','HEATMAP'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
       const b=document.createElement('button');b.className='fn';b.textContent=label;
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={GP:"GP",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"HEAT",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO"]));
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
@@ -1228,6 +1408,9 @@
     openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
     renderTape();tickClock();setInterval(tickClock,1000);setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
+    setTimeout(()=>loadExt('exchanges'),2500);setInterval(()=>{updateMktsOpen();if(!document.hidden)wins.forEach(w=>{if(!w.min&&w.type==='EXCH')liveRepaint(w);});},30000);
+    // news: while a News window is open and the tab visible, check the sources every 5 minutes (Worker cache 5 min)
+    setInterval(()=>{if(document.hidden||!wins.some(w=>w.type==='N'&&!w.min))return;loadPress();loadExt('news');},60000);
     updateStatusBar();updateGlobal();
     setTimeout(()=>$('#cmd').focus(),60);
     DATA.init();}

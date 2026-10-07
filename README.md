@@ -41,7 +41,9 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 |---|---|---|
 | Symbol search (SRCH) | Twelve Data `/symbol_search` via `/api/search` | name or ticker, every exchange the provider lists; metadata only (no prices) |
 | Watchlist (editable, max 12) | Twelve Data `/quote` via `/api/quote` | US equities (venue subset: volume/OHL PARTIAL), FX, crypto, gold; any searched listing the plan covers |
-| S&P 500 heat map (MAP) | iShares IVV daily holdings (constituents, GICS sector, weight) + Alpaca (latest IEX trade; consolidated SIP daily closes) | every constituent, size = IVV weight (proxy for index weight) or equal, colour = 1D/1W/1M/3M/6M/YTD/1Y change (DERIVED); MAP or TABLE view |
+| Heat maps (MAP) | S&P 500: iShares IVV holdings · Nasdaq-100: Invesco QQQ holdings (Invesco API) · Dow 30: SPDR DIA holdings (.xlsx) · Sectors: 11 SPDR sector ETFs · Countries: ~38 single-country ETFs in New York · Crypto: Alpaca crypto (USD pairs) — prices Alpaca; FX: 9×9 matrix from live Twelve Data quotes vs USD | colour = 1D/1W/1M/3M/6M/YTD/1Y change (DERIVED; FX 1D only); size = index weight (ETF holdings) or traded value (close × volume) or equal; ETF maps show ETF prices, not index levels; crypto days in UTC, closes = completed days |
+| World exchanges (EXCH) | Twelve Data `/market_state` (all plans, 1 credit for all exchanges) | open/closed now incl. holidays and early closes, local time, time to open/close, session in your time; status bar `MKTS n/24 open`; cached until the next open/close of a major market (≤ 30 min) |
+| Portfolio (PF) | your transactions (Workers KV, private behind Access) · live quotes (Twelve Data) · ECB euro reference rates (trade-date cost in EUR) | starts empty; BUY/SELL with date, qty, price, fees; average-cost positions; value and P&L in EUR (live EUR/currency rate, DERIVED); realised P&L; no risk / attribution / quant analytics yet |
 | Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
@@ -85,9 +87,11 @@ warrants: search the ticker); indices are not in the provider's search.
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
-- `GET /api/spx/universe` → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
+- `GET /api/spx/universe[?u=NDX|DJI|SECT|CTRY|CRYPTO]` (also for `/closes` and `/live`; default S&P 500) → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
 - `GET /api/spx/closes?ref=recent|1W|1M|3M|6M|YTD|1Y` → `{ ref, target, todayET, todayBarFinal, closes: { SYM: [date, close] | [[date, close]…] } }`
 - `GET /api/spx/live` → `{ trades: { SYM: [price, time] }, live, medianTradeAgeSec }` (cache 60 s)
+- `GET /api/exchanges` → `{ exchanges: [{ code, name, open, openedAt, closesAt, opensAt, major, label, city, tz, region }], majorOpen, majorCount, missingMajor, fetchedAt, status }`
+- `GET /api/portfolio` · `POST /api/portfolio/tx` (JSON: date, side, sym, qty, price, ccy, fees, note) · `DELETE /api/portfolio/tx?id=` → `{ transactions, positions, realized, costBasis }`
 - `GET /api/headlines?source=FT|BLOOMBERG|WSJ|MARKETWATCH|CB` → `{ items: [{ title, url, timestamp, section }], feeds, status }`
 - `GET /api/briefs?period=daily|evening|weekly|monthly` → `{ due: { id, d, writable }, dueWritten, briefs: [{ id, d, title }], schedule }`
 - `GET /api/briefs/item?id=daily-2026-10-07` · `POST /api/briefs/write?period=daily&symbols=…`
@@ -130,7 +134,7 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
   paused in hidden tabs; requests of ≤ 7 symbols, and a client-side budget never sends more than
   8 credits per minute. History: 1Y daily per symbol (once per session), 1D intraday on demand.
   Free plan budget: 8 credits/min, 800/day.
-- Yields 30 min, calendar 6 h (Forex Factory 30 min), news 10 min, briefing 60 min (Worker cache; STALE serving on failure).
+- Yields 30 min, calendar 6 h (Forex Factory 30 min), headlines 5 min (News window checks every 5 min while open; new ones marked NEW), SEC filings 30 min, briefing 60 min (Worker cache; STALE serving on failure).
 
 ## Not available (shown as N/A / NO DATA)
 Index levels, commodities (WTI, Brent), calendar actual values and weeks after the current one, fundamentals, yields for
@@ -159,6 +163,7 @@ node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca
 node test/press.test.mjs        # T06: publishers' and central banks' RSS parsing and endpoint
 node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
 node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export normalizer and endpoint)
+node test/maps.test.mjs         # T06: Nasdaq-100 / Dow / ETF / crypto maps, xlsx reader, world exchanges, portfolio
 node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker

@@ -91,7 +91,7 @@ export function mergeHeadlines(lists, limit = 40) {
 export async function getPress(origin, ctx, id) {
   const src = PRESS[id];
   const per = await Promise.all(src.feeds.map(([section, url]) => cachedSource({
-    origin, key: `press/${id}/${section}`, ttlMs: 10 * 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 5 * 60_000,
+    origin, key: `press/${id}/${section}`, ttlMs: 5 * 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 5 * 60_000,
     load: async () => {
       const f = await fetchText(url, { timeoutMs: 10000, headers: { accept: "application/rss+xml, application/xml, text/xml" } });
       if (f.err) return { err: f.err };

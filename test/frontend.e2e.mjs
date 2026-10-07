@@ -3,6 +3,7 @@
 // Policy under test: only real data, otherwise N/A / NO DATA.
 //   node test/frontend.e2e.mjs
 import { chromium } from "playwright";
+import { buildPositions, validateTx } from "../src/portfolio.mjs";
 import { readFileSync } from "node:fs";
 import { normalizeQuote, buildInstrument } from "../src/worker.mjs";
 import { normalizeSearch } from "../src/search.mjs";
@@ -80,14 +81,37 @@ const dShift = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.
 const SPX_ITEMS = [["NVDA", "NVIDIA", "Information Technology", 8.6], ["AAPL", "APPLE", "Information Technology", 7.2], ["MSFT", "MICROSOFT", "Information Technology", 5.8], ["AMZN", "AMAZON COM", "Consumer Discretionary", 3.9], ["GOOGL", "ALPHABET CLASS A", "Communication", 2.4], ["META", "META PLATFORMS CLASS A", "Communication", 2.9], ["JPM", "JPMORGAN CHASE & CO", "Financials", 1.5], ["BRK.B", "BERKSHIRE HATHAWAY INC CLASS B", "Financials", 1.6], ["XOM", "EXXON MOBIL CORP", "Energy", 0.9], ["LLY", "ELI LILLY", "Health Care", 1.3], ["UNH", "UNITEDHEALTH GROUP INC", "Health Care", 0.8], ["ZZNA", "NO PRICE INC", "Utilities", 0.1]].map(([sym, name, sector, weight]) => ({ sym, name, sector, weight, exchange: "NYSE" }));
 const SPX_PREV = { NVDA: 236, AAPL: 330, MSFT: 520, AMZN: 250, GOOGL: 340, META: 700, JPM: 330, "BRK.B": 480, XOM: 110, LLY: 800, UNH: 300 };
 const SPX_LIVE = { NVDA: 240.72, AAPL: 326.7, MSFT: 520, AMZN: 257.5, GOOGL: 340, META: 707, JPM: 323.4, "BRK.B": 480, XOM: 111.1, LLY: 784, UNH: 310 };
+const CTRY_ITEMS = [{ sym: "EWI", name: "Italy — iShares MSCI Italy (EWI)", sector: "Europe", short: "ITALY", weight: null }, { sym: "EWJ", name: "Japan — iShares MSCI Japan (EWJ)", sector: "Asia-Pacific", short: "JAPAN", weight: null }];
 const spxApi = (path, u, { configured = true } = {}) => {
   const now = new Date().toISOString();
+  if (u.searchParams.get("u") === "CTRY") {
+    if (path === "/api/spx/universe") return { body: { universe: "CTRY", label: "Countries", source: "single-country ETFs listed in New York (fixed list)", weightBasis: "none", holdingsAsOf: null, count: 2, items: CTRY_ITEMS, fetchedAt: now, status: "LIVE" } };
+    if (path === "/api/spx/live") return { body: { universe: "CTRY", trades: { EWI: [50.5, now], EWJ: [70, now] }, live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
+    return { body: { universe: "CTRY", ref: "recent", todayET: ET, todayBarFinal: false, closes: { EWI: [[dShift(ET, -2), 49], [dShift(ET, -1), 50, 120000000]], EWJ: [[dShift(ET, -2), 71], [dShift(ET, -1), 70.7, 900000000]] }, fetchedAt: now, status: "LIVE" } };
+  }
   if (path === "/api/spx/universe") return { body: { source: "iShares Core S&P 500 ETF (IVV) — daily holdings", sourceUrl: "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf", holdingsAsOf: dShift(ET, -1), count: SPX_ITEMS.length, items: SPX_ITEMS, fetchedAt: now, status: "LIVE" } };
   if (!configured) return { status: 503, body: { error: "alpaca_not_configured", status: "N/A" } };
   if (path === "/api/spx/live") return { body: { trades: Object.fromEntries(Object.entries(SPX_LIVE).map(([k, v]) => [k, [v, now]])), live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
   const ref = u.searchParams.get("ref");
   if (ref === "recent") return { body: { ref, todayET: ET, todayBarFinal: false, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [[dShift(ET, -2), v * 0.98], [dShift(ET, -1), v]]])), fetchedAt: now, status: "LIVE" } };
   return { body: { ref, target: dShift(ET, -30), todayET: ET, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [dShift(ET, -31), v * 0.9]])), fetchedAt: now, status: "LIVE" } };
+};
+
+// exchanges (shape of /api/exchanges): London open, New York and Tokyo closed
+const EXCH = () => { const now = Date.now(); return { exchanges: [
+  { code: "XNYS", name: "New York Stock Exchange", country: "United States", open: false, openedAt: null, closesAt: null, opensAt: now + 2 * 3600e3 + 9e5, major: true, label: "NYSE", city: "New York", tz: "America/New_York", region: "Americas" },
+  { code: "XLON", name: "London Stock Exchange", country: "United Kingdom", open: true, openedAt: now - 5 * 3600e3, closesAt: now + 3 * 3600e3 + 18e5, opensAt: null, major: true, label: "LSE", city: "London", tz: "Europe/London", region: "Europe & Africa" },
+  { code: "XJPX", name: "Japan Exchange Group", country: "Japan", open: false, openedAt: null, closesAt: null, opensAt: now + 14 * 3600e3, major: true, label: "JPX", city: "Tokyo", tz: "Asia/Tokyo", region: "Asia-Pacific" },
+  { code: "XOTH", name: "Other Exchange", country: "Nowhere", open: true, openedAt: now - 3600e3, closesAt: now + 3600e3, opensAt: null, major: false, label: null, city: null, tz: null, region: null },
+], count: 4, majorOpen: 1, majorCount: 3, missingMajor: ["XNAS"], fetchedAt: new Date(now).toISOString(), source: "Twelve Data — market_state (holidays and early closes included)", status: "LIVE" }; };
+// portfolio API: the real position logic (src/portfolio.mjs) over an in-memory store; ECB USD rate 1.10 per EUR
+const PF_SERIES = { USD: [["2020-01-01", 1.1]] };
+const pfApi = (u, method, body, state) => {
+  const view = () => { const b = buildPositions(state.tx, PF_SERIES); return { baseCurrency: "EUR", transactions: state.tx.slice().reverse(), positions: b.positions, realized: b.realized, error: b.error || null, costBasis: { method: "average cost", currencies: ["USD"], fx: { source: "ECB euro reference rates (ECB Data Portal, EXR)", status: "LIVE", missing: [] } } }; };
+  if (u.pathname === "/api/portfolio") return { body: view() };
+  if (method === "POST") { state.posts.push(body); const v = validateTx(body, "2099-12-31"); if (typeof v === "string") return { status: 400, body: { error: "bad_request", message: v } }; state.tx.push({ id: "t" + state.tx.length, ...v, created: Date.now() }); return { status: 201, body: view() }; }
+  if (method === "DELETE") { const id = u.searchParams.get("id"); state.deletes.push(id); state.tx = state.tx.filter((t) => t.id !== id); return { body: view() }; }
+  return { status: 405, body: { error: "method_not_allowed" } };
 };
 
 // briefing archive fixtures (shape of /api/briefs responses)
@@ -113,11 +137,12 @@ let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" + "-1194/chrome-linux/chrome" }).catch(() => chromium.launch());
 // (the briefing legitimately names its AI model, so "model" alone is allowed; a "model portfolio" is not)
-const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b|PORTFOLIO|\bDES\b/i;
+// (the owner's own PORTFOLIO is allowed: it starts empty and holds only what is entered on the site)
+const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b|\bDES\b/i;
 
 async function openTerminal(api, html = htmlFast) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false };
+  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] };
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -129,6 +154,8 @@ async function openTerminal(api, html = htmlFast) {
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/briefs")) return send(api.briefs ? api.briefs(u) : briefsApi(u, route.request().method(), brfState));
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/portfolio")) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(api.portfolio ? api.portfolio(u) : pfApi(u, route.request().method(), b, pfState)); }
+    if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
@@ -136,7 +163,7 @@ async function openTerminal(api, html = htmlFast) {
     return route.abort();
   });
   await page.goto(ORIGIN + "/terminal/");
-  return { page, requests, errors, quoteBatches, spxCalls, brfState };
+  return { page, requests, errors, quoteBatches, spxCalls, brfState, pfState };
 }
 const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "", pillTitle: w.querySelector(".w-pv .pv")?.getAttribute("title") || "" } : null; }, prefix);
 const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(500); return page.evaluate(() => document.querySelector("#cmd").value !== ""); };
@@ -154,7 +181,7 @@ const OK_API = {
 
 // =============== A. every section on real-shaped data ===============
 {
-  const { page, requests, errors, quoteBatches, brfState } = await openTerminal(OK_API);
+  const { page, requests, errors, quoteBatches, brfState, spxCalls, pfState } = await openTerminal(OK_API);
   await page.evaluate(() => localStorage.removeItem("at-watchlist"));
   await page.reload();
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
@@ -205,6 +232,7 @@ const OK_API = {
   const nw = await winOf(page, "NEWS");
   ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 5 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(0, 600));
   ok("[A] news: window status from the headline sources on screen (all LIVE)", nw.pill === "LIVE", nw.pill);
+  ok("[A] news: last check time and automatic 5-minute checks shown", /CHECKED \d{2}:\d{2}(:\d{2})? · AUTO EVERY 5 MIN/.test(nw.text), (nw.text.match(/HEADLINES[^\n]*/) || [])[0]);
   ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
   await page.click('.win [data-src="BLOOMBERG"]'); await page.waitForTimeout(300);
   const nwB = await winOf(page, "NEWS");
@@ -236,11 +264,45 @@ const OK_API = {
   br = await winOf(page, "BRIEFING");
   ok("[A] briefing: an empty period says when it is written (no text invented)", /No weekly briefing yet\. Written automatically on Saturday mornings at 08:00/.test(br.text) && brfState.writes.length === 1);
   await page.click('.win [data-period="daily"]'); await page.waitForTimeout(300);
+  // world exchanges
+  await cmd(page, "EXCH"); await page.waitForTimeout(500);
+  let ex = await winOf(page, "WORLD EXCHANGES");
+  ok("[A] exchanges: open now / next open from the provider, grouped by region with local time and countdown", /OPEN NOW · LSE/.test(ex.text) && /NEXT · NYSE opens in 2h 15m/.test(ex.text) && /EUROPE & AFRICA · 1\/1 OPEN/.test(ex.text) && /LSE\s+London\s+OPEN\s+closes in 3h 30m/.test(ex.text) && /NYSE\s+New York\s+CLOSED\s+opens in 2h 15m/.test(ex.text) && !/Other Exchange/.test(ex.text) && /not in the provider's list: XNAS/.test(ex.text), ex.text.slice(0, 700));
+  ok("[A] exchanges: status bar shows how many major markets are open", /^1\/3 open$/.test(await page.$eval("#mktsOpen", (x) => x.textContent)));
+  await page.click('.win [data-scope="all"]'); await page.waitForTimeout(200);
+  ex = await winOf(page, "WORLD EXCHANGES");
+  ok("[A] exchanges: ALL lists every exchange the provider returns (local time N/A without a time zone)", /Other Exchange/.test(ex.text));
+  // heat maps: other universes and the FX matrix
+  await cmd(page, "MAP"); await page.waitForTimeout(400);
+  await page.click('.win [data-mapu="CTRY"]'); await page.waitForTimeout(700);
+  let hm = await winOf(page, "COUNTRIES HEAT MAP");
+  ok("[A] heat maps: countries via ETFs — same endpoints with ?u=CTRY, tiles named by country, size by traded value", !!hm && spxCalls.some((c) => c.includes("u=CTRY")) && /ITALY/.test(hm.text) && /JAPAN/.test(hm.text) && /TRADED VALUE/.test(hm.text) && /ETF prices, not index levels/.test(hm.text), hm && hm.text.slice(0, 300));
+  ok("[A] heat maps: change from real prices (EWI 50.5 vs 50 → +1.00%)", await page.evaluate(() => { const t = document.querySelector('.spx-t[data-s="EWI"]'); return !!t && /\+1\.00%/.test(t.textContent); }));
+  await page.click('.win [data-mapu="FX"]'); await page.waitForTimeout(1500);
+  hm = await winOf(page, "FX HEAT MAP");
+  ok("[A] heat maps: FX matrix from live quotes vs USD (crosses DERIVED), strength row", !!hm && /STRENGTH/.test(hm.text) && /BASE \\ QUOTE/.test(hm.text) && quoteBatches.some((b) => b.syms.includes("USD/CHF")) && /DRV|DERIVED/.test(hm.text + hm.pill), hm && hm.text.slice(0, 300));
+  await page.click('.win [data-mapu="SPX"]'); await page.waitForTimeout(300);
+  // portfolio: starts empty, a trade is recorded, valued from live quotes in EUR, then deleted
+  await cmd(page, "PF"); await page.waitForTimeout(600);
+  let pf = await winOf(page, "PORTFOLIO");
+  ok("[A] portfolio: starts empty — nothing preloaded, value €0.00", /Your portfolio is empty/.test(pf.text) && /MARKET VALUE\s*€0\.00/.test(pf.text), pf.text.slice(0, 300));
+  await page.fill('.pf-form input[name="sym"]', "AAPL"); await page.click(".pf-chk"); await page.waitForTimeout(800);
+  ok("[A] portfolio: the symbol is checked with the provider; currency and last price prefilled", (await page.inputValue('.pf-form input[name="price"]')) === "250" && /AAPL · .* last \$250\.00/.test((await winOf(page, "PORTFOLIO")).text));
+  await page.fill('.pf-form input[name="qty"]', "10"); await page.fill('.pf-form input[name="price"]', "200"); await page.fill('.pf-form input[name="fees"]', "1"); await page.fill('.pf-form input[name="date"]', "2026-10-01");
+  await page.click('.pf-form button[type="submit"]'); await page.waitForTimeout(1500);
+  pf = await winOf(page, "PORTFOLIO");
+  ok("[A] portfolio: trade sent as JSON (side, symbol, qty, price, currency from the quote, fees, date)", pfState.posts.length === 1 && pfState.posts[0].sym === "AAPL" && pfState.posts[0].qty === 10 && pfState.posts[0].price === 200 && pfState.posts[0].ccy === "USD" && pfState.posts[0].fees === 1 && pfState.posts[0].date === "2026-10-01", JSON.stringify(pfState.posts));
+  // 10 × 250 USD at the live EUR/USD 1.12601 = €2,220.23; cost (10 × 200 + 1) / 1.10 = €1,819.09; P&L €401.14
+  ok("[A] portfolio: value in EUR at the live rate, cost at the trade-date ECB rate (fees in the average cost), P&L and weight", /MARKET VALUE\s*€2,220\.23/.test(pf.text) && /COST \(EUR\)\s*€1,819\.09/.test(pf.text) && /UNREALISED P&L\s*€401\.14/.test(pf.text) && /AAPL[\s\S]*10[\s\S]*200\.1 USD[\s\S]*€2,220\.23[\s\S]*100\.0%[\s\S]*€401\.14/.test(pf.text), pf.text.slice(0, 900));
+  ok("[A] portfolio: quotes requested for the position and the EUR/USD rate", quoteBatches.some((b) => b.syms.includes("EUR/USD")));
+  await page.click(".pf-del"); await page.waitForTimeout(200); await page.click(".pf-del-yes"); await page.waitForTimeout(800);
+  pf = await winOf(page, "PORTFOLIO");
+  ok("[A] portfolio: delete asks for confirmation in the page, then removes the trade", pfState.deletes.length === 1 && /Your portfolio is empty/.test(pf.text));
   // global checks
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
-  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,MARKETS,S&P 500 MAP,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
+  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,PORTFOLIO,MARKETS,EXCHANGES,HEAT MAPS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(800); await page.screenshot({ path: SHOTS + "/e2e-t05.png" }); }

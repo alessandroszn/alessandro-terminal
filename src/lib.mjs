@@ -22,6 +22,69 @@ export async function fetchText(url, { timeoutMs = 8000, headers = {} } = {}) {
   }
 }
 
+// binary download (e.g. an .xlsx holdings file); same error codes as fetchText
+export async function fetchBinary(url, { timeoutMs = 10000, headers = {} } = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ac.signal, headers: { "user-agent": UA, ...headers } });
+    const buf = await r.arrayBuffer();
+    if (r.status === 429) return { err: "rate_limited", http: r.status };
+    if (r.status === 403) return { err: "provider_forbidden", http: r.status };
+    if (r.status === 404) return { err: "no_data", http: r.status };
+    if (!r.ok || !buf.byteLength) return { err: "provider_error", http: r.status };
+    return { buf, http: r.status };
+  } catch {
+    return { err: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// one file out of a ZIP archive (an .xlsx is a ZIP of XML files): stored or deflated entries
+export async function unzipEntry(buf, name) {
+  const dv = new DataView(buf), n = buf.byteLength;
+  let eocd = -1;
+  for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) return null;
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  for (let k = 0; k < count && p + 46 <= n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) return null;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+    if (dec.decode(new Uint8Array(buf, p + 46, nlen)) === name) {
+      const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      const data = new Uint8Array(buf, start, csize);
+      if (method === 0) return dec.decode(data);
+      if (method === 8) return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+      return null;
+    }
+    p += 46 + nlen + xlen + clen;
+  }
+  return null;
+}
+
+// first worksheet of an .xlsx as rows of cell strings (shared strings, inline strings, numbers)
+export async function xlsxRows(buf) {
+  const [ss, sheet] = await Promise.all([unzipEntry(buf, "xl/sharedStrings.xml"), unzipEntry(buf, "xl/worksheets/sheet1.xml")]);
+  if (!sheet) return [];
+  const unxml = (t) => t.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  const strings = ss ? [...ss.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => unxml([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => x[1]).join(""))) : [];
+  const col = (ref) => { let c = 0; for (const ch of ref.replace(/\d+$/, "")) c = c * 26 + ch.charCodeAt(0) - 64; return c - 1; };
+  const rows = [];
+  for (const rm of sheet.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+    const row = [];
+    for (const cm of rm[1].matchAll(/<c r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const attrs = cm[2] || "", inner = cm[3] || "", t = (/t="(\w+)"/.exec(attrs) || [])[1];
+      const v = (/<v>([\s\S]*?)<\/v>/.exec(inner) || [])[1];
+      row[col(cm[1])] = t === "s" ? strings[Number(v)] ?? "" : t === "inlineStr" ? unxml((/<t[^>]*>([\s\S]*?)<\/t>/.exec(inner) || [])[1] || "") : v != null ? unxml(v) : "";
+    }
+    rows.push(Array.from(row, (x) => x ?? ""));
+  }
+  return rows;
+}
+
 function cacheStore() { return typeof caches !== "undefined" ? caches.default : null; }
 // Scheduled runs (Cron Trigger) execute in any data center, so they cannot share the per-location
 // Cache API: they pass a ctx whose `store` is Workers KV instead (see cron.mjs). `readOnly` serves only

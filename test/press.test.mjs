@@ -39,7 +39,7 @@ const call = async (path) => { const r = await worker.fetch(new Request("https:/
 
 let r = await call("/api/headlines?source=FT");
 ok("FT: all sections fetched, LIVE, headline/link/time only, source named", r.status === 200 && r.j.status === "LIVE" && r.j.feeds.length === 4 && r.j.items.length === 2 && r.j.items.every((i) => i.source === "Financial Times" && i.provider === "FT") && /no article text/.test(r.j.basis) && !r.t.includes("Long article summary"));
-ok("FT: cached 10 min (no refetch)", (calls.length = 0, (await call("/api/headlines?source=FT")).status === 200 && calls.length === 0));
+ok("FT: cached 5 min (no refetch)", (calls.length = 0, (await call("/api/headlines?source=FT")).status === 200 && calls.length === 0));
 store = new Map(); failing = new Set([PRESS.BLOOMBERG.feeds[1][1]]);
 r = await call("/api/headlines?source=BLOOMBERG");
 ok("Bloomberg: one section refused → PARTIAL, that section N/A with the reason", r.status === 200 && r.j.status === "PARTIAL" && r.j.feeds.find((f) => f.section === "Economics").status === "N/A" && r.j.feeds.find((f) => f.section === "Economics").error === "provider_forbidden");
