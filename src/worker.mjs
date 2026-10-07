@@ -488,7 +488,7 @@ export const app = {
     if (url.pathname === "/api/health") return json({ ok: true, ts: Date.now() }, H);
     if (url.pathname === "/api/quote") return handleQuote(url, env, ctx, H);
     if (url.pathname === "/api/history") return handleHistory(url, env, ctx, H);
-    if (url.pathname === "/api/yields") return handleYields(url, env, ctx, H, json);
+    if (url.pathname === "/api/yields" || url.pathname.startsWith("/api/yields/")) return handleYields(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar") return handleCalendar(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar/history") return handleCalendarHistory(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar/reactions") return handleCalendarReactions(url, env, ctx, H, json);
