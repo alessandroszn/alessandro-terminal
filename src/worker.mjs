@@ -16,6 +16,7 @@ import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
 import { runCron } from "./cron.mjs";
 import { handleExchanges } from "./exchanges.mjs";
+import { handleCalendarHistory, handleCalendarReactions } from "./calendar.mjs";
 import { handlePortfolio } from "./portfolio.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
@@ -470,6 +471,8 @@ export const app = {
     if (url.pathname === "/api/history") return handleHistory(url, env, ctx, H);
     if (url.pathname === "/api/yields") return handleYields(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar") return handleCalendar(url, env, ctx, H, json);
+    if (url.pathname === "/api/calendar/history") return handleCalendarHistory(url, env, ctx, H, json);
+    if (url.pathname === "/api/calendar/reactions") return handleCalendarReactions(url, env, ctx, H, json);
     if (url.pathname === "/api/news") return handleNews(url, env, ctx, H, json);
     if (url.pathname === "/api/exchanges") return handleExchanges(url, env, ctx, H, json);
     if (url.pathname === "/api/portfolio" || url.pathname.startsWith("/api/portfolio/")) return handlePortfolio(url, env, ctx, H, json, req);

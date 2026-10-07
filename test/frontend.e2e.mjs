@@ -97,6 +97,8 @@ const spxApi = (path, u, { configured = true } = {}) => {
   return { body: { ref, target: dShift(ET, -30), todayET: ET, closes: Object.fromEntries(Object.entries(SPX_PREV).map(([k, v]) => [k, [dShift(ET, -31), v * 0.9]])), fetchedAt: now, status: "LIVE" } };
 };
 
+// market reaction after the released GBP event (shape of /api/calendar/reactions)
+const CAL_REACT = () => ({ reactions: { ff0: { id: "ff0", at: new Date().toISOString(), final: true, items: [{ symbol: "GBP vs USD", pair: "GBP/USD", source: "Twelve Data 1-min", before: 1.3, m15: { price: 1.30195, chg: 0.15 }, m60: { price: 1.30403, chg: 0.31 } }] } }, pending: 0, status: "DERIVED" });
 // exchanges (shape of /api/exchanges): London open, New York and Tokyo closed
 const EXCH = () => { const now = Date.now(); return { exchanges: [
   { code: "XNYS", name: "New York Stock Exchange", country: "United States", open: false, openedAt: null, closesAt: null, opensAt: now + 2 * 3600e3 + 9e5, major: true, label: "NYSE", city: "New York", tz: "America/New_York", region: "Americas" },
@@ -155,6 +157,8 @@ async function openTerminal(api, html = htmlFast) {
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/briefs")) return send(api.briefs ? api.briefs(u) : briefsApi(u, route.request().method(), brfState));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/portfolio")) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(api.portfolio ? api.portfolio(u) : pfApi(u, route.request().method(), b, pfState)); }
+    if (u.origin === ORIGIN && u.pathname === "/api/calendar/reactions") return send(api.reactions ? api.reactions() : { body: CAL_REACT() });
+    if (u.origin === ORIGIN && u.pathname === "/api/calendar/history") return send({ body: { ccy: u.searchParams.get("ccy"), title: u.searchParams.get("title"), releases: [{ datetime: "2026-09-10T12:30:00.000Z", forecast: "0.2%", previous: "0.2%" }], note: "Forecast and previous as published by Forex Factory in each weekly export since the archive started.", status: "LIVE" } });
     if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
@@ -219,11 +223,19 @@ const OK_API = {
   // calendar
   await cmd(page, "CAL");
   let cal = await winOf(page, "ECONOMIC CALENDAR");
-  ok("[A] calendar: WORLD view by default, high impact only (medium hidden), impact chip, forecast/previous as published, actual N/A, source FF", /WORLD/.test(cal.text) && /USD\s+CPI m\/m\s+HIGH\s+N\/A\s+0\.3%\s+0\.2%\s+FF/.test(cal.text) && /GBP\s+GDP m\/m\s+HIGH/.test(cal.text) && !/Ifo/.test(cal.text) && /Forex Factory/.test(cal.text), cal.text.slice(0, 500));
+  ok("[A] calendar: WORLD view by default, high impact only (medium hidden), impact chip, forecast/previous as published, actual N/A, source FF", /WORLD/.test(cal.text) && /USD\s+CPI m\/m\s+HIGH\s+N\/A\s+0\.3%\s+0\.2%\s+—\s+FF/.test(cal.text) && /GBP\s+GDP m\/m\s+HIGH/.test(cal.text) && !/Ifo/.test(cal.text) && /Forex Factory/.test(cal.text), cal.text.slice(0, 500));
   ok("[A] calendar: NEXT HIGH-IMPACT banner skips past and medium events; status bar countdown", /NEXT HIGH-IMPACT · United States · CPI m\/m[\s\S]*in (?:4h5\d|5h00) · forecast 0\.3% · previous 0\.2%/.test(cal.text) && /^USD CPI m\/m in (?:4h5\d|5h00)$/.test(await page.$eval("#nextEv", (x) => x.textContent)) && (await page.$$eval(".win table.cal tr.next", (r) => r.length)) === 1, await page.$eval("#nextEv", (x) => x.textContent));
   await page.click('.win [data-imp="2"]'); await page.waitForTimeout(200);
   cal = await winOf(page, "ECONOMIC CALENDAR");
   ok("[A] calendar: HIGH + MEDIUM shows the medium event; forecast not published → N/A", /EUR\s+German Ifo Business Climate\s+MED\s+N\/A\s+N\/A\s+87\.7/.test(cal.text), cal.text.slice(0, 500));
+  ok("[A] calendar: market reaction 15 min after a released high-impact event (DERIVED, 1-minute data)", /GBP\s+GDP m\/m\s+HIGH\s+N\/A\s+0\.1%\s+0\.0%\s+GBP \+0\.15/.test(cal.text), cal.text.slice(0, 600));
+  await page.click('.win tr[data-ev="ff0"]'); await page.waitForTimeout(500);
+  cal = await winOf(page, "ECONOMIC CALENDAR");
+  ok("[A] calendar: click an event → reaction at +15 / +60 min and past releases from the archive", /REACTION\s+BEFORE\s+\+15 MIN\s+\+60 MIN/.test(cal.text) && /GBP vs USD\s+GBP\/USD\s+1\.3\s+\+0\.15%\s+\+0\.31%/.test(cal.text) && /PAST RELEASES[\s\S]*0\.2%\s+0\.2%/.test(cal.text), cal.text.slice(0, 900));
+  await page.click('.win [data-ccy="USD"]'); await page.waitForTimeout(200);
+  cal = await winOf(page, "ECONOMIC CALENDAR");
+  ok("[A] calendar: currency filter (USD only)", /CPI m\/m/.test(cal.text) && !/GDP m\/m/.test(cal.text) && !/Ifo/.test(cal.text));
+  await page.click('.win [data-ccy="ALL"]'); await page.click('.win [data-imp="3"]'); await page.waitForTimeout(200);
   await page.click('.win [data-cv="us"]'); await page.waitForTimeout(200);
   cal = await winOf(page, "ECONOMIC CALENDAR");
   ok("[A] calendar: official event with date, time, country, source; actual/forecast/previous/importance N/A", /2026-10-14\s+08:30\s+US\s+Consumer Price Index\s+N\/A\s+N\/A\s+N\/A\s+N\/A\s+BLS/.test(cal.text) && /U\.S\. Bureau of Labor Statistics/.test(cal.text), cal.text.slice(0, 300));

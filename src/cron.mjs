@@ -11,7 +11,7 @@ import { kvStore, easternDate } from "./lib.mjs";
 import { romeNow, isSlotDay, SLOT_MIN, MARKET_SYMS, PERIODS, dueEdition, writeEdition, kvJson, tdDaily, tdDailyKey, WRITE_OFFSET, WRITE_RETRY } from "./briefs.mjs";
 import { getUniverse, getCloses, alpacaConfigured, refTarget } from "./spx.mjs";
 import { getYieldCurves } from "./yields.mjs";
-import { getWorldCalendar, getCalendar } from "./calendar.mjs";
+import { getWorldCalendar, getCalendar, archiveFF } from "./calendar.mjs";
 import { getPress, PRESS } from "./press.mjs";
 
 export const BUFFER_MIN = 2;  // minutes between the last staging run and the write (KV propagation)
@@ -77,7 +77,7 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
   }
   if (step === "fxdaily") return (await tdDaily(env, MARKET_SYMS, now, origin, sctx)) ? "ok" : "no_data";
   if (step === "yields") return ok(await getYieldCurves(origin, sctx, now));
-  if (step === "calendar") { const w = await getWorldCalendar(origin, sctx, now); if (w.events.length) return "ok"; const c = await getCalendar(origin, sctx, now); return c.events.length ? "ok_us_only" : w.err || "no_data"; }
+  if (step === "calendar") { const w = await getWorldCalendar(origin, sctx, now); if (w.data) await archiveFF(env, w.data).catch(() => null); if (w.events.length) return "ok"; const c = await getCalendar(origin, sctx, now); return c.events.length ? "ok_us_only" : w.err || "no_data"; }
   if (step.startsWith("press:")) return ok(await getPress(origin, sctx, step.slice(6)));
   if (step === "fx") {
     if (!deps || !deps.fetchQuotes) return "quotes_not_configured";

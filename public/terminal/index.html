@@ -340,6 +340,11 @@ tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
 .pf-k{border:1px solid var(--line);padding:6px 8px;display:flex;flex-direction:column;gap:2px}.pf-k span{font-size:10px;letter-spacing:.06em;color:var(--muted)}.pf-k b{font-size:16px;font-variant-numeric:tabular-nums}.pf-k b small{font-size:11px}.pf-k i{font-style:normal;font-size:10px;color:var(--dim)}
 .pf-form{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0}.pf-form input,.pf-form select{background:var(--panel-2);color:var(--fg);border:1px solid var(--line-2);font:inherit;font-size:12px;padding:3px 5px}
 .pf-empty{padding:24px 8px}
+.cal-ccy{margin-top:4px}.cal-ccy .tf{min-width:34px}
+tr.cal-row{cursor:pointer}tr.cal-row.open td{background:var(--panel-2)}
+.cal-react span{margin-right:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.cal-det td{background:var(--panel-2);padding:6px 10px}.cal-det-in{display:flex;flex-direction:column;gap:6px;font-size:11px}
+table.cal-sub{width:auto;min-width:360px}.cal-live{background:var(--amber,#f5a623);color:var(--bg);font-size:9px;padding:0 4px;border-radius:2px}
 </style>
 
 <div id="app">
@@ -765,24 +770,54 @@ tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
   // ---- CALENDAR: world (Forex Factory) + US official schedules; fields without a source are N/A ----
   // world events (Forex Factory weekly export) filtered by impact; US official schedules (BLS/BEA) in their own tab
   const IMPACT_RANK={High:3,Medium:2,Low:1,Holiday:0};
-  function calWorld(minImpact){const d=EXT.calendar.data;return d&&Array.isArray(d.world)?d.world.filter(e=>(IMPACT_RANK[e.impact]||0)>=minImpact):[];}
+  const CAL_CCY=['USD','EUR','GBP','JPY','CHF','CAD','AUD','NZD','CNY'],REACT_CCY=new Set(CAL_CCY);
+  // filters are a per-viewer convenience (this browser only)
+  const CALF=(()=>{try{const v=JSON.parse(localStorage.getItem('at-cal')||'null');if(v&&typeof v==='object')return{imp:[3,2,0].includes(v.imp)?v.imp:3,ccy:Array.isArray(v.ccy)?v.ccy.filter(c=>CAL_CCY.includes(c)):[]};}catch(e){}return{imp:3,ccy:[]};})();
+  function saveCalF(){try{localStorage.setItem('at-cal',JSON.stringify(CALF));}catch(e){}}
+  function calWorld(minImpact,ccys){const d=EXT.calendar.data;if(!d||!Array.isArray(d.world))return[];return d.world.filter(e=>(IMPACT_RANK[e.impact]||0)>=minImpact&&(!ccys||!ccys.length||ccys.includes(e.currency)||e.currency==='All'));}
+  // market reaction after released high-impact events (computed by the Worker from 1-minute prices) and past releases
+  const CALX={react:{},rAt:0,rLoading:false,pending:0,rErr:null,hist:{},open:null};
+  function calRepaint(){wins.forEach(w=>{if(!w.min&&w.type==='CAL')liveRepaint(w);});}
+  async function calReactions(){if(CALX.rLoading)return;const now=Date.now(),due=calWorld(3).filter(e=>REACT_CCY.has(e.currency)&&now-Date.parse(e.datetime)>16*60000);
+    if(!due.length)return;const need=due.some(e=>!CALX.react[e.id]||!CALX.react[e.id].final);if(!need||now-CALX.rAt<(CALX.pending?65000:300000))return;
+    CALX.rLoading=true;try{const r=await fetch(CONFIG.proxyBase+'/api/calendar/reactions',{cache:'no-store'});const j=await r.json();if(j&&j.reactions){Object.assign(CALX.react,j.reactions);CALX.pending=j.pending||0;CALX.rErr=null;}else CALX.rErr=(j&&j.error)||'http '+r.status;}
+    catch(e){CALX.rErr='network';}finally{CALX.rLoading=false;CALX.rAt=Date.now();calRepaint();}}
+  async function calHistory(e){const k=e.currency+'|'+e.indicator;if(CALX.hist[k])return;CALX.hist[k]={loading:true};
+    try{const r=await fetch(`${CONFIG.proxyBase}/api/calendar/history?ccy=${encodeURIComponent(e.currency)}&title=${encodeURIComponent(e.indicator)}`,{cache:'no-store'});CALX.hist[k]=await r.json();}
+    catch(x){CALX.hist[k]={error:'network'};}finally{calRepaint();}}
   function nextHigh(){const now=Date.now();return calWorld(3).find(e=>Date.parse(e.datetime)>now)||null;}
   function fmtIn(ms){const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60);return h>=24?`${Math.floor(h/24)}d ${h%24}h`:h?`${h}h${String(m%60).padStart(2,'0')}`:`${m}m`;}
   function updateNextEvent(){const el=$('#nextEv');if(!el)return;const e=nextHigh();
     el.textContent=e?`${e.currency} ${e.indicator} in ${fmtIn(Date.parse(e.datetime)-Date.now())}`:'—';el.title=e?`${e.region} · ${e.indicator} · ${fmtDT(e.datetime)} (local) · impact high · source Forex Factory`:'no upcoming high-impact event in the current week';}
-  function renderCal(body,win){const st=win.state;st.view=st.view||'world';st.imp=st.imp||3;const e=EXT.calendar;loadExt('calendar');
-    const tabs=`<div class="tfbar"><button class="tf" data-cv="world" aria-pressed="${st.view==='world'}">WORLD</button><button class="tf" data-cv="us" aria-pressed="${st.view==='us'}">US OFFICIAL (BLS / BEA)</button>${st.view==='world'?`<span style="width:12px"></span><button class="tf" data-imp="3" aria-pressed="${st.imp===3}">HIGH IMPACT</button><button class="tf" data-imp="2" aria-pressed="${st.imp===2}">HIGH + MEDIUM</button>`:''}</div>`;
-    const bind=()=>{$$('[data-cv]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.cv;paintWin(win);});$$('[data-imp]',body).forEach(b=>b.onclick=()=>{st.imp=+b.dataset.imp;paintWin(win);});};
+  function renderCal(body,win){const st=win.state;st.view=st.view||'world';const e=EXT.calendar;loadExt('calendar');
+    const imp=CALF.imp,sel=CALF.ccy;
+    const tabs=`<div class="tfbar"><button class="tf" data-cv="world" aria-pressed="${st.view==='world'}">WORLD</button><button class="tf" data-cv="us" aria-pressed="${st.view==='us'}">US OFFICIAL (BLS / BEA)</button>${st.view==='world'?`<span style="width:12px"></span><button class="tf" data-imp="3" aria-pressed="${imp===3}">HIGH IMPACT</button><button class="tf" data-imp="2" aria-pressed="${imp===2}">HIGH + MEDIUM</button><button class="tf" data-imp="0" aria-pressed="${imp===0}">ALL</button>`:''}</div>`
+      +(st.view==='world'?`<div class="tfbar cal-ccy"><button class="tf" data-ccy="ALL" aria-pressed="${!sel.length}">ALL CCY</button>${CAL_CCY.map(c=>`<button class="tf" data-ccy="${c}" aria-pressed="${sel.includes(c)}">${c}</button>`).join('')}</div>`:'');
+    const bind=()=>{$$('[data-cv]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.cv;paintWin(win);});$$('[data-imp]',body).forEach(b=>b.onclick=()=>{CALF.imp=+b.dataset.imp;saveCalF();calRepaint();});
+      $$('[data-ccy]',body).forEach(b=>b.onclick=()=>{const c=b.dataset.ccy;CALF.ccy=c==='ALL'?[]:CALF.ccy.includes(c)?CALF.ccy.filter(x=>x!==c):CALF.ccy.concat(c);saveCalF();calRepaint();});
+      $$('tr[data-ev]',body).forEach(tr=>tr.onclick=ev=>{if(ev.target.closest('a'))return;CALX.open=CALX.open===tr.dataset.ev?null:tr.dataset.ev;calRepaint();});};
     if(!e.data&&!e.err){setProv(win,{'ds:CAL':S.LOADING});body.innerHTML=tabs+'<div class="empty">Loading the economic calendar…</div>';bind();return;}
     const d=e.data||{world:[],events:[],sources:[],errors:{network:{error:e.err}}},now=Date.now(),na=f=>`<span class="na" title="${esc((f&&f.note)||'')}">N/A</span>`,vv=f=>f&&f.value!=null?esc(f.value):na(f);
     const impChip=i=>`<span class="imp imp-${esc(i)}" title="impact: ${esc(i)} (Forex Factory)">${i==='High'?'HIGH':i==='Medium'?'MED':i==='Low'?'LOW':'HOL'}</span>`;
+    const short=x=>x==='USD vs EUR'?'USD':x.replace(' vs USD','');
+    const reactCell=ev=>{const t=Date.parse(ev.datetime);if(ev.impact!=='High'||!REACT_CCY.has(ev.currency))return'<span class="k">—</span>';if(t>now)return'<span class="k">—</span>';
+      if(now-t<=16*60000)return`<span class="k" title="computed from 1-minute prices 15 minutes after the time">at ${new Date(t+16*60000).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>`;
+      const r=CALX.react[ev.id];if(!r)return CALX.rErr?'<span class="na" title="'+esc(P.errorText(CALX.rErr))+'">N/A</span>':'<span class="k">…</span>';
+      if(!r.items||!r.items.length)return`<span class="na" title="no 1-minute prices around the time${r.fxError?' ('+esc(P.errorText(r.fxError))+')':''}">N/A</span>`;
+      return r.items.map(i=>`<span class="${cls(i.m15.chg)}" title="${esc(i.symbol)}${i.pair?' ('+esc(i.pair)+')':''} · 15 min ${pct(i.m15.chg)}${i.m60?' · 60 min '+pct(i.m60.chg):''} · ${esc(i.source)} · DERIVED">${esc(short(i.symbol))} ${(i.m15.chg>=0?'+':'')+i.m15.chg.toFixed(2)}</span>`).join(' ')+(r.final?'':' <span class="k" title="60-minute window not complete yet">·</span>');};
+    const detail=ev=>{const k=ev.currency+'|'+ev.indicator,h=CALX.hist[k];if(!h)calHistory(ev);const r=CALX.react[ev.id];
+      const rt=r&&r.items&&r.items.length?`<table class="pf cal-sub"><thead><tr><th class="l">REACTION</th><th>BEFORE</th><th>+15 MIN</th><th>+60 MIN</th><th class="l">SOURCE</th></tr></thead><tbody>${r.items.map(i=>`<tr><td class="l">${esc(i.symbol)}${i.pair?' <span class="k">'+esc(i.pair)+'</span>':''}</td><td class="num">${num6(+i.before.toPrecision(7))}</td><td class="num ${cls(i.m15.chg)}">${pct(i.m15.chg)}</td><td class="num ${i.m60?cls(i.m60.chg):''}">${i.m60?pct(i.m60.chg):'—'}</td><td class="l k">${esc(i.source)}</td></tr>`).join('')}</tbody></table>`:'';
+      const ht=!h||h.loading?'<div class="k">Loading past releases…</div>':h.error||!Array.isArray(h.releases)?`<div class="na">Past releases N/A (${esc(P.errorText(h.error||'no_data'))})</div>`:!h.releases.length?'<div class="k">No past releases archived yet — the archive started on 7 Oct 2026 and grows every week.</div>'
+        :`<table class="pf cal-sub"><thead><tr><th class="l">RELEASE (LOCAL)</th><th>FORECAST</th><th>PREVIOUS</th></tr></thead><tbody>${h.releases.slice(0,12).map(x=>`<tr><td class="l">${fmtDT(x.datetime)}</td><td class="num">${esc(x.forecast||'—')}</td><td class="num">${esc(x.previous||'—')}</td></tr>`).join('')}</tbody></table><div class="k">${esc(h.note||'')}</div>`;
+      return`<tr class="cal-det"><td colspan="9"><div class="cal-det-in"><div><b>${esc(ev.region)}</b> · ${esc(ev.indicator)} · ${fmtDT(ev.datetime)} local · ${esc(ev.dateET)} ${esc(ev.timeET||'')} New York · impact ${esc(ev.impact)}${ev.archived?' · from the archive':''} · <a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">Forex Factory</a></div>${rt}<div class="set-grp" style="margin-top:6px">PAST RELEASES</div>${ht}</div></td></tr>`;};
     let html;
-    if(st.view==='world'){const list=calWorld(st.imp),nx=nextHigh();let lastDay='';
-      const rows=list.map(ev=>{const t=Date.parse(ev.datetime),day=new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});const sep=day!==lastDay?`<tr class="grp"><td colspan="8">${day.toUpperCase()}</td></tr>`:'';lastDay=day;
-        return sep+`<tr class="${t<now?'past':''}${nx&&ev.id===nx.id?' next':''}"><td class="l">${new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</td><td class="l" title="${esc(ev.region)}">${esc(ev.currency)}</td><td class="l">${esc(ev.indicator)}</td><td>${impChip(ev.impact)}</td><td>${na(ev.actual)}</td><td>${vv(ev.forecast)}</td><td>${vv(ev.previous)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">FF</a></td></tr>`;}).join('');
+    if(st.view==='world'){const list=calWorld(imp,sel),nx=nextHigh();let lastDay='';calReactions();
+      const rows=list.map(ev=>{const t=Date.parse(ev.datetime),day=new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});const sep=day!==lastDay?`<tr class="grp"><td colspan="9">${day.toUpperCase()}${new Date(t).toDateString()===new Date(now).toDateString()?' · TODAY':''}</td></tr>`:'';lastDay=day;
+        const soon=t>now&&t-now<86400000?` <span class="k">in ${fmtIn(t-now)}</span>`:t<=now&&now-t<15*60000?' <span class="cal-live">JUST OUT</span>':'';
+        return sep+`<tr data-ev="${esc(ev.id)}" class="cal-row ${t<now?'past':''}${nx&&ev.id===nx.id?' next':''}${CALX.open===ev.id?' open':''}" tabindex="0"><td class="l">${new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}${soon}</td><td class="l" title="${esc(ev.region)}">${esc(ev.currency)}</td><td class="l">${esc(ev.indicator)}</td><td>${impChip(ev.impact)}</td><td>${na(ev.actual)}</td><td>${vv(ev.forecast)}</td><td>${vv(ev.previous)}</td><td class="l cal-react">${reactCell(ev)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">FF</a></td></tr>`+(CALX.open===ev.id?detail(ev):'');}).join('');
       html=`<div class="src-line">${extSources(d)}</div>${nx?`<div class="banner" style="margin-top:8px"><b>NEXT HIGH-IMPACT</b> · ${esc(nx.region)} · ${esc(nx.indicator)} · ${fmtDT(nx.datetime)} local · in ${fmtIn(Date.parse(nx.datetime)-now)}${nx.forecast.value?` · forecast ${esc(nx.forecast.value)}`:''}${nx.previous.value?` · previous ${esc(nx.previous.value)}`:''}</div>`:''}
-        <table class="pf cal"><thead><tr><th class="l">TIME (LOCAL)</th><th class="l">CCY</th><th class="l">EVENT</th><th>IMPACT</th><th>ACTUAL</th><th>FORECAST</th><th>PREVIOUS</th><th class="l">SRC</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="na">NO DATA</td></tr>'}</tbody></table>
-        <div class="scr-count">World calendar: Forex Factory weekly export (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), current week only; impact, forecast and previous as published there. Actual: N/A — not included in the export. Times in your local time zone.</div>`;}
+        <table class="pf cal"><thead><tr><th class="l">TIME (LOCAL)</th><th class="l">CCY</th><th class="l">EVENT</th><th>IMPACT</th><th>ACTUAL</th><th>FCST</th><th>PREV</th><th class="l" title="price move 15 minutes after the time (hover: 60 minutes)">REACTION 15M</th><th class="l">SRC</th></tr></thead><tbody>${rows||'<tr><td colspan="9" class="na">NO DATA</td></tr>'}</tbody></table>
+        <div class="scr-count">World calendar: Forex Factory weekly export (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), this week plus the last ${d.backDays||4} days from the archive; impact, forecast and previous as published there. Actual: N/A — not in the export. Reaction: price just before the time vs 15 / 60 minutes after, from 1-minute data (FX: Twelve Data; USD events also SPY / TLT ETFs, Alpaca) — DERIVED, high-impact events only. Click an event for details and past releases. Times in your local time zone.</div>`;}
     else html=`<div class="src-line">${extSources(d)}</div>
       <table class="pf cal"><thead><tr><th class="l">DATE</th><th class="l">TIME ET</th><th class="l">CTRY</th><th class="l">INDICATOR</th><th>ACTUAL</th><th>FORECAST</th><th>PREVIOUS</th><th>IMP.</th><th class="l">SRC</th></tr></thead><tbody>
       ${(d.events||[]).map(ev=>`<tr class="${Date.parse(ev.datetime)<now?'past':''}"><td class="l">${ev.dateET}</td><td class="l">${ev.timeET||'—'}</td><td class="l">${ev.country}</td><td class="l">${esc(ev.indicator)}</td><td>${na(ev.actual)}</td><td>${na(ev.forecast)}</td><td>${na(ev.previous)}</td><td>${na(ev.importance)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">${ev.source}</a></td></tr>`).join('')||'<tr><td colspan="9" class="na">NO DATA</td></tr>'}
