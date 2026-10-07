@@ -790,7 +790,8 @@
     const sec=st.src==='SEC'?`<div class="set-grp" style="margin-top:14px">SEC FILINGS · WATCHLIST</div>${fil||`<div class="empty">NO DATA${d.errors&&d.errors.SEC?' — '+esc(P.errorText(d.errors.SEC.error)):''}</div>`}`:'';
     body.innerHTML=`<div class="tfbar">${tabs}</div><div class="src-line">${st.src==='SEC'?extSources(d):pressLine}</div>${head}${sec}<div class="scr-count">Headlines and links only, no article text: the publishers' and central banks' own public RSS feeds (personal use; articles open on their site). Filings: SEC EDGAR.</div>`;
     $$('[data-src]',body).forEach(b=>b.onclick=()=>{st.src=b.dataset.src;paintWin(win);});
-    const items=extItems(d,'news:');press.forEach(p=>items['news:'+p.id]=p.status);setProv(win,items);}
+    // the window status reflects only the sources on screen (SEC only in its own tab)
+    const items=st.src==='SEC'?extItems(d,'news:'):{};shown.forEach(p=>items['news:'+p.id]=p.status);setProv(win,items);}
 
   // ---- BRIEFING: Daily / Evening / Weekly / Monthly editions, written once from real data and archived ----
   const BRF={idx:{},at:{},items:{},writing:{},fail:{},loading:{}};
