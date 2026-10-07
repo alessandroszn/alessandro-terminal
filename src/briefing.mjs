@@ -3,13 +3,13 @@
 //   quotes  : the shared Twelve Data quote cache (read-only; the briefing never spends provider credits)
 //   yields  : U.S. Treasury + ECB
 //   calendar: BLS + BEA schedules
-//   news    : GDELT headlines
+//   news    : FT, Bloomberg, WSJ, MarketWatch and central-bank headlines (publishers' own feeds)
 // The model is told to use only those facts; every number in its text is then checked against the
 // inputs and any number that cannot be traced is reported, not hidden.
 import { cacheRead, cacheWrite, iso } from "./lib.mjs";
 import { getYieldCurves } from "./yields.mjs";
 import { getCalendar } from "./calendar.mjs";
-import { getHeadlines } from "./news.mjs";
+import { topHeadlines } from "./press.mjs";
 
 export const BRIEF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-:\/]{0,19}$/;
@@ -33,7 +33,7 @@ export function buildBriefingData({ quotes, curves, events, headlines, now }) {
   for (const e of upcoming) lines.push(`EVENT ${e.dateET}${e.timeET ? " " + e.timeET + " ET" : ""} ${e.country} ${e.indicator} [${e.source}]`);
   if (upcoming.length) sources.push({ name: "BLS / BEA release schedules", timestamp: upcoming[0].datetime });
   for (const h of headlines.slice(0, 8)) lines.push(`HEADLINE ${h.timestamp} ${h.source}: ${h.title}`);
-  if (headlines.length) sources.push({ name: "GDELT Project (headlines)", timestamp: headlines[0].timestamp });
+  if (headlines.length) sources.push({ name: [...new Set(headlines.slice(0, 8).map((h) => h.source))].join(", ") + " (headlines)", timestamp: headlines[0].timestamp });
   return { text: lines.join("\n"), sources, counts: { quotes: quotes.length, curves: Object.keys(curves).length, events: upcoming.length, headlines: Math.min(8, headlines.length) } };
 }
 
@@ -82,8 +82,8 @@ export async function handleBriefing(url, env, ctx, H, json) {
     const e = await cacheRead(url.origin, `quote/${encodeURIComponent(s)}`);
     if (e && e.rec && now - e.fetchedAt < 24 * 3600_000) quotes.push({ symbol: s, name: e.rec.name, price: e.rec.price, changePct: e.rec.changePct, prevClose: e.rec.prevClose, currency: e.rec.currency, timestamp: e.rec.asOf });
   }
-  const [y, cal, news] = await Promise.all([getYieldCurves(url.origin, ctx, now), getCalendar(url.origin, ctx, now), getHeadlines(url.origin, ctx)]);
-  const data = buildBriefingData({ quotes, curves: y.curves, events: cal.events, headlines: news.data || [], now });
+  const [y, cal, news] = await Promise.all([getYieldCurves(url.origin, ctx, now), getCalendar(url.origin, ctx, now), topHeadlines(url.origin, ctx, 8)]);
+  const data = buildBriefingData({ quotes, curves: y.curves, events: cal.events, headlines: news, now });
   if (!data.text) return json({ error: "no_input_data", status: "N/A" }, H, 503);
 
   let text = null, err = null;

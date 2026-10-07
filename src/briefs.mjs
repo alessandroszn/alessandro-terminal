@@ -9,8 +9,7 @@
 import { cacheRead, cacheWrite, iso, easternDate, num } from "./lib.mjs";
 import { getYieldCurves } from "./yields.mjs";
 import { getCalendar, getWorldCalendar } from "./calendar.mjs";
-import { getHeadlines } from "./news.mjs";
-import { getPress, mergeHeadlines } from "./press.mjs";
+import { topHeadlines } from "./press.mjs";
 import { getUniverse, getCloses, getLive, alpacaConfigured, todayBarFinal, livePhase } from "./spx.mjs";
 import { BRIEF_MODEL, verifyNumbers } from "./briefing.mjs";
 
@@ -233,16 +232,14 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
     const series = await tdDaily(env, MARKET_SYMS, now, origin, ctx);
     if (series) { const refDate = addDays(edition.d, period === "weekly" ? -7 : -30); fxHist = Object.fromEntries(MARKET_SYMS.map((s) => [s, periodChange(series[s], refDate)]).filter(([, v]) => v)); }
   }
-  const [y, world, gd, ft, bb] = await Promise.all([getYieldCurves(origin, ctx, now), getWorldCalendar(origin, ctx, now), getHeadlines(origin, ctx), getPress(origin, ctx, "FT"), getPress(origin, ctx, "BLOOMBERG")]);
+  const nHead = period === "weekly" || period === "monthly" ? 24 : 16;
+  const [y, world, headlines] = await Promise.all([getYieldCurves(origin, ctx, now), getWorldCalendar(origin, ctx, now), topHeadlines(origin, ctx, nHead)]);
   // world high-impact events (Forex Factory); the US official schedules only if that source is unavailable
   const cal = world.events.length ? { events: world.events.filter((e) => e.impact === "High") } : await getCalendar(origin, ctx, now);
   if (!world.events.length) errors.calendarWorld = world.err || "no_data";
   // calendar window per edition (US/Eastern dates)
   const todayET = easternDate(new Date(now)), horizon = { daily: [todayET, todayET], evening: [addDays(todayET, 1), addDays(todayET, 3)], weekly: [addDays(todayET, 1), addDays(todayET, 9)], monthly: [addDays(todayET, 1), addDays(todayET, 35)] }[period];
   const events = (cal.events || []).filter((e) => e.dateET >= horizon[0] && e.dateET <= horizon[1]).slice(0, 14);
-  const press = mergeHeadlines([...ft, ...bb].filter((p) => p.data).map((p) => p.data.map((x) => ({ ...x, source: p.url.includes("ft.com") ? "Financial Times" : "Bloomberg" }))), 18);
-  const wire = (gd.data || []).slice(0, 6).map((h) => ({ title: h.title, url: h.url, timestamp: h.timestamp, source: h.source }));
-  const headlines = press.concat(wire).sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)).slice(0, period === "weekly" || period === "monthly" ? 24 : 16);
   return { eq, eqMode, quotes, fxHist, curves: y.curves || {}, events, headlines, errors };
 }
 

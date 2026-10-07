@@ -46,8 +46,8 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
 | Calendar | WORLD: Forex Factory weekly export (`nfs.faireconomy.media/ff_calendar_thisweek.json`); US OFFICIAL: BLS + BEA ICS schedules | WORLD (default): USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY, current week only, **high impact only** by default (HIGH + MEDIUM toggle), impact/forecast/previous as published there, actual N/A (not in the export), times in local time, NEXT HIGH-IMPACT banner + status-bar countdown. US OFFICIAL: actual/previous N/A until a FRED key is configured. The briefing uses the high-impact world events. |
-| News | Financial Times + Bloomberg (publishers' public RSS feeds), GDELT DOC 2.0, SEC EDGAR | headline, section, time, link only — never article text; filter ALL / FT / BLOOMBERG / WIRE / SEC |
-| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT/Bloomberg/wire headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. |
+| News | Top publishers' own public RSS feeds: Financial Times, Bloomberg, The Wall Street Journal, MarketWatch; official releases of the Federal Reserve (press + speeches), ECB and Bank of England; SEC EDGAR filings for the watchlist | headline, section, time, link only — never article text; tabs ALL (publishers + central banks) / FT / BLOOMBERG / WSJ / MARKETWATCH / CENTRAL BANKS / SEC FILINGS. No wire or aggregator (the GDELT feed was removed: it indexed any site). |
+| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. |
 
 ## Symbol discovery (T05)
 search → select → fetch. Nothing is preloaded and no ticker list is maintained by hand.
@@ -70,7 +70,7 @@ warrants: search the ticker); indices are not in the provider's search.
 - `GET /api/spx/universe` → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
 - `GET /api/spx/closes?ref=recent|1W|1M|3M|6M|YTD|1Y` → `{ ref, target, todayET, todayBarFinal, closes: { SYM: [date, close] | [[date, close]…] } }`
 - `GET /api/spx/live` → `{ trades: { SYM: [price, time] }, live, medianTradeAgeSec }` (cache 60 s)
-- `GET /api/headlines?source=FT|BLOOMBERG` → `{ items: [{ title, url, timestamp, section }], feeds, status }`
+- `GET /api/headlines?source=FT|BLOOMBERG|WSJ|MARKETWATCH|CB` → `{ items: [{ title, url, timestamp, section }], feeds, status }`
 - `GET /api/briefs?period=daily|evening|weekly|monthly` → `{ due: { id, d, writable }, dueWritten, briefs: [{ id, d, title }], schedule }`
 - `GET /api/briefs/item?id=daily-2026-10-07` · `POST /api/briefs/write?period=daily&symbols=…`
 - `GET /api/search?q=Roche` → `{ q, count, results: [{ id, symbol, name, exchange, mic, country, currency, type, planRequired, quotable }], plan, quotable, source, fetchedAt, status, truncated, credits }`
@@ -78,7 +78,7 @@ warrants: search the ticker); indices are not in the provider's search.
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
 - `GET /api/yields` → `{ curves: { US, EA }, errors, notConnected }`
 - `GET /api/calendar` → `{ world: [{ id, datetime, dateET, timeET, currency, region, indicator, impact, released, actual, forecast, previous, source:"FF" }], events (BLS/BEA), sources, errors }`
-- `GET /api/news?tickers=AAPL,MSFT` → `{ items (GDELT), filings (SEC), sources, errors }`
+- `GET /api/news?tickers=AAPL,MSFT` → `{ filings (SEC), sources, errors }`
 - `GET /api/briefing?symbols=…[&refresh=1]` → `{ text, model, generatedAt, sources, verification, inputData }`
 
 ```
@@ -138,7 +138,7 @@ node test/provenance.test.mjs   # T04: client status rules
 node test/sources.test.mjs      # T05: yields, calendar, news, briefing (parsers + handlers)
 node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes/history, plan errors
 node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca bars/trades, live phase)
-node test/press.test.mjs        # T06: FT / Bloomberg RSS parsing and endpoint
+node test/press.test.mjs        # T06: publishers' and central banks' RSS parsing and endpoint
 node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
 node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export normalizer and endpoint)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)

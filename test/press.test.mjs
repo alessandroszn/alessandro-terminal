@@ -1,7 +1,7 @@
-// T06 — FT / Bloomberg headlines from public RSS feeds (Worker side). RSS fixtures in RSS 2.0 format.
+// T06 — top publishers (FT, Bloomberg, WSJ, MarketWatch) and central banks (Fed, ECB, BoE) from their public RSS feeds (Worker side). RSS fixtures in RSS 2.0 format.
 //   node test/press.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { parseRss, decodeXml, mergeHeadlines, PRESS } from "../src/press.mjs";
+import { parseRss, decodeXml, mergeHeadlines, PRESS, pressSourceName, topHeadlines } from "../src/press.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -28,6 +28,9 @@ ok("decodeXml basic", decodeXml("A &lt;b&gt; &amp;amp; C") === "A <b> &amp; C");
 const merged = mergeHeadlines([[{ title: "x", url: "https://a/1?utm=1", timestamp: "2026-10-06T10:00:00Z" }], [{ title: "x2", url: "https://a/1", timestamp: "2026-10-06T09:00:00Z" }, { title: "y", url: "https://a/2", timestamp: "2026-10-06T11:00:00Z" }]]);
 ok("merge: newest first, duplicates across sections removed", merged.length === 2 && merged[0].title === "y" && merged[1].title === "x");
 ok("feeds: FT and Bloomberg sections defined on the publishers' own domains", PRESS.FT.feeds.every(([, u]) => u.startsWith("https://www.ft.com/")) && PRESS.BLOOMBERG.feeds.every(([, u]) => u.startsWith("https://feeds.bloomberg.com/")));
+ok("feeds: WSJ and MarketWatch from Dow Jones' own public feeds; central banks from their official sites only", [...PRESS.WSJ.feeds, ...PRESS.MARKETWATCH.feeds].every(([, u]) => u.startsWith("https://feeds.content.dowjones.io/public/rss/")) && PRESS.CB.feeds.every(([, u]) => /^https:\/\/www\.(federalreserve\.gov|ecb\.europa\.eu|bankofengland\.co\.uk)\//.test(u)));
+ok("no wire / aggregator source (GDELT removed): only the listed publishers and central banks", Object.keys(PRESS).join() === "FT,BLOOMBERG,WSJ,MARKETWATCH,CB" && !JSON.stringify(PRESS).includes("gdelt"));
+ok("central-bank items are named by institution", pressSourceName("CB", "Fed speeches") === "Federal Reserve" && pressSourceName("CB", "ECB") === "European Central Bank" && pressSourceName("CB", "BoE") === "Bank of England" && pressSourceName("WSJ", "Markets") === "The Wall Street Journal");
 
 let failing = new Set(), calls = [];
 globalThis.fetch = async (u) => { calls.push(String(u)); if (failing.has(String(u)) || failing.has("*")) return new Response("", { status: 403 }); return new Response(FIX); };
@@ -43,6 +46,13 @@ ok("Bloomberg: one section refused → PARTIAL, that section N/A with the reason
 store = new Map(); failing = new Set(["*"]);
 r = await call("/api/headlines?source=BLOOMBERG");
 ok("all feeds refused → 502 N/A, no headlines", r.status === 502 && r.j.status === "N/A" && r.j.items.length === 0 && !!r.j.error);
+store = new Map(); failing = new Set();
+r = await call("/api/headlines?source=WSJ");
+ok("WSJ: LIVE, named, 4 sections", r.status === 200 && r.j.status === "LIVE" && r.j.feeds.length === 4 && r.j.items.every((i) => i.source === "The Wall Street Journal" && i.provider === "WSJ"));
+r = await call("/api/headlines?source=CB");
+ok("central banks: LIVE, each item named by its institution", r.status === 200 && r.j.status === "LIVE" && r.j.items.length > 0 && r.j.items.every((i) => ["Federal Reserve", "European Central Bank", "Bank of England"].includes(i.source) && i.provider === "CB"));
+const top = await topHeadlines("https://alessandrozanichelli.com", ctx, 5);
+ok("topHeadlines (briefing input): all sources merged, newest first, duplicates removed, publisher named", top.length === 2 && top[0].timestamp >= top[1].timestamp && top.every((h) => h.source && h.provider));
 r = await call("/api/headlines?source=REUTERS");
 ok("unknown source → 400", r.status === 400);
 

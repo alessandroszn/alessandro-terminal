@@ -385,7 +385,7 @@
     <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
     <div class="help-row"><code>YLD</code><span>Government yields: U.S. Treasury, ECB euro area</span></div>
     <div class="help-row"><code>CAL</code><span>Economic calendar: official BLS / BEA schedules</span></div>
-    <div class="help-row"><code>N</code><span>News: GDELT headlines + SEC filings for the watchlist</span></div>
+    <div class="help-row"><code>N</code><span>News: FT, Bloomberg, WSJ, MarketWatch, central banks; SEC filings for the watchlist</span></div>
     <div class="help-row"><code>BRF</code><span>Briefing: AI summary of the real data above, with sources</span></div>
     <div class="help-row"><code>MOV</code><span>Movers: gainers, losers, most active</span></div>
     <div class="help-row"><code>SCR</code><span>Equity screener with filters</span></div>
@@ -532,9 +532,11 @@
   function quoteFailure(err,syms){syms.forEach(s=>BY[s]&&markFailed(BY[s],err));repaintAll();}
 
   // ---- sections fed by other approved real sources, through the Worker (T05) ----
-  const EXT={yields:{},calendar:{},news:{},briefing:{},ft:{},bloomberg:{}};
-  const EXT_TTL={yields:1800000,calendar:3600000,news:600000,briefing:3600000,ft:600000,bloomberg:600000};
-  const EXT_PATH={ft:'/api/headlines?source=FT',bloomberg:'/api/headlines?source=BLOOMBERG'},EXT_OWNER={ft:'N',bloomberg:'N'};
+  // top publishers and central banks: one /api/headlines source each (the publishers' own feeds)
+  const PRESS_SRC=[['ft','FT','Financial Times'],['bloomberg','BLOOMBERG','Bloomberg'],['wsj','WSJ','The Wall Street Journal'],['marketwatch','MARKETWATCH','MarketWatch'],['cb','CB','Central banks']];
+  const EXT={yields:{},calendar:{},news:{},briefing:{}},EXT_TTL={yields:1800000,calendar:3600000,news:600000,briefing:3600000},EXT_PATH={},EXT_OWNER={};
+  PRESS_SRC.forEach(([k,id])=>{EXT[k]={};EXT_TTL[k]=600000;EXT_PATH[k]='/api/headlines?source='+id;EXT_OWNER[k]='N';});
+  const loadPress=()=>Promise.all(PRESS_SRC.map(([k])=>loadExt(k)));
   const EXT_WIN={YLD:'yields',CAL:'calendar',N:'news'};
   async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
     let path=EXT_PATH[name]||'/api/'+name;
@@ -769,24 +771,24 @@
     body.innerHTML=tabs+html;bind();
     setProv(win,extItems(d,'cal:'),st.view==='world'?'world calendar':'official schedules');updateNextEvent();}
 
-  // ---- NEWS: real headlines (GDELT) and SEC filings — headline, source, time, link only ----
-  function renderNews(body,win){const st=win.state;st.src=st.src||'ALL';const e=EXT.news,ft=EXT.ft,bb=EXT.bloomberg;loadExt('news');loadExt('ft');loadExt('bloomberg');
-    if(!e.data&&!e.err&&!ft.data&&!ft.err&&!bb.data&&!bb.err){setProv(win,{'ds:N':S.LOADING});body.innerHTML='<div class="empty">Loading headlines and filings…</div>';return;}
-    const d=e.data||{items:[],filings:[],sources:[],errors:{GDELT:{error:e.err||'network'}}};
-    // press feeds: one status per publisher (feeds that failed are listed, never filled in)
-    const press=[['FT',ft],['BLOOMBERG',bb]].map(([id,x])=>{const j=x.data;const ok=j&&Array.isArray(j.items)&&j.items.length;
-      return{id,name:id==='FT'?'Financial Times':'Bloomberg',home:j&&j.home,items:ok?j.items:[],status:ok?(j.status==='STALE'?S.STALE:j.status==='PARTIAL'?S.PARTIAL:S.LIVE):x.loading&&!j?S.LOADING:S.NA,fetchedAt:j&&j.fetchedAt,err:ok?null:((j&&j.error)||x.err||'no_data'),feeds:(j&&j.feeds)||[]};});
-    const lab={FT:'FT',BLOOMBERG:'BLOOMBERG'};
-    const pressItems=press.flatMap(p=>p.items.map(n=>Object.assign({},n,{tag:lab[p.id]+(n.section?' · '+n.section.toUpperCase():''),pid:p.id})));
-    const wire=(d.items||[]).map(n=>Object.assign({},n,{tag:n.source,pid:'WIRE'}));
-    const pool=st.src==='ALL'?pressItems.concat(wire):st.src==='WIRE'?wire:pressItems.filter(n=>n.pid===st.src);
-    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,60).map(n=>`<div class="news-item"><span class="tm">${fmtHM(n.timestamp)}</span><a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.tag)}">${esc(n.tag)}</span></div>`).join('');
-    const fil=(d.filings||[]).slice(0,24).map(f=>`<div class="news-item"><span class="tm">${f.filingDate||'—'}</span><a class="h" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.ticker)} · ${esc(f.form)} · ${esc(f.company||'')}${f.description&&f.description!==f.form?' — '+esc(f.description):''}</a><span class="src">SEC</span></div>`).join('');
-    const pressLine=press.map(p=>`${chip(p.status,p.err?P.errorText(p.err):p.feeds.map(f=>f.section+': '+f.status).join(' · '))} ${p.home?`<a href="${esc(p.home)}" target="_blank" rel="noopener">${p.name}</a>`:p.name}${p.fetchedAt?' · fetched '+fmtTime(p.fetchedAt):p.err?' · '+esc(P.errorText(p.err)):''}`).join(' · ');
-    const tabs=[['ALL','ALL'],['FT','FT'],['BLOOMBERG','BLOOMBERG'],['WIRE','WIRE (GDELT)'],['SEC','SEC FILINGS']].map(([v,l])=>`<button class="tf" data-src="${v}" aria-pressed="${v===st.src}">${l}</button>`).join('');
-    const head=st.src==='SEC'?'':`<div class="set-grp" style="margin-top:10px">HEADLINES · ${st.src==='ALL'?'FT + BLOOMBERG + WIRE':st.src==='WIRE'?'TOPIC: STOCK MARKET (GDELT) · TIME = SEEN BY GDELT':st.src} · NEWEST FIRST</div>${rows||'<div class="empty">NO DATA</div>'}`;
-    const sec=st.src==='ALL'||st.src==='SEC'?`<div class="set-grp" style="margin-top:14px">SEC FILINGS · WATCHLIST</div>${fil||'<div class="empty">NO DATA</div>'}`:'';
-    body.innerHTML=`<div class="tfbar">${tabs}</div><div class="src-line">${pressLine} · ${extSources(d)}</div>${head}${sec}<div class="scr-count">Headlines and links only, no article text. FT and Bloomberg: the publishers' public RSS feeds (personal use, opens on their site). Wire: The GDELT Project. Filings: SEC EDGAR.</div>`;
+  // ---- NEWS: top publishers and central banks (their own feeds) + SEC filings — headline, source, time, link only ----
+  function renderNews(body,win){const st=win.state;if(!st.src||st.src==='WIRE')st.src='ALL';const e=EXT.news;loadExt('news');loadPress();
+    if(!e.data&&!e.err&&PRESS_SRC.every(([k])=>!EXT[k].data&&!EXT[k].err)){setProv(win,{'ds:N':S.LOADING});body.innerHTML='<div class="empty">Loading headlines and filings…</div>';return;}
+    const d=e.data||{filings:[],sources:[],errors:{SEC:{error:e.err||'network'}}};
+    // one status per source (feeds that failed are listed, never filled in)
+    const press=PRESS_SRC.map(([k,id,name])=>{const x=EXT[k],j=x.data;const ok=j&&Array.isArray(j.items)&&j.items.length;
+      return{id,name,home:j&&j.home,items:ok?j.items:[],status:ok?(j.status==='STALE'?S.STALE:j.status==='PARTIAL'?S.PARTIAL:S.LIVE):x.loading&&!j?S.LOADING:S.NA,fetchedAt:j&&j.fetchedAt,err:ok?null:((j&&j.error)||x.err||'no_data'),feeds:(j&&j.feeds)||[]};});
+    const lab={FT:'FT',BLOOMBERG:'BLOOMBERG',WSJ:'WSJ',MARKETWATCH:'MARKETWATCH'};
+    const pressItems=press.flatMap(p=>p.items.map(n=>Object.assign({},n,{tag:p.id==='CB'?String(n.section||'').toUpperCase():lab[p.id]+(n.section?' · '+n.section.toUpperCase():''),pid:p.id})));
+    const pool=st.src==='ALL'?pressItems:pressItems.filter(n=>n.pid===st.src);
+    const rows=st.src==='SEC'?'':pool.sort((a,b)=>a.timestamp<b.timestamp?1:-1).slice(0,80).map(n=>`<div class="news-item"><span class="tm">${fmtHM(n.timestamp)}</span><a class="h" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="src" title="${esc(n.source||n.tag)}">${esc(n.tag)}</span></div>`).join('');
+    const fil=(d.filings||[]).slice(0,24).map(f=>`<div class="news-item"><span class="tm">${f.filingDate||'—'}</span><a class="h" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.ticker)} · ${esc(f.form)} · ${esc(f.company||'')}${f.description&&f.description!==f.form&&!/^form\s/i.test(f.description)?' — '+esc(f.description):''}</a><span class="src">SEC</span></div>`).join('');
+    const shown=st.src==='ALL'?press:st.src==='SEC'?[]:press.filter(p=>p.id===st.src);
+    const pressLine=shown.map(p=>`${chip(p.status,p.err?P.errorText(p.err):p.feeds.map(f=>f.section+': '+f.status).join(' · '))} ${p.home?`<a href="${esc(p.home)}" target="_blank" rel="noopener">${p.name}</a>`:p.name}${p.fetchedAt?' · fetched '+fmtTime(p.fetchedAt):p.err?' · '+esc(P.errorText(p.err)):''}`).join(' · ');
+    const tabs=[['ALL','ALL'],['FT','FT'],['BLOOMBERG','BLOOMBERG'],['WSJ','WSJ'],['MARKETWATCH','MARKETWATCH'],['CB','CENTRAL BANKS'],['SEC','SEC FILINGS']].map(([v,l])=>`<button class="tf" data-src="${v}" aria-pressed="${v===st.src}">${l}</button>`).join('');
+    const head=st.src==='SEC'?'':`<div class="set-grp" style="margin-top:10px">HEADLINES · ${st.src==='ALL'?'FT + BLOOMBERG + WSJ + MARKETWATCH + CENTRAL BANKS':st.src==='CB'?'FED · ECB · BANK OF ENGLAND (OFFICIAL RELEASES)':st.src} · NEWEST FIRST</div>${rows||'<div class="empty">NO DATA</div>'}`;
+    const sec=st.src==='SEC'?`<div class="set-grp" style="margin-top:14px">SEC FILINGS · WATCHLIST</div>${fil||`<div class="empty">NO DATA${d.errors&&d.errors.SEC?' — '+esc(P.errorText(d.errors.SEC.error)):''}</div>`}`:'';
+    body.innerHTML=`<div class="tfbar">${tabs}</div><div class="src-line">${st.src==='SEC'?extSources(d):pressLine}</div>${head}${sec}<div class="scr-count">Headlines and links only, no article text: the publishers' and central banks' own public RSS feeds (personal use; articles open on their site). Filings: SEC EDGAR.</div>`;
     $$('[data-src]',body).forEach(b=>b.onclick=()=>{st.src=b.dataset.src;paintWin(win);});
     const items=extItems(d,'news:');press.forEach(p=>items['news:'+p.id]=p.status);setProv(win,items);}
 
@@ -804,7 +806,7 @@
   // write the edition that is due: warm the real inputs first (each in its own request), then ask the Worker to write it
   async function brfWrite(period,force){if(BRF.writing[period])return;BRF.writing[period]=true;BRF.fail['w:'+period]=null;brfRepaint();
     try{const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x]._pending);
-      await Promise.all([spxGet('u','/api/spx/universe'),spxGet('recent','/api/spx/closes?ref=recent'),loadExt('news'),loadExt('ft'),loadExt('bloomberg'),loadExt('yields'),loadExt('calendar'),missing.length?DATA.fetchNow(missing):null]);
+      await Promise.all([spxGet('u','/api/spx/universe'),spxGet('recent','/api/spx/closes?ref=recent'),loadPress(),loadExt('yields'),loadExt('calendar'),missing.length?DATA.fetchNow(missing):null]);
       const syms=WATCH.concat(MARKET_SYMS).join(',');
       for(let tries=0;tries<6;tries++){
         const r=await fetch(`${CONFIG.proxyBase}/api/briefs/write?period=${period}${force?'&force=1':''}&symbols=${encodeURIComponent(syms)}`,{method:'POST',cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}

@@ -1,30 +1,12 @@
-// NEWS — sources with explicit redistribution rights (approved T05):
-//   GDELT Project DOC 2.0 API (headlines + links from world news; free use, cite GDELT)
-//   SEC EDGAR (company filings; U.S. government data, free redistribution; fair-access policy)
-// Only headline, source, time and link are shown — never article text. Nothing is generated.
+// NEWS — SEC EDGAR filings for the watchlist (U.S. government data, free redistribution; fair-access policy).
+// Headlines come from the top publishers' and central banks' own feeds (press.mjs, /api/headlines).
+// The GDELT wire was removed: it indexed any site, quality not controllable.
+// Only form, company, time and link are shown. Nothing is generated.
 import { fetchText, cachedSource, iso } from "./lib.mjs";
 
-export const GDELT_QUERY = "theme:ECON_STOCKMARKET sourcelang:english";
-export const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&format=json&maxrecords=30&sort=datedesc&timespan=24h`;
 export const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json";
 export const SEC_SUBMISSIONS_URL = (cik10) => `https://data.sec.gov/submissions/CIK${cik10}.json`;
 export const SEC_FORMS = new Set(["8-K", "10-Q", "10-K", "20-F", "6-K", "DEF 14A", "S-1", "S-3", "SC 13D", "SC 13G"]);
-
-const gdeltTime = (s) => { const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(String(s || "")); return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}.000Z` : null; };
-
-export function normalizeGdelt(j) {
-  const arts = (j && Array.isArray(j.articles)) ? j.articles : [];
-  const seen = new Set(), out = [];
-  for (const a of arts) {
-    // GDELT tokenizes titles ("Avantor ( NYSE : AVTR )", "£2 . 2bn"): restore the original spacing only
-    const title = String(a.title || "").replace(/\s+/g, " ").replace(/(\d) \. (\d)/g, "$1.$2").replace(/ ([,.;!?)\]%])/g, "$1").replace(/([(\[$£€]) /g, "$1").replace(/ : /g, ": ").replace(/ ' s\b/g, "'s").trim();
-    const ts = gdeltTime(a.seendate), url = String(a.url || "");
-    if (!title || !ts || !/^https?:\/\//.test(url)) continue;
-    const k = title.toLowerCase(); if (seen.has(k)) continue; seen.add(k);
-    out.push({ title, url, source: a.domain || new URL(url).hostname, timestamp: ts, timeBasis: "seen by GDELT", topic: "Stock market", language: a.language || null, country: a.sourcecountry || null, provider: "GDELT" });
-  }
-  return out;
-}
 
 export function secCikMap(tickersJson) {
   const map = {};
@@ -54,20 +36,10 @@ export function normalizeSecSubmissions(j, ticker, limit = 5) {
 const parseJson = (r) => { if (r.err) return { err: r.err }; try { return { j: JSON.parse(r.text) }; } catch { return { err: "provider_error" }; } };
 const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]{0,9}$/;
 
-export function getHeadlines(origin, ctx) {
-  return cachedSource({
-    origin, key: "news/gdelt", ttlMs: 10 * 60_000, staleMaxMs: 24 * 3600_000, ctx,
-    failTtlMs: 5 * 60_000,
-    load: async () => { const p = parseJson(await fetchText(GDELT_URL, { timeoutMs: 25000 })); if (p.err) return p; const items = normalizeGdelt(p.j); return items.length ? { data: items } : { err: "no_data" }; },
-  });
-}
-
 export async function handleNews(url, env, ctx, H, json) {
   const now = Date.now();
   const tickers = [...new Set((url.searchParams.get("tickers") || "").split(",").map((s) => s.trim().toUpperCase()).filter((s) => SYMBOL_RE.test(s)))].slice(0, 8);
   const secHeaders = { accept: "application/json", ...(env.SEC_CONTACT ? { "user-agent": `AlessandroTerminal ${env.SEC_CONTACT}` } : {}) };
-
-  const gd = await getHeadlines(url.origin, ctx);
 
   let filings = [], secStatus = null, secErr = null;
   if (tickers.length) {
@@ -92,12 +64,10 @@ export async function handleNews(url, env, ctx, H, json) {
   }
 
   const sources = [];
-  if (gd.data) sources.push({ id: "GDELT", name: "The GDELT Project", url: "https://www.gdeltproject.org/", status: gd.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(gd.fetchedAt), query: GDELT_QUERY, ...(gd.staleReason ? { staleReason: gd.staleReason } : {}) });
   if (secStatus) sources.push({ id: "SEC", name: "SEC EDGAR", url: "https://www.sec.gov/edgar/search/", status: secStatus, fetchedAt: iso(now) });
   const errors = {};
-  if (gd.err) errors.GDELT = { error: gd.err, status: "N/A" };
   if (secErr) errors.SEC = { error: secErr, status: "N/A", ...(secErr === "provider_forbidden" && !env.SEC_CONTACT ? { note: "SEC requires a contact in the User-Agent: set SEC_CONTACT" } : {}) };
-  const r = json({ items: gd.data || [], filings, sources, errors, tickers, meta: { generatedAt: iso(now) } }, H, sources.length ? 200 : 502);
+  const r = json({ filings, sources, errors, tickers, meta: { generatedAt: iso(now) } }, H, !tickers.length || sources.length ? 200 : 502);
   r.headers.set("cache-control", "no-store");
   return r;
 }

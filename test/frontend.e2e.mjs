@@ -41,11 +41,17 @@ const YIELDS = { curves: {
   EA: { id: "EA", name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/x", status: "LIVE", timestamp: today, previousDate: "2026-10-02", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 4 * 864e5).toISOString(), points: ["3M", "2Y", "10Y", "30Y"].map((t, i) => ({ tenor: t, months: i, value: 2 + i * 0.3, status: "LIVE", changeBp: -1.5 })) } },
   errors: {}, notConnected: ["Germany", "Italy", "Japan"] };
 const NA = (note) => ({ value: null, status: "N/A", note });
-const PRESS = (src) => { const now = Date.now(), ft = src === "FT";
-  return { source: src, name: ft ? "Financial Times" : "Bloomberg", home: ft ? "https://www.ft.com/" : "https://www.bloomberg.com/", status: "LIVE", fetchedAt: new Date(now).toISOString(),
-    feeds: [{ section: "Markets", status: "LIVE", items: 2 }], basis: "publisher's public RSS feed — headline, time and link only (no article text)",
-    items: ft ? [{ title: "Test FT markets headline", url: "https://www.ft.com/content/test-1", timestamp: new Date(now - 60_000).toISOString(), section: "Markets", source: "Financial Times", provider: "FT" }]
-              : [{ title: "Test Bloomberg economics headline", url: "https://www.bloomberg.com/news/articles/test-2", timestamp: new Date(now - 120_000).toISOString(), section: "Economics", source: "Bloomberg", provider: "BLOOMBERG" }] }; };
+const PRESS_FIX = {
+  FT: ["Financial Times", "https://www.ft.com/", "Test FT markets headline", "https://www.ft.com/content/test-1", 60_000, "Markets"],
+  BLOOMBERG: ["Bloomberg", "https://www.bloomberg.com/", "Test Bloomberg economics headline", "https://www.bloomberg.com/news/articles/test-2", 120_000, "Economics"],
+  WSJ: ["The Wall Street Journal", "https://www.wsj.com/", "Test WSJ markets headline", "https://www.wsj.com/finance/test-3", 180_000, "Markets"],
+  MARKETWATCH: ["MarketWatch", "https://www.marketwatch.com/", "Test MarketWatch top story", "https://www.marketwatch.com/story/test-4", 240_000, "Top stories"],
+  CB: ["Central banks", null, "Test Federal Reserve press release", "https://www.federalreserve.gov/newsevents/pressreleases/test-5.htm", 300_000, "Fed"],
+};
+const PRESS = (src) => { const now = Date.now(), [name, home, title, url, ago, section] = PRESS_FIX[src];
+  return { source: src, name, home, status: "LIVE", fetchedAt: new Date(now).toISOString(),
+    feeds: [{ section, status: "LIVE", items: 1 }], basis: "publisher's public RSS feed — headline, time and link only (no article text)",
+    items: [{ title, url, timestamp: new Date(now - ago).toISOString(), section, source: src === "CB" ? "Federal Reserve" : name, provider: src }] }; };
 const CALENDAR = { events: [{ id: "a", datetime: new Date(Date.now() + 2 * 864e5).toISOString(), dateET: "2026-10-14", timeET: "08:30", country: "US", indicator: "Consumer Price Index", source: "BLS", sourceName: "U.S. Bureau of Labor Statistics", sourceUrl: "https://www.bls.gov/schedule/news_release/", released: false, actual: NA("needs FRED API key"), forecast: NA("no licensed consensus source"), previous: NA("needs FRED API key"), importance: NA("no licensed importance rating") }],
   world: [
     { at: -864e5, ccy: "GBP", region: "United Kingdom", ind: "GDP m/m", imp: "High", f: "0.1%", p: "0.0%" },
@@ -53,9 +59,9 @@ const CALENDAR = { events: [{ id: "a", datetime: new Date(Date.now() + 2 * 864e5
     { at: 5 * 3600e3, ccy: "USD", region: "United States", ind: "CPI m/m", imp: "High", f: "0.3%", p: "0.2%" },
   ].map((x, i) => ({ id: "ff" + i, datetime: new Date(Date.now() + x.at).toISOString(), dateET: "2026-10-07", timeET: "08:30", currency: x.ccy, country: x.ccy, region: x.region, indicator: x.ind, impact: x.imp, released: x.at < 0, actual: NA("not in the Forex Factory export"), forecast: x.f ? { value: x.f, status: "LIVE" } : NA("not published"), previous: { value: x.p, status: "LIVE" }, source: "FF", sourceName: "Forex Factory", sourceUrl: "https://www.forexfactory.com/calendar" })),
   sources: [{ id: "FF", name: "Forex Factory", url: "https://www.forexfactory.com/calendar", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "BLS", name: "U.S. Bureau of Labor Statistics", url: "https://www.bls.gov/schedule/news_release/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "BEA", name: "U.S. Bureau of Economic Analysis", url: "https://www.bea.gov/news/schedule", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
-const NEWS = { items: [{ title: "Stocks close higher as tech rallies", url: "https://www.example-news.com/a", source: "example-news.com", timestamp: new Date().toISOString(), topic: "Stock market", provider: "GDELT" }],
+const NEWS = {
   filings: [{ ticker: "AAPL", company: "Apple Inc.", form: "8-K", description: "8-K", filingDate: today, timestamp: new Date().toISOString(), url: "https://www.sec.gov/Archives/edgar/data/320193/x/aapl-8k.htm", provider: "SEC EDGAR" }],
-  sources: [{ id: "GDELT", name: "The GDELT Project", url: "https://www.gdeltproject.org/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "SEC", name: "SEC EDGAR", url: "https://www.sec.gov/edgar/search/", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
+  sources: [{ id: "SEC", name: "SEC EDGAR", url: "https://www.sec.gov/edgar/search/", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
 const BRIEF = { status: "DERIVED", model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", provider: "Cloudflare Workers AI", generatedAt: new Date().toISOString(), text: "Markets: AAPL last 250 [Twelve Data].\nRates: US 10Y 5.32% [U.S. Department of the Treasury].\nCalendar and news: Consumer Price Index on 2026-10-14 [BLS].", verification: { checked: 1, unverified: [] }, sources: [{ name: "U.S. Department of the Treasury", timestamp: today, url: "https://home.treasury.gov/x" }, { name: "Twelve Data (quotes, Worker cache)", timestamp: new Date().toISOString() }], inputs: {}, inputData: "QUOTE AAPL ...", disclaimer: "AI-generated summary of the listed real data. Not investment advice.", cache: "MISS" };
 
 const srow = (symbol, name, exchange, mic, type, country, currency, plan) => ({ symbol, instrument_name: name, exchange, mic_code: mic, instrument_type: type, country, currency, access: { global: plan, plan } });
@@ -194,11 +200,17 @@ const OK_API = {
   // news
   await cmd(page, "N");
   const nw = await winOf(page, "NEWS");
-  ok("[A] news: real headline with source and link; SEC filing for a watchlist ticker", /Stocks close higher as tech rallies\s*example-news\.com/.test(nw.text) && /AAPL · 8-K · Apple Inc\./.test(nw.text) && (await page.$$eval(".news-item a.h", (a) => a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))));
-  ok("[A] news: FT and Bloomberg headlines (title, section, time, link only) merged with the wire, newest first", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && nw.text.indexOf("Test FT markets headline") < nw.text.indexOf("Test Bloomberg economics headline") && (await page.$$eval(".news-item a.h", (a) => a.some((x) => x.href.startsWith("https://www.ft.com/")))));
+  ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 5 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(0, 600));
+  ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
   await page.click('.win [data-src="BLOOMBERG"]'); await page.waitForTimeout(300);
   const nwB = await winOf(page, "NEWS");
-  ok("[A] news: source filter (BLOOMBERG only)", /Test Bloomberg economics headline/.test(nwB.text) && !/Test FT markets headline/.test(nwB.text) && !/Stocks close higher/.test(nwB.text));
+  ok("[A] news: source filter (BLOOMBERG only)", /Test Bloomberg economics headline/.test(nwB.text) && !/Test FT markets headline/.test(nwB.text) && !/Test WSJ/.test(nwB.text));
+  await page.click('.win [data-src="CB"]'); await page.waitForTimeout(300);
+  const nwC = await winOf(page, "NEWS");
+  ok("[A] news: CENTRAL BANKS tab = official releases only", /FED · ECB · BANK OF ENGLAND/.test(nwC.text) && /Test Federal Reserve press release/.test(nwC.text) && !/Test FT|Test WSJ/.test(nwC.text));
+  await page.click('.win [data-src="SEC"]'); await page.waitForTimeout(300);
+  const nwS = await winOf(page, "NEWS");
+  ok("[A] news: SEC FILINGS tab lists the watchlist filings", /SEC FILINGS · WATCHLIST/.test(nwS.text) && /AAPL · 8-K · Apple Inc\./.test(nwS.text) && !/Test FT/.test(nwS.text));
   await page.click('.win [data-src="ALL"]'); await page.waitForTimeout(200);
   ok("[A] news request carries the watchlist equities only", requests.some((u) => u.includes("/api/news?tickers=NVDA%2CAAPL%2CMSFT%2CAMZN%2CGOOGL%2CJPM")));
   // briefing (reference format: editions, archive, chips, attached windows)
@@ -233,7 +245,7 @@ const OK_API = {
     briefs: () => ({ status: 503, body: { error: "storage_not_configured", status: "N/A" } }),
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
     history: () => ({ status: 429, body: { error: "rate_limited", status: "N/A" } }),
-    ext: (name) => ({ status: name === "briefing" ? 503 : 502, body: name === "yields" ? { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } }, notConnected: [] } : name === "briefing" ? { error: "model_unavailable", status: "N/A" } : { events: [], items: [], filings: [], sources: [], errors: { X: { error: "provider_unreachable", status: "N/A" } } } }),
+    ext: (name) => ({ status: name === "briefing" ? 503 : 502, body: name === "headlines" ? { items: [], feeds: [], status: "N/A", error: "provider_unreachable" } : name === "yields" ? { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } }, notConnected: [] } : name === "briefing" ? { error: "model_unavailable", status: "N/A" } : { events: [], items: [], filings: [], sources: [], errors: { X: { error: "provider_unreachable", status: "N/A" } } } }),
   };
   const { page, errors } = await openTerminal(DOWN);
   await page.waitForFunction(() => /N\/A/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });

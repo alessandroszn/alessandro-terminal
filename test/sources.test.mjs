@@ -3,7 +3,7 @@
 import { app as worker } from "../src/worker.mjs";
 import { parseTreasuryXml, parseEcbCsv, buildCurve } from "../src/yields.mjs";
 import { parseIcs, buildEvents } from "../src/calendar.mjs";
-import { normalizeGdelt, secCikMap, normalizeSecSubmissions } from "../src/news.mjs";
+import { secCikMap, normalizeSecSubmissions } from "../src/news.mjs";
 import { buildBriefingData, extractNumbers, verifyNumbers } from "../src/briefing.mjs";
 import { easternToUtc, parseCsv } from "../src/lib.mjs";
 
@@ -19,11 +19,8 @@ YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y,B,U2,EUR,4F,G_N_A,SV_C_YM,SR_10Y,2026-10-05,
 YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y,B,U2,EUR,4F,G_N_A,SV_C_YM,SR_2Y,2026-10-05,2.10,"Yield curve spot rate, 2-year maturity"
 `;
 const ICS = `BEGIN:VCALENDAR\r\nX-WR-TIMEZONE:US-Eastern\r\nBEGIN:VEVENT\r\nUID:a1\r\nDTSTART;TZID=US-Eastern:20261014T083000\r\nSUMMARY:Consumer Price Index\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:a2\r\nDTSTART;TZID=US-Eastern:20261203T100000\r\nSUMMARY:Job Openings and Labor Turnover\r\n  Survey\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:a3\r\nDTSTART:20261029T123000Z\r\nSUMMARY:GDP (Advance Estimate)\\, 3rd Quarter 2026\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
-const GDELT = { articles: [
-  { url: "https://www.example-news.com/a", title: "Stocks close higher as tech rallies", seendate: "20261006T201500Z", domain: "example-news.com", language: "English", sourcecountry: "United States" },
-  { url: "https://other.example/b", title: "Stocks close higher as tech rallies", seendate: "20261006T200000Z", domain: "other.example" },
-  { url: "notaurl", title: "bad", seendate: "20261006T200000Z" },
-] };
+const RSS = `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><item><title>Stocks close higher as tech rallies</title><link>https://www.ft.com/content/a</link><pubDate>Tue, 06 Oct 2026 20:15:00 GMT</pubDate></item></channel></rss>`;
+const news = [{ title: "Stocks close higher as tech rallies", url: "https://www.ft.com/content/a", timestamp: "2026-10-06T20:15:00.000Z", source: "Financial Times", section: "Markets" }];
 const SEC_TICKERS = { 0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." } };
 const SEC_SUB = { cik: "0000320193", name: "Apple Inc.", filings: { recent: { form: ["4", "8-K", "10-Q"], accessionNumber: ["0001-26-000001", "0000320193-26-000090", "0000320193-26-000080"], filingDate: ["2026-10-03", "2026-10-02", "2026-08-01"], acceptanceDateTime: ["2026-10-03T18:00:00.000Z", "2026-10-02T20:30:12.000Z", "2026-08-01T20:00:00.000Z"], primaryDocument: ["x.xml", "aapl-8k.htm", "aapl-10q.htm"], primaryDocDescription: ["", "8-K", "10-Q"] } } };
 
@@ -55,9 +52,6 @@ ok("Calendar: window = past 7 / next 35 days", events.length === 2 && events[0].
 ok("Calendar: actual/forecast/previous/importance are N/A with a reason (never estimated)", ["actual", "forecast", "previous", "importance"].every((k) => events[0][k].status === "N/A" && events[0][k].value === null && events[0][k].note));
 ok("Calendar: country, source and official page on every event", events[0].country === "US" && events[0].source === "BLS" && /bls\.gov/.test(events[0].sourceUrl));
 
-ok("GDELT: tokenized spacing restored, words unchanged", normalizeGdelt({ articles: [{ url: "https://x.example/a", title: "Avantor ( NYSE : AVTR ) to buy rival for £2 . 2bn , shares up 3 %", seendate: "20261006T083000Z", domain: "x.example" }] })[0].title === "Avantor (NYSE: AVTR) to buy rival for £2.2bn, shares up 3%");
-const news = normalizeGdelt(GDELT);
-ok("GDELT: real headline, source, ISO time, URL; duplicates and bad URLs dropped", news.length === 1 && news[0].timestamp === "2026-10-06T20:15:00.000Z" && news[0].source === "example-news.com" && news[0].provider === "GDELT");
 const cik = secCikMap(SEC_TICKERS);
 ok("SEC: ticker → CIK map", cik.AAPL.cik === 320193);
 const fil = normalizeSecSubmissions(SEC_SUB, "AAPL");
@@ -83,7 +77,8 @@ globalThis.fetch = async (u, opts = {}) => {
   if (u.includes("treasury.gov")) return new Response(TREASURY_XML);
   if (u.includes("data-api.ecb.europa.eu")) return new Response(ECB_CSV);
   if (u.includes("bls.gov") || u.includes("bea.gov")) return new Response(ICS);
-  if (u.includes("gdeltproject.org")) return new Response(JSON.stringify(GDELT));
+  if (/ft\.com\/|feeds\.bloomberg\.com|dowjones\.io|federalreserve\.gov\/feeds|www\.ecb\.europa\.eu\/rss|bankofengland\.co\.uk\/rss/.test(u)) return new Response(RSS);
+  if (u.includes("gdeltproject.org")) throw new Error("GDELT must not be called");
   if (u.includes("company_tickers.json")) return new Response(JSON.stringify(SEC_TICKERS));
   if (u.includes("data.sec.gov/submissions")) return new Response(JSON.stringify(SEC_SUB));
   return new Response("not found", { status: 404 });
@@ -99,7 +94,7 @@ ok("/api/yields: other countries declared as not connected (no values)", Array.i
 r = await call("/api/calendar");
 ok("/api/calendar: events from BLS and BEA with sources", r.res.status === 200 && r.body.sources.map((s) => s.id).join() === "BLS,BEA" && Array.isArray(r.body.events));
 r = await call("/api/news?tickers=AAPL,ZZZZ");
-ok("/api/news: GDELT headlines + SEC filings for known tickers", r.res.status === 200 && r.body.items.length === 1 && r.body.filings.length === 2 && r.body.sources.map((s) => s.id).join() === "GDELT,SEC");
+ok("/api/news: SEC filings for known tickers only; no wire headlines (GDELT removed)", r.res.status === 200 && !("items" in r.body) && r.body.filings.length === 2 && r.body.sources.map((s) => s.id).join() === "SEC" && !seen.some((x) => x.u.includes("gdelt")));
 ok("/api/news: SEC requests carry a User-Agent", seen.filter((x) => x.u.includes("sec.gov")).every((x) => !!x.ua));
 
 // briefing: quotes only from the shared cache — seed one cached quote the way /api/quote stores it
@@ -120,9 +115,9 @@ ok("/api/briefing: no model binding → 503 N/A (no text invented)", r.res.statu
 store = new Map(); mode = "down";
 r = await call("/api/yields");
 ok("failure, empty cache: /api/yields → 502, no curves, errors N/A", r.res.status === 502 && Object.keys(r.body.curves).length === 0 && r.body.errors.US.status === "N/A");
-r = await call("/api/news");
+r = await call("/api/news?tickers=AAPL");
 ok("failure is remembered briefly: the next call does not wait on the source again", await (async () => { const n = seen.length; await call("/api/yields"); return !seen.slice(n).some((x) => x.u.includes("treasury.gov")); })());
-ok("failure, empty cache: /api/news → 502, no headlines", r.res.status === 502 && r.body.items.length === 0 && r.body.errors.GDELT.status === "N/A");
+ok("failure, empty cache: /api/news → 502, no filings, SEC N/A", r.res.status === 502 && r.body.filings.length === 0 && r.body.errors.SEC.status === "N/A");
 r = await call("/api/calendar");
 ok("failure, empty cache: /api/calendar → 502, no events", r.res.status === 502 && r.body.events.length === 0);
 // fill the cache, age it past the TTL, then fail: STALE with the real values
