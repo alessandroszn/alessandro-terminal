@@ -40,9 +40,25 @@ const historyBody = (sym, range, extra = {}) => {
 const today = new Date().toISOString().slice(0, 10);
 const TEN = ["1M", "1.5M", "2M", "3M", "4M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"];
 const YIELDS = { curves: {
-  US: { id: "US", name: "United States — Treasury par yield curve", kind: "par yield, end of day", source: "U.S. Department of the Treasury", sourceUrl: "https://home.treasury.gov/x", status: "LIVE", timestamp: today, previousDate: "2026-10-02", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 4 * 864e5).toISOString(), points: TEN.map((t, i) => ({ tenor: t, months: i + 1, value: t === "1.5M" ? null : +(4 + i * 0.12).toFixed(2), status: t === "1.5M" ? "N/A" : "LIVE", changeBp: t === "1.5M" ? null : 2.0 })) },
-  EA: { id: "EA", name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/x", status: "LIVE", timestamp: today, previousDate: "2026-10-02", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 4 * 864e5).toISOString(), points: ["3M", "2Y", "10Y", "30Y"].map((t, i) => ({ tenor: t, months: i, value: 2 + i * 0.3, status: "LIVE", changeBp: -1.5 })) } },
-  errors: {}, notConnected: ["Germany", "Italy", "Japan"] };
+  US: { id: "US", name: "United States — Treasury par yield curve", kind: "par yield, end of day", source: "U.S. Department of the Treasury", sourceUrl: "https://home.treasury.gov/x", status: "LIVE", timestamp: today, previousDate: "2026-10-02", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 4 * 864e5).toISOString(), points: TEN.map((t, i) => ({ tenor: t, months: [1, 1.5, 2, 3, 4, 6, 12, 24, 36, 60, 84, 120, 240, 360][i], value: t === "1.5M" ? null : +(4 + i * 0.12).toFixed(2), status: t === "1.5M" ? "N/A" : "LIVE", changeBp: t === "1.5M" ? null : 2.0 })) },
+  EA: { id: "EA", name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/x", status: "LIVE", timestamp: today, previousDate: "2026-10-02", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 4 * 864e5).toISOString(), points: ["3M", "2Y", "10Y", "30Y"].map((t, i) => ({ tenor: t, months: [3, 24, 120, 360][i], value: 2 + i * 0.3, status: "LIVE", changeBp: -1.5 })) } },
+  errors: {}, notConnected: ["Brazil", "Turkey", "India"],
+  catalog: [{ id: "US", region: "Americas", name: "United States", source: "U.S. Department of the Treasury", freq: "D", histTenor: "10Y" }, { id: "EA", region: "Europe", name: "Euro area", source: "European Central Bank", freq: "D", histTenor: "10Y" },
+    { id: "DE", region: "Europe", name: "Germany", source: "Deutsche Bundesbank", freq: "D", histTenor: "10Y" }, { id: "IT", region: "Europe", name: "Italy — 10-year government bond", source: "FRED · OECD", freq: "M", histTenor: "10Y" }] };
+// /api/yields?ids=…: the countries asked for, with past curves and spreads (the same shapes the Worker returns)
+const IT_M = { id: "IT", name: "Italy — 10-year government bond", kind: "10-year yield, MONTHLY AVERAGE (OECD Main Economic Indicators)", source: "FRED · OECD", sourceUrl: "https://fred.stlouisfed.org/series/IRLTLT01ITM156N", status: "LIVE", timestamp: "2026-08-01", previousDate: "2026-07-01", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 30 * 864e5).toISOString(), freq: "M", histTenor: "10Y",
+  points: [{ tenor: "10Y", months: 120, value: 3.98, status: "LIVE", changeBp: 6 }], past: { "1M": { date: "2026-07-01", points: [{ tenor: "10Y", months: 120, value: 3.92 }] } }, spreads: { DE: { bp: 80.6, date: "2026-08-01" }, US: { bp: -25, date: "2026-08-01" } } };
+function yieldsIds(u) {
+  const ids = (u.searchParams.get("ids") || "").split(","), curves = {}, errors = {};
+  for (const id of ids) {
+    if (id === "US") curves.US = { ...YIELDS.curves.US, freq: "D", histTenor: "10Y", past: { "1W": { date: "2026-09-29", points: YIELDS.curves.US.points.map((p) => ({ ...p, value: p.value == null ? null : +(p.value - 0.05).toFixed(2) })) }, "1M": { date: "2026-09-04", points: YIELDS.curves.US.points.map((p) => ({ ...p, value: p.value == null ? null : +(p.value - 0.2).toFixed(2) })) } }, spreads: { DE: { bp: 184, date: today } } };
+    else if (id === "EA") curves.EA = { ...YIELDS.curves.EA, freq: "D", histTenor: "10Y", past: {}, spreads: {} };
+    else if (id === "IT") curves.IT = IT_M;
+    else if (id === "DE") errors.DE = { error: "provider_timeout", status: "N/A" };
+  }
+  return { body: { curves, errors, meta: {} } };
+}
+const yieldsHistory = (u) => ({ body: { id: u.searchParams.get("id"), tenor: u.searchParams.get("tenor"), freq: "D", points: Array.from({ length: 60 }, (_, i) => [new Date(Date.now() - (60 - i) * 864e5).toISOString().slice(0, 10), +(4 + i / 100).toFixed(2)]), source: "test", status: "LIVE" } });
 const NA = (note) => ({ value: null, status: "N/A", note });
 const PRESS_FIX = {
   FT: ["Financial Times", "https://www.ft.com/", "Test FT markets headline", "https://www.ft.com/content/test-1", 60_000, "Markets"],
@@ -252,6 +268,8 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
+    if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
+    if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
@@ -327,10 +345,22 @@ const OK_API = {
   const idx = await winOf(page, "WORLD INDICES");
   ok("[A] indices: NO DATA with the reason, every level N/A, no numbers", /NO DATA — no real index source/.test(idx.text) && idx.pill === "N/A" && (idx.text.match(/N\/A/g) || []).length >= 13 * 4 && !/\d+\.\d+/.test(idx.text.split("ETFs are not shown")[1] || ""));
   // yields
-  const yl = await winOf(page, "GOVERNMENT YIELDS");
-  ok("[A] yields: U.S. Treasury 14 maturities, data date, source link", /U\.S\. Department of the Treasury/.test(yl.text) && /data date/.test(yl.text) && TEN.every((t) => yl.text.includes(t)), yl.text.slice(0, 200));
-  ok("[A] yields: a maturity the source did not publish is N/A", /YIELD %\s+4\.00\s+N\/A\s+4\.24/.test(yl.text), (yl.text.match(/YIELD %[^\n]*/) || [])[0]);
-  ok("[A] yields: change and 2s10s marked DERIVED; ECB curve; other countries N/A", /Δ BP\s*DRV/.test(yl.text) && /2s10s spread [\d.]+ bp\s*DRV/.test(yl.text) && /European Central Bank/.test(yl.text) && /Not connected: Germany, Italy, Japan — N\/A/.test(yl.text));
+  await page.waitForTimeout(600);
+  let yl = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[A] yields WORLD: every country by region with 2Y / 5Y / 10Y / 30Y, changes, 2s10s and spreads; a failed source N/A with its reason", /AMERICAS\s+US United States/.test(yl.text) && /US United States[^\n]*\s4\.84\s/.test(yl.text) && /vs BUND/.test(yl.text) && /\+184\.0/.test(yl.text) && /DE Germany\s+N\/A provider timed out/.test(yl.text) && /Not connected \(no free official source found\): Brazil, Turkey, India/.test(yl.text), yl.text.slice(0, 900));
+  ok("[A] yields WORLD: Italy = monthly average, marked M, month-dated, its spread vs the Bund of the same month", /IT Italy[^\n]*\bM\b[\s\S]*?Aug 2026 \(avg\)[\s\S]*?3\.98[\s\S]*?\+80\.6/.test(yl.text), (yl.text.match(/IT Italy[^\n]*/) || [])[0]);
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="US"]').click(); });
+  await page.waitForTimeout(700);
+  yl = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[A] yields US: all 14 maturities with their changes, data date, source link, a curve chart and the 10Y history", /U\.S\. Department of the Treasury/.test(yl.text) && /data date/.test(yl.text) && TEN.every((t) => yl.text.includes(t)) && (await page.$$eval(".yc-box canvas, .yh-box canvas", (c) => c.length)) >= 2, yl.text.slice(0, 300));
+  ok("[A] yields US: a maturity the source did not publish is N/A; changes in bp DERIVED; 2s10s", /\b1M\s+4\.00\s/.test(yl.text) && /1\.5M\s+N\/A/.test(yl.text) && /Δ PREV\.\s*DRV/.test(yl.text) && /2s10s \+[\d.]+ bp/.test(yl.text), (yl.text.match(/MATURITY[\s\S]{0,200}/) || [])[0]);
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="EA"]').click(); });
+  await page.waitForTimeout(400);
+  ok("[A] yields EA: the ECB curve", /European Central Bank/.test((await winOf(page, "GOVERNMENT YIELDS")).text));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="WORLD"]').click(); });
+  await cmd(page, "CURVE US IT");
+  const cv = await winOf(page, "YIELD CURVES");
+  ok("[A] CURVE US IT: both curves on one chart (Italy one point: a monthly average) with a table by maturity", !!cv && /10Y\s+5\.32\s+3\.98/.test(cv.text) && (await page.$$eval(".crv-box canvas", (c) => c.length)) >= 1, cv && cv.text.slice(0, 500));
   // calendar
   await cmd(page, "CAL");
   let cal = await winOf(page, "ECONOMIC CALENDAR");
@@ -447,6 +477,7 @@ const OK_API = {
 // =============== B. every provider down: N/A everywhere, nothing invented ===============
 {
   const DOWN = {
+    yieldsIds: () => ({ status: 502, body: { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } } } }),
     briefs: () => ({ status: 503, body: { error: "storage_not_configured", status: "N/A" } }),
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
     history: () => ({ status: 429, body: { error: "rate_limited", status: "N/A" } }),
@@ -458,7 +489,7 @@ const OK_API = {
   await page.waitForTimeout(1200);
   const body = await page.evaluate(() => document.body.innerText);
   ok("[B] no price anywhere (no fallback value)", !/\$\d/.test(body) && !/\d\.\d{3,}/.test(body), (body.match(/.{20}(\$\d|\d\.\d{3,}).{10}/) || [])[0]);
-  ok("[B] yields: N/A with the provider reason, no curve", /UNITED STATES · U\.S\. TREASURY\s*N\/A[\s\S]*provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text));
+  ok("[B] yields: N/A with the provider reason, no curve", /US United States\s+N\/A provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text), (await winOf(page, "GOVERNMENT YIELDS")).text.slice(0, 300));
   ok("[B] calendar and news: NO DATA with the reason", /NO DATA/.test((await winOf(page, "ECONOMIC CALENDAR")).text) && /provider unreachable/.test((await winOf(page, "NEWS")).text));
   ok("[B] briefing: N/A, no text produced", /briefing archive unavailable/.test((await winOf(page, "BRIEFING")).text) && (await winOf(page, "BRIEFING")).pill === "N/A" && !(await page.$(".brf-art")));
   ok("[B] no NaN rendered; no JavaScript errors", !/NaN/.test(body) && errors.length === 0, errors.join(" | "));

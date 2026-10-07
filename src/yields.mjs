@@ -447,8 +447,8 @@ export function parseBcrp(j) {
 export const OECD_10Y = {
   IT: ["Italy", "Europe"], FR: ["France", "Europe"], NL: ["Netherlands", "Europe"], IE: ["Ireland", "Europe"], GR: ["Greece", "Europe"], FI: ["Finland", "Europe"],
   DK: ["Denmark", "Europe"], PL: ["Poland", "Europe"], CZ: ["Czech Republic", "Europe"], HU: ["Hungary", "Europe"], SK: ["Slovakia", "Europe"], SI: ["Slovenia", "Europe"],
-  LU: ["Luxembourg", "Europe"], LV: ["Latvia", "Europe"], LT: ["Lithuania", "Europe"], IS: ["Iceland", "Europe"],
-  KR: ["South Korea", "Asia-Pacific"], IN: ["India", "Asia-Pacific"], IL: ["Israel", "Middle East & Africa"], MX: ["Mexico", "Americas"], CL: ["Chile", "Americas"], CO: ["Colombia", "Americas"],
+  LU: ["Luxembourg", "Europe"], KR: ["South Korea", "Asia-Pacific"], IL: ["Israel", "Middle East & Africa"], MX: ["Mexico", "Americas"], CL: ["Chile", "Americas"],
+  // checked 7 Oct 2026: no such series on FRED for Latvia, Lithuania, India, Colombia; Iceland's stopped in 2022 — left out
 };
 export const oecdId = (cc) => `IRLTLT01${cc}M156N`;
 async function loadOecd(env, cc) {
@@ -487,9 +487,9 @@ const oecdDef = (cc) => ({ ...CURVES[cc] || {}, key: `yields/oecd/${cc}`, freq: 
 export const WORLD_IDS = ["DE", "UK", "JP", "CH", "CA"];
 // regions and what is shown first in each; daily sources first, then the monthly averages
 export const REGIONS = [
-  ["Americas", ["US", "CA", "PE", "MX", "CL", "CO"]],
-  ["Europe", ["EA", "DE", "UK", "FR", "IT", "ES", "NL", "BE", "AT", "PT", "IE", "GR", "FI", "CH", "SE", "NO", "DK", "PL", "CZ", "HU", "SK", "SI", "LU", "LV", "LT", "IS"]],
-  ["Asia-Pacific", ["JP", "CN", "AU", "NZ", "HK", "KR", "IN", "MY"]],
+  ["Americas", ["US", "CA", "MX", "CL", "PE"]],
+  ["Europe", ["EA", "DE", "UK", "FR", "IT", "ES", "NL", "BE", "AT", "PT", "IE", "GR", "FI", "CH", "SE", "NO", "DK", "PL", "CZ", "HU", "SK", "SI", "LU"]],
+  ["Asia-Pacific", ["JP", "CN", "AU", "NZ", "KR", "HK", "MY"]],
   ["Middle East & Africa", ["ZA", "IL"]],
 ];
 export const YIELD_IDS = REGIONS.flatMap(([, ids]) => ids);
@@ -583,7 +583,7 @@ export async function handleYields(url, env, ctx, H, json) {
     return send({ curves, errors, meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
   }
   const { curves, errors, cache } = await getYieldCurves(url.origin, ctx, now, env, ["US", "EA", ...WORLD_IDS]);
-  const r = send({ curves, errors, catalog: yieldCatalog(env), notConnected: ["Italy, France, Netherlands and others: daily N/A (monthly average in the world table)", "Brazil", "Turkey", "Indonesia", "Singapore", "Taiwan", "Thailand", "Philippines", "Saudi Arabia"], meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
+  const r = send({ curves, errors, catalog: yieldCatalog(env), notConnected: ["Brazil", "Turkey", "India", "Indonesia", "Singapore", "Taiwan", "Thailand", "Philippines", "Colombia", "Saudi Arabia"], meta: { generatedAt: iso(now) } }, Object.keys(curves).length ? 200 : 502);
   r.headers.set("x-cache", cache.join(","));
   return r;
 }

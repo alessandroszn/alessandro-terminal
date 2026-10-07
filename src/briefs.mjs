@@ -234,7 +234,7 @@ export function storyWindows(period, { eq, quotes = [], fxHist = null, curves = 
   const cv = ["US", "EA", "DE", "UK"].map((id) => (curves || {})[id]).filter(Boolean).map((c) => ({ c, ten: c.points.find((p) => p.tenor === "10Y"), two: c.points.find((p) => p.tenor === "2Y") })).filter((x) => x.ten && x.ten.value != null);
   if (cv.length) {
     const part = (x, it) => `${{ US: it ? "USA" : "US", EA: it ? "area euro" : "euro-area", DE: it ? "Germania" : "Germany", UK: it ? "Regno Unito" : "UK" }[x.c.id]} 10Y ${x.ten.value.toFixed(2)}%${x.ten.changeBp != null ? ` (${bp(x.ten.changeBp)})` : ""}`;
-    add("rates", "YLD", {}, ["Yield curves vs previous publication", `${cv.map((x) => part(x, false)).join(", ")} — the dashed line is the previous curve.`],
+    add("rates", "YLD", { c: cv[0].c.id, ov: ["prev"] }, ["Yield curves vs previous publication", `${cv.map((x) => part(x, false)).join(", ")} — the dashed line is the previous curve.`],
       ["Curve dei rendimenti contro la pubblicazione precedente", `${cv.map((x) => part(x, true)).join(", ")} — la linea tratteggiata è la curva precedente.`]);
     const ea = cv.find((x) => x.c.id === "EA" && x.two && x.two.value != null);
     if (ea) { const s2 = (ea.ten.value - ea.two.value) * 100;

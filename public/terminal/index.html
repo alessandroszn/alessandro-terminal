@@ -110,6 +110,15 @@
   .gp-in{background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:3px;padding:3px 7px;font:inherit;font-size:10.5px;width:118px}
   .gp-in:focus{outline:none;border-color:var(--amber)}
   .win.ismax .chart-box.sp-cv,.win.ismax .chart-box.x-cv,.win.ismax .chart-box.bt-cv,.win.ismax .chart-box.cmp-chart{height:58vh!important}
+  .yw-nav{display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin:0 0 4px}
+  .yw-nav .tf{padding:2px 6px;font-size:10px}
+  .yw-nav .yw-c.m{opacity:.75;font-style:italic}
+  .yw-reg{color:var(--dim);font-size:9px;letter-spacing:.08em;margin:0 2px 0 8px;text-transform:uppercase}
+  .yw-mb{display:inline-block;font-size:8.5px;line-height:1;padding:2px 3px;border:1px solid var(--line-2);border-radius:2px;color:var(--muted);vertical-align:middle}
+  table.pf.yw-t td{white-space:nowrap}
+  table.pf.yw-t tr.yw-na td{color:var(--dim)}
+  table.pf.yw-t td.yw-src{max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
+  table.pf.yw-t tbody tr[data-yid]:hover td{background:var(--amber-soft)}
   .help-credit{margin-top:12px;font-size:10px;color:var(--dim)}
   .help-credit a{color:var(--muted)}
   canvas{display:block;width:100%;height:100%}
@@ -795,23 +804,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const parts=h.lines.map((x,i)=>{let v,own='';if(p){const d=p.seriesData.get(h.s[i]);v=d?d.value:null;when=tKey(p.time);}else{v=x.pts[x.pts.length-1].value;when=newest;if(lastK[i]!==newest)own=` <span>(${esc(isDay(lastK[i])?fmtDay(lastK[i]):lastK[i])})</span>`;}
       return`<i class="sw" style="background:${x.base!=null?(fin(v)&&v<x.base?C.down:C.up):x.col}"></i>${esc(x.name)} <span class="v">${fin(v)?f(v):'—'}</span>${own}`;});
     leg.innerHTML=(when?`<span>${esc(isDay(when)?fmtDay(when):when)}</span> &nbsp;`:'')+parts.join(' &nbsp;');}
-  // a yield curve on a true maturity axis (months): the latest publication and the one before it
   const tenorLabel=m=>m<12?Math.round(m)+'M':(m%12?(m/12).toFixed(1):m/12)+'Y';
-  function lwCurve(win,box,key,c){const h=lwHost(win,key);if(box)box.appendChild(h.el);const leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
-    if(!LW||!LW.createYieldCurveChart){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return h;}
-    const pts=c.points.filter(p=>fin(p.months)&&fin(p.value)).sort((a,b)=>a.months-b.months);if(pts.length<2){lwReset(h);leg.innerHTML='';msg.textContent='N/A';return h;}
-    msg.textContent='';const prev=pts.filter(p=>fin(p.changeBp)).map(p=>({time:p.months,value:+(p.value-p.changeBp/100).toFixed(4)}));
-    const sig=[key,C.amber,I18N.locale(),pts[pts.length-1].months].join('|'),dsig=c.timestamp+':'+pts.map(p=>p.value).join();
-    if(h.sig!==sig){lwReset(h);const ch=h.chart=LW.createYieldCurveChart(h.el,lwOpts({yieldCurve:{baseResolution:1,minimumTimeRange:Math.max(12,pts[pts.length-1].months),startTimeRange:0,formatTime:tenorLabel},layout:{attributionLogo:false},timeScale:{rightOffset:1,lockVisibleTimeRangeOnResize:true},leftPriceScale:{visible:false},rightPriceScale:{visible:true,scaleMargins:{top:0.2,bottom:0.1}},localization:{priceFormatter:v=>v.toFixed(2)+'%'},handleScroll:false,handleScale:false}));h.sig=sig;
-      h.s.prev=ch.addSeries(LW.LineSeries,{color:C.dim,lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,pointMarkersVisible:false,priceFormat:{type:'price',precision:2,minMove:0.01}});
-      h.s.cur=ch.addSeries(LW.LineSeries,{color:C.amber,lineWidth:2,priceLineVisible:false,pointMarkersVisible:true,pointMarkersRadius:2.5,priceFormat:{type:'price',precision:2,minMove:0.01}});
-      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;lwCurveLegend(h,h.lastP);});}
-    if(h.dsig!==dsig){h.dsig=dsig;h.curve=c;h.pts=pts;h.s.cur.setData(pts.map(p=>({time:p.months,value:p.value})));h.s.prev.setData(prev);lwFit(h);}
-    lwCurveLegend(h,h.lastP||null);return h;}
-  function lwCurveLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.pts)return;const c=h.curve;let pt=null;
-    if(p){const m=typeof p.time==='number'?p.time:null;pt=h.pts.find(x=>x.months===m)||null;}
-    leg.innerHTML=pt?`<b>${esc(pt.tenor)}</b> <span class="v">${pt.value.toFixed(3)}%</span>${fin(pt.changeBp)?` <span class="${cls(pt.changeBp)}">${pt.changeBp>=0?'+':''}${pt.changeBp.toFixed(1)} bp</span>`:''}${pt.note?` <span>${esc(pt.note)}</span>`:''}`
-      :`<i class="sw" style="background:${C.amber}"></i>${esc(c.timestamp)}${c.previousDate?` &nbsp;<i class="sw" style="background:${C.dim}"></i>${esc(c.previousDate)}`:''}`;}
   function lwReset(h){if(h.chart){try{h.chart.remove();}catch(e){}}h.chart=null;h.sig='';h.dsig='';h.s={};h.rows=null;h.lines=null;}
   function lwFont(){return getComputedStyle(document.body).fontFamily;}
   function lwOpts(extra){return deepSet({autoSize:true,
@@ -1036,28 +1029,120 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     body.innerHTML=`<div class="banner warn"><b>NO DATA</b> — no real index source is connected. The current plan has no index data (test 2026-10-06: SPX and NDX need a higher plan; DJI, IXIC, RUT and VIX are not available), and index vendors (S&amp;P DJI, Nasdaq, Cboe, STOXX, Deutsche Börse) license even delayed values for display. ETFs are not shown as substitutes.</div>
       <table class="pf"><thead><tr><th class="l">INDEX</th><th>LEVEL</th><th>CHG%</th><th>OPEN / HIGH / LOW</th><th>52W</th><th>TIME</th><th>DATA</th></tr></thead><tbody>${INDEX_ROWS.map(n=>`<tr><td class="l">${n}</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="na">—</td><td>${chip(S.NA,'no licensed source')}</td></tr>`).join('')}</tbody></table>`;}
 
-  // ---- YIELDS: official curves (U.S. Treasury, ECB) — no interpolated or estimated points ----
-  const YLD_IDS=['US','EA','DE','UK','JP','CH','CA'],YLD_TITLE={US:'UNITED STATES · U.S. TREASURY',EA:'EURO AREA · ECB',DE:'GERMANY · BUNDESBANK',UK:'UNITED KINGDOM · BANK OF ENGLAND',JP:'JAPAN · MINISTRY OF FINANCE',CH:'SWITZERLAND · SNB',CA:'CANADA · BANK OF CANADA'};
-  function renderYields(body,win){const e=EXT.yields;loadExt('yields');const st=win.state;st.c=st.c||'ALL';
-    if(!e.data&&!e.err){setProv(win,{'ds:YLD':S.LOADING});body.innerHTML='<div class="empty">Loading official yield curves…</div>';return;}
-    const d=e.data||{curves:{},errors:{}},items={};
-    const have=YLD_IDS.filter(id=>(d.curves&&d.curves[id])||(d.errors&&d.errors[id])||(!e.data&&(id==='US'||id==='EA')));if(st.c!=='ALL'&&!have.includes(st.c))st.c='ALL';
-    let html=have.length>2?`<div class="tfbar" style="margin-top:0">${[['ALL',tl('ALL','TUTTE')]].concat(have.map(id=>[id,id])).map(([v,l])=>`<button class="tf" data-yc="${v}" aria-pressed="${v===st.c}">${l}</button>`).join('')}<button class="sr-b y-bond" style="margin-left:8px" title="${tl('all countries side by side, with changes and spreads','tutti i paesi affiancati, con variazioni e spread')}">BOND</button></div>`:'';
-    for(const id of have.filter(x=>st.c==='ALL'||x===st.c)){const c=d.curves&&d.curves[id],title=YLD_TITLE[id]||id;
-      if(!c){const er=(d.errors&&d.errors[id]&&d.errors[id].error)||e.err||'no_data';items['yld:'+id]=S.NA;html+=`<div class="yc"><div class="yc-h">${title} ${chip(S.NA)}</div><div class="banner warn"><b>N/A</b> — ${esc(P.errorText(er))}. No values are shown in its place.</div></div>`;continue;}
-      const st=P.historyStatus({status:c.status,staleAt:c.staleAt},{}),two=c.points.find(p=>p.tenor==='2Y'),ten=c.points.find(p=>p.tenor==='10Y');
-      const spread=two&&ten&&fin(two.value)&&fin(ten.value)?((ten.value-two.value)*100).toFixed(1):null;items['yld:'+id]=st;
-      html+=`<div class="yc"><div class="yc-h">${esc(c.name.toUpperCase())} ${chip(st,c.kind)}</div>
-        <div class="src-line">${esc(c.kind)} · data date ${c.timestamp}${c.previousDate?' · Δ vs '+c.previousDate:''} · fetched ${fmtTime(c.fetchedAt)} · source <a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a>${c.staleReason?' · '+esc(P.errorText(c.staleReason)):''}</div>
-        <div class="chart-box yc-box" style="height:170px" data-curve="${id}" aria-label="${id} yield curve"></div>
-        <div class="corr-wrap"><table class="pf"><thead><tr><th class="l">TENOR</th>${c.points.map(p=>`<th>${p.tenor}</th>`).join('')}</tr></thead><tbody>
-          <tr><td class="l">YIELD %</td>${c.points.map(p=>`<td class="num"${p.note?` title="${esc(p.note)}"`:''}>${fin(p.value)?p.value.toFixed(2):'<span class="na">N/A</span>'}</td>`).join('')}</tr>
-          <tr><td class="l">Δ BP ${chip(S.DERIVED,'difference between the two latest official publications')}</td>${c.points.map(p=>`<td class="num ${cls(p.changeBp)}">${fin(p.changeBp)?(p.changeBp>=0?'+':'')+p.changeBp.toFixed(1):'—'}</td>`).join('')}</tr></tbody></table></div>
-        ${spread!=null?`<div class="scr-count">2s10s spread ${spread} bp ${chip(S.DERIVED,'10Y minus 2Y, same publication')}</div>`:''}</div>`;}
-    html+=`<div class="des">Not connected: ${esc((d.notConnected||[]).join(', '))} — N/A until an approved official source is added. Maturities a source does not publish stay N/A; nothing is interpolated.</div>`;
-    body.innerHTML=html;setProv(win,items);
-    $$('[data-yc]',body).forEach(b=>b.onclick=()=>{st.c=b.dataset.yc;paintWin(win);});const yb=body.querySelector('.y-bond');if(yb)yb.onclick=()=>openOrFocus('BOND',{});
-    $$('.yc-box',body).forEach(bx=>{const c=d.curves&&d.curves[bx.dataset.curve];if(c)lwCurve(win,bx,'yc:'+bx.dataset.curve,c);});}
+  // ---- YIELDS: official curves of many countries (central banks, debt offices) and the OECD monthly 10Y where no free
+  // official daily source exists — a few countries per request; nothing interpolated or estimated ----
+  const YLD_IDS=['US','EA','DE','UK','JP','CH','CA'];
+  const CTRY={US:['United States','Stati Uniti'],EA:['Euro area (AAA)','Area euro (AAA)'],DE:['Germany','Germania'],UK:['United Kingdom','Regno Unito'],FR:['France','Francia'],IT:['Italy','Italia'],ES:['Spain','Spagna'],NL:['Netherlands','Paesi Bassi'],BE:['Belgium','Belgio'],AT:['Austria','Austria'],PT:['Portugal','Portogallo'],IE:['Ireland','Irlanda'],GR:['Greece','Grecia'],FI:['Finland','Finlandia'],CH:['Switzerland','Svizzera'],SE:['Sweden','Svezia'],NO:['Norway','Norvegia'],DK:['Denmark','Danimarca'],PL:['Poland','Polonia'],CZ:['Czech Republic','Rep. Ceca'],HU:['Hungary','Ungheria'],SK:['Slovakia','Slovacchia'],SI:['Slovenia','Slovenia'],LU:['Luxembourg','Lussemburgo'],JP:['Japan','Giappone'],CN:['China','Cina'],AU:['Australia','Australia'],NZ:['New Zealand','Nuova Zelanda'],KR:['South Korea','Corea del Sud'],HK:['Hong Kong','Hong Kong'],MY:['Malaysia','Malesia'],ZA:['South Africa','Sudafrica'],IL:['Israel','Israele'],CA:['Canada','Canada'],MX:['Mexico','Messico'],CL:['Chile','Cile'],PE:['Peru','Perù']};
+  const REG_IT={'Americas':'Americhe','Europe':'Europa','Asia-Pacific':'Asia-Pacifico','Middle East & Africa':'Medio Oriente e Africa'};
+  const ctry=id=>CTRY[id]?tl(CTRY[id][0],CTRY[id][1]):id;
+  function ywCat(){const d=EXT.yields.data;return d&&Array.isArray(d.catalog)&&d.catalog.length?d.catalog:YLD_IDS.map(id=>({id,region:'',name:id,freq:'D',histTenor:'10Y'}));}
+  // the same fixed groups of six every time, so each group is one cached request (here 30 minutes; at the Worker per source)
+  function yw(ids,types){const all=ywCat().map(c=>c.id),want=new Set(ids),res={curves:{},errors:{},loading:false};
+    for(let i=0;i<all.length;i+=6){const ch=all.slice(i,i+6);if(!ch.some(id=>want.has(id)))continue;const e=get7('/api/yields?ids='+ch.join(','),1800000,types),d=e.data;if(e.loading&&!d)res.loading=true;
+      ch.forEach(id=>{if(d&&d.curves&&d.curves[id])res.curves[id]=d.curves[id];else if(d&&d.errors&&d.errors[id])res.errors[id]=d.errors[id];else if(!e.loading&&(e.err||d))res.errors[id]={error:e.err||'no_data'};});}
+    return res;}
+  const ptOf=(c,t)=>c&&c.points.find(p=>p.tenor===t);
+  const vOf=(c,t)=>{const p=ptOf(c,t);return p&&fin(p.value)?p.value:null;};
+  // change since a past curve of the same source, same maturity (bp, DERIVED)
+  const dPast=(c,k,t='10Y')=>{const v=vOf(c,t),p=c&&c.past&&c.past[k],q=p&&p.points.find(x=>x.tenor===t);return fin(v)&&q&&fin(q.value)?Math.round((v-q.value)*1000)/10:null;};
+  const bpS=v=>fin(v)?(v>=0?'+':'')+v.toFixed(1):'—';
+  const ycSt=c=>c?P.historyStatus({status:c.status,staleAt:c.staleAt},{}):S.NA;
+  const monthOf=d=>{const t=new Date(String(d).slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{month:'short',year:'numeric',timeZone:'UTC'}):'—';};
+  const ycDate=c=>c.freq==='M'?monthOf(c.timestamp)+' '+tl('(avg)','(media)'):fmtDay(c.timestamp);
+  const yfmt=v=>fin(v)?v.toFixed(v>=10?2:3).replace(/0$/,''):'—';
+  const CURVE_COL=['#f5a623','#60a5fa','#f472b6','#a3e635','#22d3ee','#c084fc'];
+  // several curves on a true maturity axis (months); a series with one point shows as a dot
+  function lwCurves(win,box,key,lines,opt={}){const h=lwHost(win,key);if(box)box.appendChild(h.el);const leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
+    if(!LW||!LW.createYieldCurveChart){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return h;}
+    const ok=lines.map(l=>({...l,pts:l.pts.filter(p=>fin(p.months)&&fin(p.value)).sort((a,b)=>a.months-b.months)})).filter(l=>l.pts.length);
+    if(!ok.length){lwReset(h);leg.innerHTML='';msg.textContent=opt.empty||'N/A';return h;}
+    msg.textContent='';const maxM=Math.max(12,...ok.flatMap(l=>l.pts.map(p=>p.months)));
+    const sig=[key,ok.map(l=>l.name+l.col+(l.dash?1:0)).join(),maxM,C.amber,I18N.locale()].join('|'),dsig=ok.map(l=>l.pts.map(p=>p.months+':'+p.value).join(',')).join('|');
+    if(h.sig!==sig){lwReset(h);const ch=h.chart=LW.createYieldCurveChart(h.el,lwOpts({yieldCurve:{baseResolution:1,minimumTimeRange:maxM,startTimeRange:0,formatTime:tenorLabel},layout:{attributionLogo:!!opt.logo},timeScale:{rightOffset:1,lockVisibleTimeRangeOnResize:true},leftPriceScale:{visible:false},rightPriceScale:{visible:true,scaleMargins:{top:0.2,bottom:0.1}},localization:{priceFormatter:v=>v.toFixed(2)+'%'},handleScroll:!!opt.interactive,handleScale:!!opt.interactive}));h.sig=sig;
+      ok.forEach((l,i)=>{h.s[i]=ch.addSeries(LW.LineSeries,{color:l.col,lineWidth:l.dash?1:2,lineStyle:l.dash?2:0,priceLineVisible:false,lastValueVisible:!l.dash,crosshairMarkerVisible:true,pointMarkersVisible:!l.dash||l.pts.length<3,pointMarkersRadius:l.pts.length<2?4:2.5,priceFormat:{type:'price',precision:2,minMove:0.01}});});
+      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;lwCurvesLegend(h,h.lastP);});}
+    if(h.dsig!==dsig){h.dsig=dsig;ok.forEach((l,i)=>h.s[i].setData(l.pts.map(p=>({time:p.months,value:p.value}))));lwFit(h);}
+    h.cl=ok;lwCurvesLegend(h,h.lastP||null);return h;}
+  function lwCurvesLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.cl)return;
+    if(p&&typeof p.time==='number'){const m=p.time,lab=(h.cl.map(l=>l.pts.find(x=>x.months===m)).find(Boolean)||{}).tenor||tenorLabel(m);
+      leg.innerHTML=`<b>${esc(lab)}</b> `+h.cl.map(l=>{const q=l.pts.find(x=>x.months===m);return`<i class="sw" style="background:${l.col}"></i>${esc(l.name)} <span class="v">${q?yfmt(q.value)+'%':'—'}</span>`;}).join(' &nbsp;');
+      const nt=h.cl.map(l=>(l.pts.find(x=>x.months===m)||{}).note).find(Boolean);if(nt)leg.innerHTML+=`<br><span>${esc(nt)}</span>`;return;}
+    leg.innerHTML=h.cl.map(l=>`<i class="sw" style="background:${l.col}"></i>${esc(l.name)}`).join(' &nbsp;');}
+  const curvePts=(pts)=>(pts||[]).map(p=>({months:p.months,value:p.value,tenor:p.tenor,note:p.note}));
+
+  function renderYields(body,win){const e=EXT.yields;loadExt('yields');const st=win.state;if(!st.c||st.c==='ALL')st.c='WORLD';st.ov=st.ov||['prev','1M'];
+    if(!e.data&&!e.err){setProv(win,{'ds:YLD':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading official yield curves…','Caricamento delle curve ufficiali…')}</div>`;return;}
+    const cat=ywCat(),regions=[...new Set(cat.map(c=>c.region))];if(st.c!=='WORLD'&&!cat.some(c=>c.id===st.c))st.c='WORLD';
+    const chips=`<div class="yw-nav"><button class="tf" data-yc="WORLD" aria-pressed="${st.c==='WORLD'}">${tl('WORLD','MONDO')}</button>${regions.map(r=>`<span class="yw-reg">${esc(r?tl(r,REG_IT[r]||r):'')}</span>${cat.filter(c=>c.region===r).map(c=>`<button class="tf yw-c${c.freq==='M'?' m':''}" data-yc="${c.id}" aria-pressed="${c.id===st.c}" title="${esc(ctry(c.id)+' · '+c.source+(c.freq==='M'?' · '+tl('monthly average','media mensile'):''))}">${c.id}</button>`).join('')}`).join('')}<button class="sr-b yw-crv" title="${tl('compare curves across countries and dates','confronta curve tra paesi e date')}">CURVE</button><button class="sr-b y-bond" title="${tl('all countries side by side, with changes and spreads','tutti i paesi affiancati, con variazioni e spread')}">BOND</button></div>`;
+    if(st.c==='WORLD')ywWorld(body,win,cat,chips);else ywCountry(body,win,cat,chips);
+    $$('[data-yc]',body).forEach(b=>b.onclick=()=>{st.c=b.dataset.yc;paintWin(win);});
+    const yb=body.querySelector('.y-bond');if(yb)yb.onclick=()=>openOrFocus('BOND',{});
+    const yc=body.querySelector('.yw-crv');if(yc)yc.onclick=()=>{const w=openOrFocus('CRV',defaultState('CRV'));if(st.c!=='WORLD'){w.state.mode='dates';w.state.id=st.c;paintWin(w);}};}
+  // WORLD: every country's latest publication, its changes, slope and spreads — grouped by region
+  function ywWorld(body,win,cat,chips){const st=win.state;st.sort=st.sort||'region';const D=yw(cat.map(c=>c.id),['YLD']),items={};
+    const row=c0=>{const id=c0.id,c=D.curves[id],er=D.errors[id];
+      if(!c){items['yld:'+id]=er?S.NA:S.LOADING;return{id,html:`<tr class="yw-na" data-yid="${id}"><td class="l"><b>${id}</b> ${esc(ctry(id))}</td><td class="l k" colspan="12">${er?naS()+' '+esc(P.errorText(er.error)):tl('loading…','caricamento…')}</td></tr>`,k:null};}
+      const s=ycSt(c);items['yld:'+id]=s;const m=c.freq==='M',two=vOf(c,'2Y'),ten=vOf(c,'10Y'),avg=vOf(c,'AVG'),sl=fin(two)&&fin(ten)?(ten-two)*100:null;
+      const cell=(t)=>{const v=vOf(c,t),p=ptOf(c,t);return`<td class="num"${p&&p.note?` title="${esc(p.note)}"`:''}>${fin(v)?yfmt(v):'<span class="dim">—</span>'}</td>`;};
+      const dd=k=>{const v=k==='1D'?(ptOf(c,'10Y')||{}).changeBp:dPast(c,k);return`<td class="num" style="${bondHeat(v)}">${m&&k!=='1M'?'<span class="dim">·</span>':bpS(v)}</td>`;};
+      const sp=k=>{const x=c.spreads&&c.spreads[k];return`<td class="num"${x&&x.date!==c.timestamp?` title="${tl('on','al')} ${esc(x.date)}"`:''}>${x?bpS(x.bp)+(x.date!==c.timestamp?'*':''):'<span class="dim">—</span>'}</td>`;};
+      return{id,k:{region:0,y10:fin(ten)?-ten:9e9,d1:-Math.abs((ptOf(c,'10Y')||{}).changeBp||0),m1:-Math.abs(dPast(c,'1M')||0),bund:c.spreads&&c.spreads.DE?-c.spreads.DE.bp:9e9}[st.sort],
+        html:`<tr data-yid="${id}" class="${m?'yw-m':''}"><td class="l"><b>${id}</b> ${esc(ctry(id))} ${chip(s,c.source+' — '+c.kind)}${m?` <span class="yw-mb" title="${tl('monthly average (OECD via FRED): no free official daily source','media mensile (OCSE via FRED): nessuna fonte ufficiale giornaliera gratuita')}">M</span>`:''}</td><td class="l k">${esc(ycDate(c))}</td>${cell('2Y')}${cell('5Y')}${fin(avg)&&!fin(ten)?`<td class="num" title="${esc((ptOf(c,'AVG')||{}).note||'')}">${yfmt(avg)}<sup>Ø</sup></td>`:cell('10Y')}${cell('30Y')}${dd('1D')}${dd('1W')}${dd('1M')}<td class="num">${fin(sl)?bpS(sl):'<span class="dim">—</span>'}</td>${sp('DE')}${sp('US')}<td class="l k yw-src">${esc(c.source)}</td></tr>`};};
+    let rows=cat.map(c0=>({...row(c0),region:c0.region}));
+    if(st.sort!=='region')rows=rows.slice().sort((a,b)=>(a.k==null)-(b.k==null)||a.k-b.k);
+    let last=null,tb='';for(const r of rows){if(st.sort==='region'&&r.region!==last){tb+=`<tr class="grp"><td colspan="14">${esc((tl(r.region,REG_IT[r.region]||r.region)||'').toUpperCase())}</td></tr>`;last=r.region;}tb+=r.html;}
+    const sorts=[['region',tl('BY REGION','PER REGIONE')],['y10',tl('10Y HIGHEST','10A PIÙ ALTO')],['d1',tl('BIGGEST 1D MOVE','MOSSA 1G MAGGIORE')],['m1',tl('BIGGEST 1M MOVE','MOSSA 1M MAGGIORE')],['bund',tl('SPREAD vs BUND','SPREAD vs BUND')]];
+    body.innerHTML=chips+`<div class="tfbar" style="margin:6px 0"><span class="k" style="margin-right:6px">${tl('SORT','ORDINA')}</span>${tb7('ysort',sorts,st.sort)}</div>
+      <div class="corr-wrap"><table class="pf yw-t"><thead><tr><th class="l">${tl('COUNTRY','PAESE')}</th><th class="l">${tl('DATA DATE','DATA')}</th><th>2Y</th><th>5Y</th><th>10Y</th><th>30Y</th><th title="${tl('10-year change vs the previous publication','variazione del 10 anni rispetto alla pubblicazione precedente')}">Δ10Y 1D</th><th>1W</th><th>1M</th><th title="10Y − 2Y">2s10s</th><th title="${tl('10-year spread vs Germany (Bundesbank; monthly series vs the German monthly average)','spread a 10 anni contro la Germania (Bundesbank; serie mensili contro la media mensile tedesca)')}">vs BUND</th><th title="${tl('10-year spread vs the United States','spread a 10 anni contro gli Stati Uniti')}">vs UST</th><th class="l">${tl('SOURCE','FONTE')}</th></tr></thead><tbody>${tb}</tbody></table></div>
+      <div class="src-line">${chip(S.DERIVED)} ${tl('yields as each source publishes them (yield %, maturities in years); changes, 2s10s and spreads in basis points, DERIVED, only between values of the same source (spreads: same day, or same month for the monthly averages; * = an earlier common day)','rendimenti come li pubblica ciascuna fonte (rendimento %, scadenze in anni); variazioni, 2s10s e spread in punti base, DERIVED, solo tra valori della stessa fonte (spread: stesso giorno, o stesso mese per le medie mensili; * = un giorno comune precedente)')} · <span class="yw-mb">M</span> ${tl('monthly average of the 10-year yield (OECD via FRED): no free official daily source for these countries','media mensile del rendimento a 10 anni (OCSE via FRED): per questi paesi non esiste una fonte ufficiale giornaliera gratuita')} · Ø ${tl('average of all bonds (Austria)','media di tutti i titoli (Austria)')}</div>
+      <div class="des">${tl('Not connected (no free official source found):','Non collegati (nessuna fonte ufficiale gratuita trovata):')} ${esc(((EXT.yields.data||{}).notConnected||[]).join(', '))}.</div>`;
+    setProv(win,{...items,'yld:calc':S.DERIVED},'Yields: central banks, debt offices, statistics offices; OECD monthly averages via FRED');
+    $$('[data-ysort]',body).forEach(b=>b.onclick=()=>{st.sort=b.dataset.ysort;paintWin(win);});
+    $$('tr[data-yid]',body).forEach(tr=>{tr.style.cursor='pointer';tr.onclick=()=>{st.c=tr.dataset.yid;paintWin(win);};});}
+  // one country: its curve with past curves, the changes by maturity and the history of its 10-year (or its only series)
+  function ywCountry(body,win,cat,chips){const st=win.state,id=st.c,meta=cat.find(c=>c.id===id)||{},D=yw([id],['YLD']),c=D.curves[id],er=D.errors[id];
+    if(!c){setProv(win,{['yld:'+id]:er?S.NA:S.LOADING});body.innerHTML=chips+(er?naB(esc(ctry(id))+' '+tl('yields unavailable','rendimenti non disponibili'),er.error):`<div class="empty">${tl('Loading…','Caricamento…')}</div>`);return;}
+    const s=ycSt(c),m=c.freq==='M',hasCurve=c.points.filter(p=>fin(p.months)&&fin(p.value)).length>=2,PK=[['prev',tl('PREVIOUS','PRECEDENTE')],['1W','1W'],['1M','1M'],['3M','3M'],['1Y','1Y']].filter(([k])=>k==='prev'?!!c.previousDate:!!(c.past&&c.past[k]));
+    const ht=meta.histTenor||c.histTenor||'10Y',H=get7(`/api/yields/history?id=${id}&tenor=${ht}`,1800000,['YLD']);
+    const pastOf=k=>k==='prev'?(c.previousDate?{date:c.previousDate,points:c.points.map(p=>({...p,value:fin(p.value)&&fin(p.changeBp)?+(p.value-p.changeBp/100).toFixed(4):null}))}:null):c.past&&c.past[k];
+    const ovs=st.ov.filter(k=>PK.some(([x])=>x===k));
+    const tenors=c.points.map(p=>p.tenor),dcol=['prev','1W','1M','3M','1Y'].filter(k=>k==='prev'?!!c.previousDate:!!(c.past&&c.past[k]));
+    const trs=c.points.map(p=>`<tr><td class="l"${p.note?` title="${esc(p.note)}"`:''}>${p.tenor==='AVG'?tl('AVERAGE','MEDIA'):p.tenor}${p.note?' ·':''}</td><td class="num"><b>${fin(p.value)?yfmt(p.value):naS()}</b></td>${dcol.map(k=>{const v=k==='prev'?p.changeBp:dPast(c,k,p.tenor);return`<td class="num" style="${bondHeat(v)}">${bpS(v)}</td>`;}).join('')}</tr>`).join('');
+    const two=vOf(c,'2Y'),ten=vOf(c,'10Y'),sp=c.spreads||{};
+    body.innerHTML=chips+`<div class="yc-h" style="margin-top:8px">${esc(c.name.toUpperCase())} ${chip(s,c.kind)}${m?` <span class="yw-mb">M</span>`:''}</div>
+      <div class="src-line">${esc(c.kind)} · ${tl('data date','data dei dati')} ${esc(ycDate(c))}${c.previousDate?' · Δ vs '+esc(m?monthOf(c.previousDate):c.previousDate):''} · ${tl('fetched','aggiornato')} ${fmtTime(c.fetchedAt)} · ${tl('source','fonte')} <a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a>${c.staleReason?' · '+esc(P.errorText(c.staleReason)):''}</div>
+      ${hasCurve?`<div class="tfbar" style="margin:8px 0 4px"><span class="k" style="margin-right:6px">${tl('COMPARE WITH','CONFRONTA CON')}</span>${PK.map(([k,l])=>`<button class="tf" data-yov="${k}" aria-pressed="${ovs.includes(k)}">${l}${k==='prev'?'':' '+tl('ago','fa')}</button>`).join('')}</div><div class="chart-box yc-box" style="height:230px" aria-label="${id} yield curve"></div>`:''}
+      <div class="corr-wrap"><table class="pf yw-c-t"><thead><tr><th class="l">${tl('MATURITY','SCADENZA')}</th><th>${tl('YIELD %','REND. %')}</th>${dcol.map(k=>`<th>Δ ${k==='prev'?(m?tl('1 MONTH','1 MESE'):tl('PREV.','PREC.')):k} ${k===dcol[0]?chip(S.DERIVED,'basis points between two real publications'):''}</th>`).join('')}</tr></thead><tbody>${trs}</tbody></table></div>
+      <div class="scr-count">${fin(two)&&fin(ten)?`2s10s ${bpS((ten-two)*100)} bp · `:''}${sp.DE?`vs Bund ${bpS(sp.DE.bp)} bp (${esc(m?monthOf(sp.DE.date):sp.DE.date)}) · `:''}${sp.US?`vs UST ${bpS(sp.US.bp)} bp (${esc(m?monthOf(sp.US.date):sp.US.date)})`:''} ${chip(S.DERIVED)}</div>
+      <div class="yc-h" style="margin-top:12px">${esc(ctry(id).toUpperCase())} · ${ht==='AVG'?tl('AVERAGE YIELD','RENDIMENTO MEDIO'):ht} · ${tl('HISTORY','STORICO')}</div>
+      <div class="chart-box yh-box" style="height:200px" aria-label="${id} ${ht} history"></div>
+      <div class="src-line">${H.data&&H.data.points?`${H.data.points.length} ${m?tl('monthly averages','medie mensili'):tl('publications','pubblicazioni')} · ${fmtDay(H.data.points[0][0])} – ${fmtDay(H.data.points[H.data.points.length-1][0])} · ${esc(c.source)}`:H.err?naS()+' '+esc(P.errorText(H.err)):tl('loading…','caricamento…')}</div>`;
+    setProv(win,{['yld:'+id]:s,'yld:calc':S.DERIVED},'Yields: '+c.source);
+    $$('[data-yov]',body).forEach(b=>b.onclick=()=>{const k=b.dataset.yov;st.ov=st.ov.includes(k)?st.ov.filter(x=>x!==k):st.ov.concat(k);paintWin(win);});
+    const cb=body.querySelector('.yc-box');if(cb){const lines=[{name:ycDate(c),col:CURVE_COL[0],pts:curvePts(c.points)}].concat(ovs.map((k,i)=>{const pc=pastOf(k);return pc?{name:(m?monthOf(pc.date):fmtDay(pc.date)),col:CURVE_COL[1+i%5],dash:true,pts:curvePts(pc.points)}:null;}).filter(Boolean));lwCurves(win,cb,'yc:'+id,lines);}
+    const hb=body.querySelector('.yh-box');if(hb)lwLines(win,hb,'yh:'+id+':'+ht,[{name:`${id} ${ht==='AVG'?tl('average','media'):ht}`,col:C.amber,pts:H.data&&H.data.points?H.data.points.map(([d,v])=>({time:d,value:v})):[]}],{empty:H.err?'N/A':tl('Loading…','Caricamento…'),fmt:v=>v.toFixed(3)+'%',pf:{type:'price',precision:2,minMove:0.01}});}
+
+  // ---- CURVE: compare curves across countries, or one country across dates ----
+  function renderCurve(body,win){const st=win.state;st.mode=st.mode||'countries';st.sel=(st.sel&&st.sel.length?st.sel:['US','DE','UK','JP']).slice(0,6);st.id=st.id||st.sel[0];st.at=st.at||['now','1M','1Y'];loadExt('yields');
+    const cat=ywCat(),regions=[...new Set(cat.map(c=>c.region))],ids=st.mode==='countries'?st.sel:[st.id],D=yw(ids,['CRV']);
+    const pick=(sel,multi)=>`<div class="yw-nav">${regions.map(r=>`<span class="yw-reg">${esc(r?tl(r,REG_IT[r]||r):'')}</span>${cat.filter(c=>c.region===r).map(c=>`<button class="tf yw-c${c.freq==='M'?' m':''}" data-cid="${c.id}" aria-pressed="${multi?sel.includes(c.id):sel===c.id}" title="${esc(ctry(c.id)+(c.freq==='M'?' · '+tl('monthly average: one point (10Y)','media mensile: un solo punto (10A)'):''))}">${c.id}</button>`).join('')}`).join('')}</div>`;
+    let lines=[],head=[],rowsT=[];
+    if(st.mode==='countries'){st.sel.forEach((id,i)=>{const c=D.curves[id];if(!c)return;lines.push({name:id+' '+(c.freq==='M'?monthOf(c.timestamp):fmtDay(c.timestamp)),col:CURVE_COL[i%6],pts:curvePts(c.points)});});head=st.sel;}
+    else{const c=D.curves[st.id];if(c){const ord=['now','prev','1W','1M','3M','1Y'];st.at.slice().sort((a,b)=>ord.indexOf(a)-ord.indexOf(b)).forEach((k,i)=>{const pc=k==='now'?{date:c.timestamp,points:c.points}:k==='prev'?(c.previousDate?{date:c.previousDate,points:c.points.map(p=>({...p,value:fin(p.value)&&fin(p.changeBp)?+(p.value-p.changeBp/100).toFixed(4):null}))}:null):c.past&&c.past[k];if(pc)lines.push({name:(c.freq==='M'?monthOf(pc.date):fmtDay(pc.date)),col:CURVE_COL[i%6],dash:k!=='now',pts:curvePts(pc.points)});});}}
+    const allT=[...new Set(lines.flatMap(l=>l.pts.map(p=>p.months+'|'+p.tenor)))].map(x=>x.split('|')).sort((a,b)=>a[0]-b[0]);
+    const tbl=lines.length?`<div class="corr-wrap"><table class="pf"><thead><tr><th class="l">${tl('MATURITY','SCADENZA')}</th>${lines.map(l=>`<th><i class="sw" style="display:inline-block;width:9px;height:3px;background:${l.col};vertical-align:middle"></i> ${esc(l.name)}</th>`).join('')}${lines.length===2?`<th>Δ bp ${chip(S.DERIVED)}</th>`:''}</tr></thead><tbody>${allT.map(([mm,t])=>{const vs=lines.map(l=>{const q=l.pts.find(p=>String(p.months)===mm);return q&&fin(q.value)?q.value:null;});return`<tr><td class="l">${esc(t)}</td>${vs.map(v=>`<td class="num">${fin(v)?yfmt(v):'—'}</td>`).join('')}${lines.length===2?`<td class="num" style="${bondHeat(fin(vs[0])&&fin(vs[1])?(vs[1]-vs[0])*100:null)}">${fin(vs[0])&&fin(vs[1])?bpS((vs[1]-vs[0])*100):'—'}</td>`:''}</tr>`;}).join('')}</tbody></table></div>`:'';
+    const miss=ids.filter(id=>!D.curves[id]&&D.errors[id]);
+    body.innerHTML=`<div class="tfbar" style="margin-top:0">${tb7('cmode',[['countries',tl('COUNTRIES','PAESI')],['dates',tl('DATES','DATE')]],st.mode)}${st.mode==='dates'?'<span class="k" style="margin:0 6px">'+tl('AT','AL')+'</span>'+[['now',tl('LATEST','ULTIMA')],['prev',tl('PREVIOUS','PRECEDENTE')],['1W','1W'],['1M','1M'],['3M','3M'],['1Y','1Y']].map(([k,l])=>`<button class="tf" data-cat="${k}" aria-pressed="${st.at.includes(k)}">${l}</button>`).join(''):`<span class="k" style="margin-left:6px">${tl('up to 6 countries','fino a 6 paesi')}</span>`}</div>
+      ${pick(st.mode==='countries'?st.sel:st.id,st.mode==='countries')}
+      <div class="chart-box crv-box" style="height:280px" aria-label="yield curves"></div>
+      ${miss.length?`<div class="scr-count">${naS()} ${miss.map(id=>esc(id)+' ('+esc(P.errorText(D.errors[id].error))+')').join(', ')}</div>`:''}
+      ${tbl}
+      <div class="src-line">${tl('each curve as its source publishes it, on a true maturity axis (years); a monthly average has one point (10Y); nothing interpolated','ogni curva come la pubblica la sua fonte, su un asse delle scadenze reale (anni); una media mensile ha un solo punto (10A); nulla è interpolato')} · ${[...new Set(ids.map(id=>D.curves[id]&&D.curves[id].source).filter(Boolean))].map(esc).join(' · ')}</div>`;
+    const items={};ids.forEach(id=>{items['yld:'+id]=D.curves[id]?ycSt(D.curves[id]):D.errors[id]?S.NA:S.LOADING;});setProv(win,items,'Curves: official sources per country');
+    $$('[data-cmode]',body).forEach(b=>b.onclick=()=>{st.mode=b.dataset.cmode;paintWin(win);});
+    $$('[data-cat]',body).forEach(b=>b.onclick=()=>{const k=b.dataset.cat;st.at=st.at.includes(k)?st.at.filter(x=>x!==k):st.at.concat(k);if(!st.at.length)st.at=['now'];paintWin(win);});
+    $$('[data-cid]',body).forEach(b=>b.onclick=()=>{const id=b.dataset.cid;if(st.mode==='countries'){st.sel=st.sel.includes(id)?st.sel.filter(x=>x!==id):st.sel.concat(id).slice(-6);}else st.id=id;paintWin(win);});
+    lwCurves(win,body.querySelector('.crv-box'),'crv:'+st.mode,lines,{empty:D.loading?tl('Loading…','Caricamento…'):'N/A',logo:true});}
 
   function extSources(d){return (d.sources||[]).map(x=>`${chip(x.status,x.staleReason?P.errorText(x.staleReason):x.status)} <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a> · fetched ${fmtTime(x.fetchedAt)}`).concat(Object.entries(d.errors||{}).map(([k,v])=>`${chip(S.NA)} ${k}: ${esc(P.errorText(v.error))}${v.note?' — '+esc(v.note):''}`)).join(' · ');}
   function extItems(d,prefix){const items={};(d.sources||[]).forEach(x=>items[prefix+x.id]=x.status);Object.keys(d.errors||{}).forEach(k=>items[prefix+k]=S.NA);return items;}
@@ -2168,7 +2253,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
     MAP:{tag:'MAP',w:980,h:620,title:mapTitle,render:renderMap},
     IDX:{tag:'IDX',w:620,h:430,title:()=>'WORLD INDICES',render:renderIndices},
-    YLD:{tag:'YLD',w:680,h:560,title:()=>'GOVERNMENT YIELDS',render:renderYields},
+    YLD:{tag:'YLD',w:780,h:600,title:()=>'GOVERNMENT YIELDS',render:renderYields},
+    CRV:{tag:'CURVE',w:760,h:600,title:()=>'YIELD CURVES',render:renderCurve},
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
     N:{tag:'N',w:620,h:500,title:()=>'NEWS',render:renderNews},
     BRF:{tag:'BRF',w:860,h:620,title:w=>`BRIEFING · ${(w.state.period||'daily').toUpperCase()}`,render:renderBriefing},
@@ -2222,7 +2308,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
-  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};return{};}
+  function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
   function closeWin(w,batch){lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
@@ -2272,7 +2358,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"YLD",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
   const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP"]);
   function applyFunc(f,ticker){
@@ -2290,6 +2376,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     else openOrFocus(type,defaultState(type));}
   function runCmd(raw){const cmd=raw.trim().toUpperCase();if(!cmd)return false;const parts=cmd.split(/\s+/);
     // function + ticker in either order (DES AAPL, AAPL DES); CROSS A B
+    if((parts[0]==='CURVE'||parts[0]==='CURVES')&&parts.length>1){const ids=new Set(ywCat().map(c=>c.id)),sel=parts.slice(1).map(x=>x==='GB'?'UK':x).filter(x=>ids.has(x)).slice(0,6);if(sel.length){const w=openOrFocus('CRV',{});w.state.mode=sel.length===1?'dates':'countries';w.state.sel=sel;w.state.id=sel[0];paintWin(w);return true;}}
     if(parts[0]==='CROSS'&&parts.length===3&&SYMBOL_OK.test(parts[1])&&SYMBOL_OK.test(parts[2])){const w=openOrFocus('CROSS',{});w.state.a=parts[1];w.state.b=parts[2];paintWin(w);return true;}
     if(parts.length===2&&SYM_FUNCS.has(parts[0])&&SYMBOL_OK.test(parts[1])){applyFunc(parts[0],parts[1]);return true;}
     if(parts.length===2&&SYM_FUNCS.has(parts[1])&&SYMBOL_OK.test(parts[0])&&!FUNCSET.has(parts[0])){applyFunc(parts[1],parts[0]);return true;}
