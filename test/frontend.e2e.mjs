@@ -496,6 +496,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
+  ok("[A] top: one row — brand, a compact command line, the taskbar (window tools as icons) and the status", !!(await page.$("#cmdbar #tabs .tb-tile")) && !(await page.$("#tabs #fnMenuBtn")) && !!(await page.$("#dock #fnMenuBtn")) && (await page.$eval("#cmdbar", (e) => e.getBoundingClientRect().height)) <= 40 && (await page.$eval(".cmd-wrap", (e) => e.getBoundingClientRect().width)) <= 260);
   ok("[A] dock (Nico's style): one row = a few functions + the data badge; the ticker tape off by default", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))) === "☰ FUNCTIONS,INDICES,WATCHLIST,YIELDS,CALENDAR,HEAT MAPS,BRIEFING,NEWS,MARKETS,PORTFOLIO,? HELP" && !!(await page.$("#dock #dataBadge")) && !(await page.$("#sess, #breadth, #asof")) && (await page.$eval("#strip", (e) => e.hidden && getComputedStyle(e).display === "none")) && (await page.$eval("#dock", (e) => e.getBoundingClientRect().height)) <= 34);
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
@@ -789,7 +790,7 @@ const OK_API = {
   await page.click(".sys-u"); await page.waitForTimeout(600);
   ok("[H] SYS: CHECK CREDITS asks the Worker for the usage (1 credit, on request only)", t7.calls.filter((c) => c === "GET /api/status?usage=1").length === 1 && t7.calls.filter((c) => c.startsWith("GET /api/status")).length === 2);
   // WS
-  await page.evaluate(() => document.querySelector("#tabs .sys-btn:nth-child(3)").click()); await page.waitForTimeout(300); // CLOSE all
+  await page.evaluate(() => document.querySelector("#tabs .tb-close").click()); await page.waitForTimeout(300); // CLOSE all
   await cmd(page, "WS MSFT"); await page.waitForTimeout(1500);
   ok("[H] WS: a ticker workspace — chart, description, options and news", (await page.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent).sort().join())) === "DES,GP,N,OMON" && !!(await winOf(page, "DES · MSFT")) && !!(await winOf(page, "OPTIONS · MSFT")));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-ws.png" });

@@ -31,17 +31,17 @@
   #app{display:flex;flex-direction:column;height:100%;min-height:0}
 
   /* command bar */
-  #cmdbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:7px 12px;background:linear-gradient(180deg,#121620,#0d1015);border-bottom:1px solid var(--line-2)}
+  #cmdbar{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;padding:5px 10px;background:linear-gradient(180deg,#121620,#0d1015);border-bottom:1px solid var(--line-2)}
   .brand{display:flex;align-items:baseline;gap:6px;white-space:nowrap;letter-spacing:.14em;font-weight:700;font-size:13px}
   .brand .b-dot{color:var(--amber)}
   .brand small{color:var(--muted);font-weight:500;letter-spacing:.24em;font-size:9.5px}
-  .cmd-wrap{position:relative;flex:1 1 260px;min-width:170px}
+  .cmd-wrap{position:relative;flex:0 0 240px;min-width:0}
   .cmd-wrap::before{content:">";position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--amber);font-weight:700}
-  #cmd{width:100%;background:#05060880;border:1px solid var(--line-2);border-radius:3px;color:var(--fg);padding:6px 10px 6px 22px;font:inherit;letter-spacing:.06em;text-transform:uppercase}
+  #cmd{width:100%;background:#05060880;border:1px solid var(--line-2);border-radius:3px;color:var(--fg);padding:4px 8px 4px 20px;font-size:12px;font:inherit;letter-spacing:.06em;text-transform:uppercase}
   #cmd::placeholder{color:var(--dim);text-transform:none;letter-spacing:0}
   #cmd.err{border-color:var(--down);animation:shake .3s}
   @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
-  .status-right{display:flex;align-items:center;gap:14px;white-space:nowrap;font-size:11px;color:var(--muted)}
+  .status-right{flex:0 0 auto;margin-left:auto;display:flex;align-items:center;gap:14px;white-space:nowrap;font-size:11px;color:var(--muted)}
   /* top-right status, one line: ● LIVE 19:13 · 39/140 open · next USD … in 46m   19:13:09 */
   .tstat{display:flex;align-items:center;gap:6px;color:var(--fg);font-size:12px;min-width:0;overflow:hidden}
   .tstat .tdot{color:var(--dim);font-size:11px;line-height:1}
@@ -56,11 +56,14 @@
   @keyframes pulse{70%{box-shadow:0 0 0 6px rgba(46,194,138,0)}100%{box-shadow:0 0 0 0 rgba(46,194,138,0)}}
 
   /* taskbar */
-  #tabs{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--panel-2);border-bottom:1px solid var(--line);overflow-x:auto}
-  .sys-btn{background:var(--panel);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:4px 9px;font:inherit;font-size:10px;letter-spacing:.08em;cursor:pointer;white-space:nowrap}
+  #tabs{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:5px;overflow-x:auto;scrollbar-width:none}
+  #tabs::-webkit-scrollbar{display:none}
+  #tabs.ovf{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+  .sys-btn.ico{padding:3px 7px;font-size:11px;letter-spacing:0}
+  .sys-btn{flex:0 0 auto;background:var(--panel);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:3px 8px;font:inherit;font-size:10px;letter-spacing:.08em;cursor:pointer;white-space:nowrap}
   .sys-btn:hover{color:var(--fg);border-color:var(--amber)}
   .tb-sep{width:1px;height:16px;background:var(--line-2);flex:0 0 auto}
-  .tb-win{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:4px 8px;font:inherit;font-size:10.5px;cursor:pointer;white-space:nowrap}
+  .tb-win{flex:0 0 auto;display:flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:3px 7px;font:inherit;font-size:10.5px;cursor:pointer;white-space:nowrap}
   .tb-win:hover{color:var(--fg)}
   .tb-win.active{border-color:var(--amber);color:var(--fg)}
   .tb-win.ismin{opacity:.5}
@@ -365,7 +368,12 @@
   .help-row span{color:var(--muted)}
   .help-close{margin-top:18px;background:var(--amber);color:#000;border:0;border-radius:3px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
 
+  @media (max-width:1180px){
+    #cmdbar{flex-wrap:wrap;row-gap:6px}
+    #tabs{order:5;flex:1 1 100%}
+  }
   @media (max-width:880px){
+    .cmd-wrap{flex:1 1 200px}
     body{overflow:auto}
     #app{height:auto;min-height:100%}
     #desk{overflow:visible;display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--bg)}
@@ -441,16 +449,15 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="brand">ALESSANDRO<span class="b-dot">°</span>TERMINAL <small>MKTS</small></div>
     <div class="cmd-wrap">
       <input id="cmd" autocomplete="off" spellcheck="false" aria-label="Command line"
-             placeholder="Ticker, company name or function  —  e.g. NVDA, Novartis, NESN, WL, HELP">
+             placeholder="Ticker, company or function" title="Ticker, company name or function — e.g. NVDA, Novartis, NESN, WL, HELP">
     </div>
+    <div id="tabs" aria-label="Open windows"></div>
     <div class="status-right">
       <span class="lang notranslate" role="group" aria-label="Language"><button type="button" data-lang="en">EN</button><button type="button" data-lang="it">IT</button></span>
       <span class="tstat" id="topStatus"><span class="tdot" id="tsDot">●</span><button type="button" class="tlink tlab" id="tsLabel" title="">LOADING</button> <span id="tsTime"></span><span class="tsep">·</span><button type="button" class="tlink" id="mktsOpen" title="">—</button><span class="tsep">·</span><span class="tnext"><span id="tsNext">next</span> <button type="button" class="tlink" id="nextEv" title="">—</button></span></span>
       <time class="tclock" id="clk">--:--:--</time>
     </div>
   </div>
-
-  <div id="tabs" aria-label="Open windows"></div>
 
   <div id="desk" aria-label="Workspace"></div>
 
@@ -2438,19 +2445,21 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   /* ---------- taskbar + launcher ---------- */
   function renderTaskbar(){const bar=$('#tabs');bar.innerHTML='';
-    const fm=document.createElement('button');fm.className='sys-btn fm-btn';fm.id='fnMenuBtn';fm.textContent=tl('☰ FUNCTIONS','☰ FUNZIONI');fm.title=tl('all functions by category (m)','tutte le funzioni per categoria (m)');fm.onclick=()=>toggleMenu();bar.appendChild(fm);
-    [['TILE',tileAll],['⊟ CLOSE',closeAll],['↩ UNDO',undoClose]].forEach(([lbl,fn])=>{const b=document.createElement('button');b.className='sys-btn';b.textContent=lbl;b.onclick=fn;bar.appendChild(b);});
+    // (☰ FUNCTIONS lives in the dock at the bottom; here only the window tools, as icons)
+    [['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
     if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
     const sep=document.createElement('span');sep.className='tb-sep';bar.appendChild(sep);
-    if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);return;}
+    if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);tabsOvf();return;}
     wins.forEach(w=>{const c=document.createElement('button');c.className='tb-win'+(w.id===activeId?' active':'')+(w.min?' ismin':'');c.dataset.id=w.id;
       c.innerHTML=`<i></i>${WINTYPES[w.type].tag}${w.type==='GP'?' '+w.state.ticker:''}`;
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
-      bar.appendChild(c);});}
+      bar.appendChild(c);});
+    const a=bar.querySelector('.tb-win.active');if(a&&(a.offsetLeft<bar.scrollLeft||a.offsetLeft+a.offsetWidth>bar.scrollLeft+bar.clientWidth))bar.scrollLeft=a.offsetLeft-bar.clientWidth/2;tabsOvf();}
+  function tabsOvf(){const b=$('#tabs');if(b)b.classList.toggle('ovf',b.scrollWidth>b.clientWidth+2&&b.scrollLeft+b.clientWidth<b.scrollWidth-2);}
   // a few functions, one click away (Nico's dock); everything else is in ☰ FUNCTIONS or the command line
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
     [['MENU',tl('☰ FUNCTIONS','☰ FUNZIONI')],['IDX','INDICES'],['WL','WATCHLIST'],['YLD','YIELDS'],['CAL','CALENDAR'],['MAP','HEAT MAPS'],['BRF','BRIEFING'],['N','NEWS'],['MKT','MARKETS'],['PF','PORTFOLIO'],['HELP','? HELP']].forEach(([code,label])=>{
-      const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;
+      const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;if(code==='MENU'){b.id='fnMenuBtn';b.title=tl('all functions by category (m)','tutte le funzioni per categoria (m)');}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
@@ -2500,6 +2509,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   $('#help').addEventListener('click',e=>{if(e.target.id==='help')toggleHelp(false);});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}});
   let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
+  // the taskbar in the top row scrolls sideways (wheel too) and fades at the edge when windows overflow
+  {const tb=$('#tabs');tb.addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&tb.scrollWidth>tb.clientWidth){tb.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});tb.addEventListener('scroll',tabsOvf,{passive:true});window.addEventListener('resize',tabsOvf);}
 
   /* ---------- boot ---------- */
   function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();

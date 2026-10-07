@@ -81,7 +81,7 @@ MY STUFF (PORT ALRT NOTE SYS), LAYOUT (SET CLOSE UNDO TILE TOUR HELP). Type to f
 without an approved source are marked N/A. A ticker goes with a function in either order (`DES AAPL`,
 `AAPL OMON`, `WS MSFT`, `BT NVDA`, `CROSS NVDA AAPL`). `TOUR` walks through the interface.
 
-The bottom of the screen is one dock row (Nico's style): `☰ FUNCTIONS` and ten shortcuts (IDX, WL, YLD, CAL, MAP, BRF, N, MKT, PF, HELP) on the left, the data badge on the right (live / stale / N/A counts; its tooltip has the U.S. session, watchlist breadth and the last pull). The scrolling ticker tape is off by default (SETTINGS → TICKER TAPE).
+The top of the screen is one row: brand, a compact command line, the taskbar (▦ tile, ✕ close all, ↩ undo, then the open windows; it scrolls sideways and fades at the edge when they overflow) and the status with the clock. The bottom of the screen is one dock row (Nico's style): `☰ FUNCTIONS` and ten shortcuts (IDX, WL, YLD, CAL, MAP, BRF, N, MKT, PF, HELP) on the left, the data badge on the right (live / stale / N/A counts; its tooltip has the U.S. session, watchlist breadth and the last pull). The scrolling ticker tape is off by default (SETTINGS → TICKER TAPE).
 
 ## Scheduled briefings (Cron Trigger)
 Editions are written at their time whether or not the terminal is open: Daily 07:30 and Evening 22:30
