@@ -227,6 +227,13 @@ const IDX_HIST = (id) => { const eu = id === "SX5E" || id === "DAX", n = eu ? 64
   const pts = ds.map((d, i) => { const c = end - (n - 1 - i); return eu ? [d, c] : [d, c - 2, c + 5, c - 6, c]; });
   return { id, name: id, source: eu ? "STOXX (daily close)" : "Cboe (daily history)", sourceUrl: "https://www.stoxx.com/", note: eu ? "STOXX publishes the last 3 months for free" : null, fields: eu ? "close" : "ohlc", points: pts, from: pts[0][0], to: pts[pts.length - 1][0], count: pts.length, status: "LIVE", fetchedAt: T7_NOW() }; };
 const indicesApi = (u) => u.pathname === "/api/indices/history" ? { body: IDX_HIST(u.searchParams.get("id")) } : { body: IDX_FIX(u.searchParams.get("g")) };
+// markets board extras: ECB fixing (units per euro, two days) and IMF monthly prices
+const MKT_FX_FIX = () => ({ base: "EUR", status: "LIVE", source: "ECB euro reference rates (ECB Data Portal, EXR)", rates: [["USD", 1.1177, 1.1269], ["GBP", 0.84645, 0.8488], ["JPY", 176.85, 178.15], ["CHF", 0.9309, 0.9359], ["CAD", 1.5, 1.51], ["AUD", 1.7, 1.69], ["NZD", 1.9, 1.91], ["CNY", 7.9, 7.95]].map(([ccy, v, p]) => ({ ccy, date: dShift(today, -1), eurRate: v, prevDate: dShift(today, -2), prevRate: p })).concat([{ ccy: "TRY", status: "N/A", error: "no_data" }]) });
+const MKT_CMDTY_FIX = () => ({ status: "LIVE", source: "IMF Primary Commodity Prices (via FRED)", rows: [
+  { id: "PCOPPUSDM", name: "Copper", unit: "$/t", group: "Metals", freq: "M", date: "2026-07-01", value: 13542.82, prevDate: "2026-06-01", prev: 13552, chgPct: -0.068, yoyPct: 12.5 },
+  { id: "PWHEAMTUSDM", name: "Wheat", unit: "$/t", group: "Agriculture", freq: "M", date: "2026-07-01", value: 228.74, prevDate: "2026-06-01", prev: 199.65, chgPct: 14.5709, yoyPct: null },
+  { id: "PCOCOUSDM", name: "Cocoa", unit: "$/t", group: "Agriculture", status: "N/A", error: "no_data" }] });
+const marketsApi = (u) => u.pathname === "/api/markets/fx" ? { body: MKT_FX_FIX() } : { body: MKT_CMDTY_FIX() };
 const t07Api = (u, method, body, st) => {
   const p = u.pathname; st.calls.push(method + " " + p + u.search);
   if (p === "/api/cb") return { body: CB_FIX() };
@@ -281,6 +288,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/markets/")) return send(api.markets ? api.markets(u) : marketsApi(u));
     if (u.origin === ORIGIN && (u.pathname === "/api/indices" || u.pathname === "/api/indices/history")) return send(api.indices ? api.indices(u) : indicesApi(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
@@ -351,9 +359,12 @@ const OK_API = {
   // markets
   await page.waitForTimeout(800);
   const mkt = await winOf(page, "MARKETS");
-  ok("[A] markets: FX, crypto, metals with real-shaped quotes", /EUR\/USD[\s\S]*1\.12601/.test(mkt.text) && /BTC\/USD[\s\S]*85,650\.01/.test(mkt.text) && /XAU\/USD[\s\S]*4,165\.24/.test(mkt.text), mkt.text.slice(0, 300));
-  ok("[A] markets: FX volume N/A, equity volume PARTIAL", /EUR\/USD[^\n]*\n?[^\n]*N\/A/.test(mkt.text) && /537\.8K\s*PART/.test(mkt.text));
-  ok("[A] markets: the main indices from /api/indices (a failed one N/A with its reason); commodities still N/A", /INDICES[\s\S]*SPX\s+S&P 500\s+7,800\.12\s+-0\.24%/.test(mkt.text) && /DJI\s+Dow Jones Industrial Average\s+51,215\.00[\s\S]*?DRV/.test(mkt.text) && /RUT\s+Russell 2000\s+N\/A — provider timed out/.test(mkt.text) && /WTI[\s\S]*N\/A — not available on the current data plan/.test(mkt.text), (mkt.text.match(/INDICES[\s\S]{0,400}/) || [])[0]);
+  ok("[A] markets: live FX majors and gold (Twelve Data), equity volume PARTIAL, FX volume N/A", /EUR\/USD[\s\S]*1\.12601/.test(mkt.text) && /XAU\/USD[\s\S]*4,165\.24/.test(mkt.text) && /537\.8K\s*PART/.test(mkt.text) && /EUR\/USD[^\n]*\n?[^\n]*N\/A/.test(mkt.text), mkt.text.slice(0, 300));
+  ok("[A] markets: the main indices from /api/indices (a failed one N/A with its reason)", /INDICES[\s\S]*SPX\s+S&P 500\s+7,800\.12\s+-0\.24%/.test(mkt.text) && /DJI\s+Dow Jones Industrial Average\s+51,215\.00[\s\S]*?DRV/.test(mkt.text) && /RUT\s+Russell 2000\s+N\/A — provider timed out/.test(mkt.text), (mkt.text.match(/INDICES[\s\S]{0,400}/) || [])[0]);
+  const chfPrev = 0.9359, chf = 0.9309;
+  ok("[A] markets: more FX from the ECB fixing — EUR pairs as published, dollar pairs DERIVED through the same fixing, a missing currency skipped", /EUR\/CHF\s+ECB reference rate\s+0\.9309\s+-0\.53%/.test(mkt.text) && new RegExp("USD/CHF\\s+ECB fixing, via the dollar rate\\s+" + (chf / 1.1177).toFixed(4).replace(".", "\\.") + "\\s+\\+" + ((chf / 1.1177) / (chfPrev / 1.1269) * 100 - 100).toFixed(2).replace(".", "\\.") + "%[\\s\\S]*?DRV").test(mkt.text) && /AUD\/USD\s+ECB fixing, via the dollar rate\s+0\.6575/.test(mkt.text) && /USD\/TRY\s+not in the ECB fixing\s+N\/A/.test(mkt.text), (mkt.text.match(/FX[\s\S]{0,900}/) || [])[0]);
+  ok("[A] markets: gold in euro DERIVED; silver / platinum / palladium N/A (plan); copper an IMF monthly average with its month", /XAU\/EUR\s+Gold in euro\s+3,699\.11[\s\S]*?DRV/.test(mkt.text) && /XAG · XPT · XPD\s+N\/A — silver, platinum, palladium: Twelve Data Grow plan/.test(mkt.text) && /COPP\s+Copper \(\$\/t\) M\s+13,543\s+-0\.07%\s+—\s+Jul 2026/.test(mkt.text), (mkt.text.match(/METALS[\s\S]{0,600}/) || [])[0]);
+  ok("[A] markets: energy spot with its date (EIA), a missing series N/A; agriculture monthly; crypto from Alpaca by traded value", /WTI\s+WTI crude \(Cushing\) \(\$\/bbl\)\s+62\.31\s+\+0\.40%/.test(mkt.text) && /BRENT\s+Brent crude \(Europe\)\s+N\/A/.test(mkt.text) && /WHEAMT\s+Wheat \(\$\/t\) M\s+228\.74\s+\+14\.57%/.test(mkt.text) && /COCO\s+Cocoa\s+N\/A/.test(mkt.text) && /CRYPTO[\s\S]*BTC\/USD[\s\S]*86,000\s+\+1\.18%\s+\$1\.20B/.test(mkt.text) && mkt.text.indexOf("BTC/USD") < mkt.text.indexOf("ETH/USD"), (mkt.text.match(/ENERGY[\s\S]{0,900}/) || [])[0]);
   // indices
   await cmd(page, "IDX");
   const idx = await winOf(page, "WORLD INDICES");
@@ -513,6 +524,9 @@ const OK_API = {
   const DOWN = {
     yieldsIds: () => ({ status: 502, body: { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } } } }),
     indices: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
+    markets: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
+    spx: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
+    noEia: true,
     briefs: () => ({ status: 503, body: { error: "storage_not_configured", status: "N/A" } }),
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
     history: () => ({ status: 429, body: { error: "rate_limited", status: "N/A" } }),
@@ -520,7 +534,7 @@ const OK_API = {
   };
   const { page, errors } = await openTerminal(DOWN);
   await page.waitForFunction(() => /N\/A/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
-  for (const c of ["CAL", "N", "BRF", "IDX"]) await cmd(page, c);
+  for (const c of ["CAL", "N", "BRF", "IDX", "MKT"]) await cmd(page, c);
   await page.waitForTimeout(1200);
   const body = await page.evaluate(() => document.body.innerText);
   ok("[B] no price anywhere (no fallback value)", !/\$\d/.test(body) && !/\d\.\d{3,}/.test(body), (body.match(/.{20}(\$\d|\d\.\d{3,}).{10}/) || [])[0]);

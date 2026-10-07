@@ -42,7 +42,7 @@ ok("none of the former seed prices, index levels, yields or cost bases", !OLD_SE
 const REMOVED = ["META", "GS", "XOM", "CVX", "LLY", "UNH", "TSLA", "COST", "CAT", "BA", "AVGO"];
 ok("none of the 12 formerly simulated tickers", !REMOVED.some((s) => new RegExp(`["'\\b]${s}["'\\b]`).test(script)), REMOVED.filter((s) => new RegExp(`["'\\b]${s}["'\\b]`).test(script)).join());
 const wl = JSON.parse((script.match(/DEFAULT_WATCHLIST=(\[[^\]]*\])/) || [])[1] || "[]");
-ok("instruments = default watchlist + verified markets board, nothing else", wl.join() === "NVDA,AAPL,MSFT,AMZN,GOOGL,JPM" && /UNI=WATCH\.map\(inst\)/.test(script) && /MARKET_GROUPS=\[\["FX",\["EUR\/USD","GBP\/USD","USD\/JPY"\]\],\["CRYPTO",\["BTC\/USD","ETH\/USD"\]\],\["METALS",\["XAU\/USD"\]\]\]/.test(script), wl.join());
+ok("instruments = default watchlist + verified markets board (+ BTC/ETH for the briefing), nothing else", wl.join() === "NVDA,AAPL,MSFT,AMZN,GOOGL,JPM" && /UNI=WATCH\.map\(inst\)/.test(script) && /MARKET_GROUPS=\[\["FX",\["EUR\/USD","GBP\/USD","USD\/JPY"\]\],\["METALS",\["XAU\/USD"\]\]\]/.test(script) && /BRIEF_SYMS=MARKET_SYMS\.concat\(\["BTC\/USD","ETH\/USD"\]\)/.test(script), wl.join());
 ok("no currency conversion (no live FX source)", !/id="ccy"|CCYRATE|fx\(/.test(html));
 ok("no hand-written company descriptions", !/\bDES\b —|desc:/.test(html));
 ok("no currency symbol on FX / crypto / metal rates (no conversion invented)", /function pxText\(t,v\)\{[^}]*includes\('\/'\)/.test(script));

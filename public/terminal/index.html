@@ -575,8 +575,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const DEFAULT_WATCHLIST=["NVDA","AAPL","MSFT","AMZN","GOOGL","JPM"];
   // Markets board: instruments verified live on the current plan (test 2026-10-06).
   // Indices and commodities are not available on it: shown as N/A, never substituted.
-  const MARKET_GROUPS=[["FX",["EUR/USD","GBP/USD","USD/JPY"]],["CRYPTO",["BTC/USD","ETH/USD"]],["METALS",["XAU/USD"]]];
+  const MARKET_GROUPS=[["FX",["EUR/USD","GBP/USD","USD/JPY"]],["METALS",["XAU/USD"]]];
   const MARKET_SYMS=MARKET_GROUPS.flatMap(g=>g[1]);
+  // the briefing written on request also reads bitcoin and ether quotes (the markets board takes crypto from Alpaca)
+  const BRIEF_SYMS=MARKET_SYMS.concat(["BTC/USD","ETH/USD"]);
   // static reference: GICS sector classification (not market data)
   const SECT={IT:"INFORMATION TECHNOLOGY",CD:"CONSUMER DISCRETIONARY",CS:"COMMUNICATION SERVICES",FIN:"FINANCIALS",OTHER:"OTHER · NO SECTOR SOURCE"};
   const SECTOR_OF={NVDA:"IT",AAPL:"IT",MSFT:"IT",AMZN:"CD",GOOGL:"CS",JPM:"FIN"};
@@ -594,7 +596,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function applyMeta(t){const m=META[t.sym];if(!m)return;t.name=t.name||m.name||null;t.ex=t.ex||m.exchange||null;t.cur=t.cur||m.currency||null;t.mic=m.mic||null;t.country=m.country||null;t.itype=m.type||null;t.planRequired=m.planRequired||null;
     if(m.quotable===false&&!t.q){t._planBlocked=true;t.qErr='plan_required';t._histErr='plan_required';t._intraErr='plan_required';}}
   let UNI=[];  // the watchlist: universe of WL, MOV, HEAT, SCR, COMP, CORR, tape
-  function rebuildUni(){UNI=WATCH.map(inst);MARKET_SYMS.forEach(inst);}
+  function rebuildUni(){UNI=WATCH.map(inst);BRIEF_SYMS.forEach(inst);}
   rebuildUni();
   function isLiveSym(sym){return !!BY[sym];}
 
@@ -643,7 +645,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     interval(){const qs=UNI.filter(t=>t.q);const closed=qs.length&&qs.every(t=>t.q.marketOpen===false);return closed?CONFIG.quoteRefreshClosedMs:CONFIG.quoteRefreshOpenMs;},
     schedule(){clearTimeout(this._timer);this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
     // symbols on screen: watchlist, the markets board when open, open security windows
-    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&(w.type==='MKT'||w.type==='BRF')))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PF'))pfNeeded().forEach(x=>{inst(x);s.add(x);});
+    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&w.type==='MKT'))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='BRF'))BRIEF_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PF'))pfNeeded().forEach(x=>{inst(x);s.add(x);});
       if(wins.some(w=>!w.min&&w.type==='FXB'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='CMDTY'))s.add('XAU/USD');
       wins.forEach(w=>{if(w.min)return;if(w.type==='BOARD'){const b=BRD.boards&&brdActive(w);if(b)b.syms.forEach(x=>{inst(x);s.add(x);});}if(w.type==='DES'&&w.state.sym){inst(w.state.sym);s.add(w.state.sym);}});
       alrtSyms().forEach(x=>{inst(x);s.add(x);});wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
@@ -702,7 +704,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   async function loadExt(name,force){const e=EXT[name];if(e.loading)return;if(!force&&e.at&&Date.now()-e.at<EXT_TTL[name])return;e.loading=true;
     let path=EXT_PATH[name]||'/api/'+name;
     if(name==='news')path+='?tickers='+encodeURIComponent(WATCH.filter(x=>!x.includes('/')&&!x.includes(':')).join(','));
-    if(name==='briefing')path+='?symbols='+encodeURIComponent(WATCH.concat(MARKET_SYMS).join(','))+(force?'&refresh=1':'');
+    if(name==='briefing')path+='?symbols='+encodeURIComponent(WATCH.concat(BRIEF_SYMS).join(','))+(force?'&refresh=1':'');
     try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
       if(!j)throw new Error('http '+r.status);e.data=j;e.err=null;}
     catch(x){e.err='network';console.warn('[data]',name,'failed:',x&&x.message);}
@@ -1041,19 +1043,67 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---- MARKETS: real quotes grouped by asset class; unavailable classes shown as N/A ----
   function mktRow(t){const st=instStatus(t);return`<tr data-sym="${t.sym}" tabindex="0" role="button" title="${esc(instTitle(t))}"><td>${t.sym}</td><td class="l nm">${esc(t.name||'—')}</td><td class="num">${pxText(t)}</td><td class="num ${cls(t.chg)}">${pct(t.chg)}</td><td class="num">${fin(t.vol)?fmtVol(t.vol)+' '+chip(fStatus(t,'volume'),fnote(t,'volume',VOL_NOTE)):'<span class="na" title="the provider sends no volume for this instrument">N/A</span>'}</td><td>${t.q?fmtHM(t.q.timestamp):'—'}</td><td>${chip(st,instTitle(t))}</td></tr>`;}
-  function renderMarkets(body,win){const items={};
+  // ---- MARKETS board: every asset class on one page. Live quotes (Twelve Data: watchlist, 3 FX majors, gold), indices (IDX),
+  // more currencies from the ECB daily fixing, metals and commodities (EIA energy spot; IMF monthly averages via FRED),
+  // crypto (Alpaca). Each row says what it is — live, 15-min delayed, a daily fixing, a close or a monthly average — with its date.
+  // Only the watchlist, 3 FX pairs and gold use Twelve Data credits ----
+  const MKT_FX=[['EUR','CHF'],['EUR','GBP'],['EUR','JPY'],['USD','CHF'],['USD','CAD'],['AUD','USD'],['NZD','USD'],['USD','CNY'],['USD','HKD'],['USD','SGD'],['USD','SEK'],['USD','NOK'],['USD','PLN'],['USD','TRY'],['USD','INR'],['USD','BRL'],['USD','MXN'],['USD','ZAR'],['USD','KRW']];
+  const MKT_ENERGY=['DCOILWTICO','DCOILBRENTEU','DHHNGSP','DGASNYH','DHOILNYH','RWTC','RBRTE','RNGWHHD','EER_EPMRU_PF4_Y35NY_DPG','EER_EPD2F_PF4_Y35NY_DPG'];
+  const fxNum=v=>!fin(v)?'—':v.toLocaleString('en-US',{minimumFractionDigits:v<10?4:2,maximumFractionDigits:v<10?4:2});
+  const monthOf2=d=>{const t=new Date(String(d).slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{month:'short',year:'numeric',timeZone:'UTC'}):'—';};
+  function mktX(o){return`<tr${o.attr||''} title="${esc(o.title||'')}"><td class="notranslate">${esc(o.sym)}</td><td class="l nm">${esc(o.name)}${o.m?` <span class="yw-mb" title="${tl('monthly average','media mensile')}">M</span>`:''}</td><td class="num">${o.last}</td><td class="num ${cls(o.chg)}">${pctN(o.chg)}</td><td class="num">${o.vol||'<span class="dim">—</span>'}</td><td>${o.time}</td><td>${chip(o.st,o.title)}</td></tr>`;}
+  const mktGrp=(t,sub)=>`<tr class="grp"><td colspan="7">${t}${sub?` <span class="k" style="letter-spacing:0;text-transform:none">· ${sub}</span>`:''}</td></tr>`;
+  const mktWait=(e,what)=>!e.data&&!e.err?`<tr><td colspan="7" class="dim l">${tl('Loading','Caricamento')} ${what}…</td></tr>`:null;
+  const mktNA=(e,what)=>{const d=e.data,err=(d&&d.error)||e.err;return`<tr><td class="na">—</td><td class="l na" colspan="5">N/A — ${what}: ${esc(P.errorText(err||'no_data'))}</td><td>${chip(S.NA,String(err||''))}</td></tr>`;};
+  function mktLoad(){IDX_G.forEach(g=>idxG(g));get7('/api/markets/fx',3600000,['MKT']);get7('/api/markets/cmdty',6*3600000,['MKT']);get7('/api/energy',3600000,['CMDTY','FCRV','MKT']);spxEnsure('1D','CRYPTO');}
+  function renderMarkets(body,win){const items={};mktLoad();win._load=mktLoad;
     // (not during boot: the first refresh fetches the watchlist first, then the board)
     const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length&&DATA.provider)DATA.fetchNow(missing);
-    const grp=(title,list)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+(list.length?list.map(t=>{items[t.sym]=instStatus(t);return mktRow(t);}).join(''):'<tr><td colspan="7" class="na">—</td></tr>');
-    const na=(title,names,why)=>`<tr class="grp"><td colspan="7">${title}</td></tr>`+names.map(n=>`<tr><td class="na">${n}</td><td class="l na" colspan="5">N/A — ${why}</td><td>${chip(S.NA,why)}</td></tr>`).join('');
+    const live=list=>list.map(t=>{items[t.sym]=instStatus(t);return mktRow(t);}).join('');
+    // FX: three live majors, then the ECB fixing (EUR pairs as published, others through the dollar rate of the same fixing)
+    const F=X7['/api/markets/fx']||{},fd=F.data;let fx=live(['EUR/USD','GBP/USD','USD/JPY'].map(x=>BY[x]));
+    const fxW=mktWait(F,tl('ECB rates','i cambi BCE'));
+    if(fxW)fx+=fxW;else if(!fd||!Array.isArray(fd.rates))fx+=mktNA(F,tl('ECB reference rates','cambi di riferimento BCE'));
+    else{const E={},Pv={};fd.rates.forEach(r=>{if(fin(r.eurRate)){E[r.ccy]=r.eurRate;Pv[r.ccy]=r.prevRate;}});const d0=(fd.rates.find(r=>r.ccy==='USD')||{}).date,st=fd.status==='STALE'?S.STALE:S.LIVE;items['ds:ecbfx']=st;
+      const rate=(a,b,M)=>{const x=b==='EUR'?1:M[b],y=a==='EUR'?1:M[a];return fin(x)&&fin(y)&&y?x/y:null;};
+      fx+=MKT_FX.map(([a,b])=>{const v=rate(a,b,E),p=rate(a,b,Pv),ch=fin(v)&&fin(p)?(v/p-1)*100:null,official=a==='EUR';
+        if(!fin(v))return mktX({sym:a+'/'+b,name:tl('not in the ECB fixing','assente dal fixing BCE'),last:naS(),chg:null,time:'—',st:S.NA,title:tl('the ECB did not publish this currency','la BCE non ha pubblicato questa valuta')});
+        return mktX({sym:a+'/'+b,name:official?tl('ECB reference rate','cambio di riferimento BCE'):tl('ECB fixing, via the dollar rate','fixing BCE, tramite il cambio del dollaro'),last:fxNum(v),chg:ch,time:`<span title="${tl('daily fixing around 16:00 CET','fixing giornaliero verso le 16:00')}">${dmy(d0)}</span>`,st:official?st:S.DERIVED,
+          title:`${a}/${b} · ECB ${d0||''}${official?'':' · '+tl('computed from the EUR rates of the same fixing (DERIVED)','calcolato dai cambi in euro dello stesso fixing (DERIVED)')} · ${tl('change vs the previous fixing','variazione rispetto al fixing precedente')}`});}).join('');}
+    // metals: gold live (and in euro, DERIVED), base metals as IMF monthly averages
+    const C=X7['/api/markets/cmdty']||{},cd=C.data,g=BY['XAU/USD'],eu=BY['EUR/USD'];let mt=live([g]);
+    if(g&&fin(g.px)&&eu&&fin(eu.px)){const v=g.px/eu.px,p=fin(g.prev)&&fin(eu.prev)?g.prev/eu.prev:null;items['ds:xaueur']=S.DERIVED;
+      mt+=mktX({sym:'XAU/EUR',name:tl('Gold in euro','Oro in euro'),last:v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),chg:fin(p)?(v/p-1)*100:null,time:g.q?fmtHM(g.q.timestamp):'—',st:S.DERIVED,title:tl('XAU/USD ÷ EUR/USD (Twelve Data), DERIVED','XAU/USD ÷ EUR/USD (Twelve Data), DERIVED')});}
+    mt+=`<tr><td class="na">XAG · XPT · XPD</td><td class="l na" colspan="5">N/A — ${tl('silver, platinum, palladium: Twelve Data Grow plan','argento, platino, palladio: piano Grow di Twelve Data')}</td><td>${chip(S.NA,'plan_required')}</td></tr>`;
+    const imf=grp=>{const w=mktWait(C,tl('IMF prices','prezzi FMI'));if(w)return w;if(!cd||!Array.isArray(cd.rows))return mktNA(C,tl('IMF monthly prices','prezzi mensili FMI'));const st=cd.status==='STALE'?S.STALE:S.LIVE;
+      return cd.rows.filter(r=>r.group===grp).map(r=>{if(r.status==='N/A'||!fin(r.value))return mktX({sym:r.id.replace(/^P|USDM$/g,''),name:r.name,last:naS(),chg:null,time:'—',st:S.NA,title:r.error||''});items['imf:'+r.id]=st;
+        return mktX({sym:r.id.replace(/^P|USDM$/g,''),name:`${r.name} (${r.unit})`,m:1,last:r.value.toLocaleString('en-US',{minimumFractionDigits:r.value<1000?2:0,maximumFractionDigits:r.value<1000?2:0}),chg:r.chgPct,time:`<span title="${tl('monthly average','media mensile')}">${monthOf2(r.date)}</span>`,st,
+          title:`${r.name} · IMF ${tl('monthly average','media mensile')} ${monthOf2(r.date)} · ${tl('vs the previous month','rispetto al mese precedente')}${fin(r.yoyPct)?' · '+tl('1 year','1 anno')+' '+pctN(r.yoyPct):''} · FRED ${r.id}`});}).join('');};
+    mt+=imf('Metals');
+    // energy: EIA daily spot (EIA, or the same series on FRED), dated
+    const En=X7['/api/energy']||{},ed=En.data;let en='';const ew=mktWait(En,tl('energy prices','prezzi dell\'energia'));
+    if(ew)en=ew;else if(!ed||!Array.isArray(ed.spot))en=mktNA(En,tl('energy spot prices','prezzi spot dell\'energia'));
+    else{const st=ed.status==='STALE'?S.STALE:S.LIVE,esym=x=>({DCOILWTICO:'WTI',RWTC:'WTI',DCOILBRENTEU:'BRENT',RBRTE:'BRENT',DHHNGSP:'NG',RNGWHHD:'NG',DGASNYH:'RBOB',EER_EPMRU_PF4_Y35NY_DPG:'RBOB',DHOILNYH:'HO',EER_EPD2F_PF4_Y35NY_DPG:'HO'})[x]||x;
+      en=ed.spot.filter(r=>MKT_ENERGY.includes(r.series)).map(r=>{if(!fin(r.value))return mktX({sym:esym(r.series),name:r.name,last:naS(),chg:null,time:'—',st:S.NA,title:r.error||''});items['en:'+r.series]=st;
+      return mktX({sym:esym(r.series),name:`${r.name} (${r.unit})`,last:r.value.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:3}),chg:r.chg1,time:`<span title="${tl('price date (EIA publishes about a week later)','data del prezzo (l\'EIA pubblica circa una settimana dopo)')}">${dmy(r.date)}</span>`,st,
+        title:`${r.name} · ${ed.source} · ${tl('spot price of','prezzo spot del')} ${r.date} · ${tl('change vs the previous day (DERIVED)','variazione rispetto al giorno precedente (DERIVED)')}`});}).join('');}
+    // crypto: Alpaca, by traded value
+    const cr=(spxRows('1D','CRYPTO')||[]).slice().sort((a,b)=>(b.dv||0)-(a.dv||0)).slice(0,10),Mc=mapSt('CRYPTO'),cps=spxPriceStatus('CRYPTO');let cy='';
+    if(!cr.length)cy=Mc.err.live&&Mc.err.recent?`<tr><td class="na">—</td><td class="l na" colspan="5">N/A — ${esc(P.errorText(Mc.err.live))}</td><td>${chip(S.NA)}</td></tr>`:`<tr><td colspan="7" class="dim l">${tl('Loading crypto…','Caricamento cripto…')}</td></tr>`;
+    else{items['ds:crypto']=cps;cy=cr.map(x=>mktX({sym:x.sym,name:x.name||x.sym,last:fin(x.last)?x.last.toLocaleString('en-US',{maximumSignificantDigits:6}):naS(),chg:x.chg,vol:fin(x.dv)?bigUsd(x.dv):null,time:x.src==='live'?fmtHM(x.lastT):esc(x.lastT||'—'),st:fin(x.chg)?(cps===S.STALE?S.STALE:S.LIVE):cps,attr:` data-crypto="1"`,
+      title:`${x.sym} · Alpaca · ${tl('1D change from the last daily close (UTC), DERIVED; volume = traded value of the last UTC day','variazione 1G dall\'ultima chiusura giornaliera (UTC), DERIVED; volume = controvalore dell\'ultimo giorno UTC')}`})).join('');}
     body.innerHTML=`<table class="pf mkt"><thead><tr><th>SYM</th><th class="l">NAME</th><th>LAST</th><th>CHG%</th><th>VOLUME</th><th>TIME</th><th>DATA</th></tr></thead><tbody>
-      ${grp('EQUITIES · WATCHLIST',UNI.filter(t=>!t.sym.includes('/')))}
-      ${MARKET_GROUPS.map(([g,syms])=>grp(g,syms.map(x=>BY[x]))).join('')}
+      ${mktGrp('EQUITIES · WATCHLIST')}${live(UNI.filter(t=>!t.sym.includes('/')))||'<tr><td colspan="7" class="na">—</td></tr>'}
       ${mktIdx(items)}
-      ${na('COMMODITIES',['WTI','BRENT','NAT GAS'],'not available on the current data plan')}
-    </tbody></table><div class="scr-count">Equity volume is PARTIAL (venue subset). The provider sends no volume for FX, crypto and gold: N/A.</div>`;
-    setProv(win,items);bindFocusRows(body);win._load=()=>IDX_G.forEach(g=>idxG(g));
-    $$('tr[data-ix]',body).forEach(tr=>{const go=()=>{const w=openOrFocus('IDX',{});w.state.id=tr.dataset.ix;paintWin(w);};tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});}
+      ${mktGrp('FX',tl('3 live (Twelve Data) · ECB daily fixing','3 live (Twelve Data) · fixing giornaliero BCE'))}${fx}
+      ${mktGrp(tl('METALS','METALLI'),tl('gold live · base metals: IMF monthly average','oro live · metalli industriali: media mensile FMI'))}${mt}
+      ${mktGrp(tl('ENERGY','ENERGIA'),tl('EIA daily spot, about a week behind','spot giornaliero EIA, circa una settimana di ritardo'))}${en}
+      ${mktGrp(tl('AGRICULTURE','AGRICOLTURA'),tl('IMF monthly average','media mensile FMI'))}${imf('Agriculture')}
+      ${mktGrp('CRYPTO',tl('Alpaca, top 10 by traded value','Alpaca, prime 10 per controvalore'))}${cy}
+    </tbody></table><div class="scr-count">${tl('Equity volume is PARTIAL (venue subset); FX, gold and the daily or monthly series have no volume. Futures prices (CME, ICE) are licensed: commodities are spot prices or monthly averages, each with its date. Silver, platinum and palladium need the Twelve Data Grow plan.','Il volume delle azioni è PARTIAL (sottoinsieme di sedi); FX, oro e serie giornaliere o mensili non hanno volume. I prezzi dei futures (CME, ICE) sono a licenza: le materie prime sono prezzi spot o medie mensili, ognuno con la sua data. Argento, platino e palladio richiedono il piano Grow di Twelve Data.')}</div>`;
+    setProv(win,items);bindFocusRows(body);
+    $$('tr[data-ix]',body).forEach(tr=>{const go=()=>{const w=openOrFocus('IDX',{});w.state.id=tr.dataset.ix;paintWin(w);};tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});
+    $$('tr[data-crypto]',body).forEach(tr=>{tr.style.cursor='pointer';tr.onclick=()=>openOrFocus('CRYPTO',defaultState('CRYPTO'));});}
 
   // ---- INDICES (IDX): Cboe 15-minute delayed quotes (US, MSCI EAFE / EM), STOXX and Nikkei daily closes, FRED (Nasdaq
   // Composite; the official close stands in when Cboe does not answer). Levels only as /api/indices returns them;
@@ -1523,9 +1573,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     catch(e){BRF.fail['L:'+k]='network';}finally{BRF.loading['L:'+k]=false;Object.keys(BRF.at).forEach(p=>BRF.at[p]=0);brfRepaint();}}
   // write the edition that is due: warm the real inputs first (each in its own request), then ask the Worker to write it
   async function brfWrite(period,force){if(BRF.writing[period])return;BRF.writing[period]=true;BRF.fail['w:'+period]=null;brfRepaint();
-    try{const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x]._pending);
+    try{const missing=BRIEF_SYMS.filter(x=>!BY[x].q&&!BY[x]._pending);
       await Promise.all([spxGet('u','/api/spx/universe'),spxGet('recent','/api/spx/closes?ref=recent'),loadPress(),loadExt('yields'),loadExt('calendar'),missing.length?DATA.fetchNow(missing):null]);
-      const syms=WATCH.concat(MARKET_SYMS).join(',');
+      const syms=WATCH.concat(BRIEF_SYMS).join(',');
       for(let tries=0;tries<6;tries++){
         const r=await fetch(`${CONFIG.proxyBase}/api/briefs/write?period=${period}${force?'&force=1':''}&symbols=${encodeURIComponent(syms)}`,{method:'POST',cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
         if(r.status===202){await new Promise(z=>setTimeout(z,15000));force=false;continue;}
@@ -1773,7 +1823,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(!j||j.error){M.err[key]=(j&&j.error)||('http '+r.status);}
       else{M.err[key]=null;if(key.startsWith('ref:'))M.refs[key.slice(4)]=j;else M[key]=j;}}
     catch(e){M.err[key]='network';}
-    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'||w.type==='ETFB'))liveRepaint(w);});updateGlobal();}}
+    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'||w.type==='ETFB'||w.type==='MKT'))liveRepaint(w);});updateGlobal();}}
   function spxEnsure(metric,u='SPX'){if(u==='FX')return fxEnsure();
     spxGet('u','/api/spx/universe'+mapQ(u),false,u);spxGet('recent','/api/spx/closes'+mapQ(u,'ref=recent'),false,u);spxGet('live','/api/spx/live'+mapQ(u),false,u);
     if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes'+mapQ(u,'ref='+encodeURIComponent(metric)),false,u);
@@ -2131,7 +2181,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // ---------- FCRV: NYMEX energy futures settlements, contracts 1–4 (EIA) ----------
   function renderFcrv(body,win){const e=get7('/api/energy',3600000,['CMDTY','FCRV']);win._load=()=>get7('/api/energy',3600000,['CMDTY','FCRV']);const d=e.data;
     if(!d&&!e.err){setProv(win,{'ds:FCRV':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading EIA futures prices…','Caricamento dei futures EIA…')}</div>`;return;}
-    if(d&&d.error==='eia_not_configured'){setProv(win,{'ds:FCRV':S.NA});body.innerHTML=keyB(tl('Energy futures curves (U.S. EIA)','Curve dei futures energetici (EIA USA)'),'EIA_KEY','https://www.eia.gov/opendata/');return;}
+    if(d&&(d.error==='eia_not_configured'||(Array.isArray(d.curves)&&d.curves.length&&d.curves.every(c=>c.error==='eia_not_configured')))){setProv(win,{'ds:FCRV':S.NA});body.innerHTML=keyB(tl('Energy futures curves (U.S. EIA)','Curve dei futures energetici (EIA USA)'),'EIA_KEY','https://www.eia.gov/opendata/');return;}
     if(!d||!Array.isArray(d.curves)){setProv(win,{'ds:FCRV':S.NA});body.innerHTML=naB(tl('EIA futures prices unavailable','futures EIA non disponibili'),(d&&d.error)||e.err);return;}
     const items={};
     body.innerHTML=d.curves.map((c,i)=>{if(c.status==='N/A'){items['fc:'+c.id]=S.NA;return`<div class="yc"><div class="yc-h">${esc(c.name.toUpperCase())} ${chip(S.NA)}</div>${naB(tl('curve unavailable','curva non disponibile'),c.error)}</div>`;}
@@ -2419,7 +2469,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     SCR:{tag:'SCR',w:640,h:430,title:()=>'EQUITY SCREENER',render:renderScreener},
     COMP:{tag:'COMP',w:600,h:510,title:()=>'COMPARE',render:renderCompare},
     CORR:{tag:'CORR',w:560,h:420,title:()=>'CORRELATION',render:renderCorr},
-    MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
+    MKT:{tag:'MKT',w:720,h:640,title:()=>'MARKETS',render:renderMarkets},
     MAP:{tag:'MAP',w:980,h:620,title:mapTitle,render:renderMap},
     IDX:{tag:'IDX',w:900,h:680,title:()=>'WORLD INDICES',render:renderIndices},
     YLD:{tag:'YLD',w:780,h:600,title:()=>'GOVERNMENT YIELDS',render:renderYields},
