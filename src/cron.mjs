@@ -41,8 +41,10 @@ export function cronPlan(now = Date.now()) {
   for (const [t, periods] of Object.entries(slots)) {
     const T = Number(t), steps = stepsFor(periods), start = T - steps.length - BUFFER_MIN, rel = minutes - T;
     const base = { date, periods, slotAt: now - rel * MIN, startAt: now - (minutes - start) * MIN };
-    if (minutes >= start && minutes < start + steps.length) return { action: "step", step: steps[minutes - start], steps, first: minutes === start, ...base };
-    if (periods.includes("evening") && (rel === 0 || rel === 1)) return { action: "step", step: rel === 0 ? "closes" : "retry", steps: ["closes", ...steps], ...base };
+    // the k-th retry of this slot (retries take turns over the inputs still missing: one failing source
+    // must not use up every retry while another missing input waits behind it)
+    if (minutes >= start && minutes < start + steps.length) { const i = minutes - start; return { action: "step", step: steps[i], steps, first: minutes === start, retryNo: steps.slice(0, i).filter((x) => x === "retry").length, ...base }; }
+    if (periods.includes("evening") && (rel === 0 || rel === 1)) return { action: "step", step: rel === 0 ? "closes" : "retry", steps: ["closes", ...steps], retryNo: steps.filter((x) => x === "retry").length, ...base };
     for (const p of periods) if (WRITE_RETRY.some((r) => rel === WRITE_OFFSET[p] + r)) return { action: "write", period: p, ...base };
   }
   return { action: "idle", date, minutes };
@@ -90,8 +92,11 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
     return n === MARKET_SYMS.length ? "ok" : n ? "partial" : (res.find(([, r]) => r && r.err) || [])[1]?.err || "no_data";
   }
   if (step === "retry") {
-    for (const s of plan.steps) if (s !== "retry" && !(await isStaged(s, plan, sctx.store, now))) return `${s}: ${await runStep(s, plan, origin, env, sctx, now, deps)}`;
-    return "nothing_missing";
+    const missing = [];
+    for (const s of plan.steps) if (s !== "retry" && !missing.includes(s) && !(await isStaged(s, plan, sctx.store, now))) missing.push(s);
+    if (!missing.length) return "nothing_missing";
+    const s = missing[(plan.retryNo || 0) % missing.length];
+    return `${s}: ${await runStep(s, plan, origin, env, sctx, now, deps)}`;
   }
   return "unknown_step";
 }

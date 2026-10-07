@@ -130,7 +130,31 @@ export function parseBundesbank(text) {
 // United Kingdom — Bank of England: nominal par yields on gilts (fitted curve; 5, 10 and 20 years published daily)
 export const UK_SERIES = [["IUDSNPY", "5Y", 60], ["IUDMNPY", "10Y", 120], ["IUDLNPY", "20Y", 240]];
 const BOE_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-export const ukUrl = (now) => { const d = new Date(now - 400 * 86400_000); return `https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes&Datefrom=${String(d.getUTCDate()).padStart(2, "0")}/${BOE_MON[d.getUTCMonth()]}/${d.getUTCFullYear()}&Dateto=now&SeriesCodes=${UK_SERIES.map(([c]) => c).join(",")}&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N`; };
+export const ukUrl = (now, codes = UK_SERIES.map(([c]) => c), days = 400) => { const d = new Date(now - days * 86400_000); return `https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes&Datefrom=${String(d.getUTCDate()).padStart(2, "0")}/${BOE_MON[d.getUTCMonth()]}/${d.getUTCFullYear()}&Dateto=now&SeriesCodes=${codes.join(",")}&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N`; };
+// several IADB CSVs (one series each) → one CSV with a column per series, by date
+export function mergeBoeCsv(texts) {
+  const by = new Map(), codes = [];
+  for (const t of texts) {
+    const rows = parseCsv(String(t || "")); if (!rows.length) continue;
+    const h = rows[0].map((x) => x.trim()); if (h[0] !== "DATE") continue;
+    h.slice(1).forEach((c) => { if (c && !codes.includes(c)) codes.push(c); });
+    for (const r of rows.slice(1)) { const d = String(r[0] || "").trim(); if (!d) continue; const o = by.get(d) || {}; h.forEach((c, j) => { if (j && c) o[c] = r[j]; }); by.set(d, o); }
+  }
+  return codes.length ? ["DATE," + codes.join(","), ...[...by].map(([d, o]) => [d, ...codes.map((c) => o[c] ?? "")].join(","))].join("\n") : "";
+}
+// Since 7 Oct the Bank of England answers the Worker's year-long three-series request with an error while a browser
+// gets it: one series per request next, then the 50-day request that always worked (no past curves beyond it)
+export const loadUkForTest = (now) => loadUk(now);
+async function loadUk(now) {
+  const one = await csvLoad(ukUrl(now), parseBoeYields);
+  if (one.data) return one;
+  const parts = await Promise.all(UK_SERIES.map(([c]) => fetchText(ukUrl(now, [c]), { timeoutMs: 15000, headers: { accept: "text/csv,text/plain" } })));
+  const merged = parseBoeYields(mergeBoeCsv(parts.filter((f) => !f.err).map((f) => f.text)));
+  if (merged.length && parts.every((f) => !f.err)) return { data: merged.slice(-HIST) };
+  const short = await csvLoad(ukUrl(now, undefined, 50), parseBoeYields);
+  if (short.data) return short;
+  return merged.length ? { data: merged.slice(-HIST) } : { err: one.err || short.err };
+}
 export function parseBoeYields(text) {
   const rows = parseCsv(String(text || ""));
   if (!rows.length) return [];
@@ -477,7 +501,7 @@ export const CURVES = {
   US: { name: "United States — Treasury par yield curve", kind: "par yield, end of day", source: "U.S. Department of the Treasury", sourceUrl: "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve", maxAgeDays: 4, key: "yields/us" },
   EA: { name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", maxAgeDays: 4, key: "yields/ea", load: () => loadEcb() },
   DE: { name: "Germany — Federal securities (Bunds)", kind: "yield from the term structure (Svensson), daily", source: "Deutsche Bundesbank", sourceUrl: "https://www.bundesbank.de/en/statistics/money-and-capital-markets/interest-rates-and-yields/term-structure-of-interest-rates", maxAgeDays: 4, key: "yields/de2", load: () => csvLoad(DE_URL, parseBundesbank) },
-  UK: { name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/statistics/yield-curves", maxAgeDays: 6, key: "yields/uk2", load: (now) => csvLoad(ukUrl(now), parseBoeYields) },
+  UK: { name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/statistics/yield-curves", maxAgeDays: 6, key: "yields/uk2", load: (now) => loadUk(now) },
   JP: { name: "Japan — JGBs", kind: "JGB interest rate, daily", source: "Ministry of Finance Japan", sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/", maxAgeDays: 5, key: "yields/jp2", load: () => loadJp() },
   CH: { name: "Switzerland — Confederation bonds", kind: "yield of the Confederation bond nearest each maturity, daily (published with a lag)", source: "Swiss National Bank", sourceUrl: "https://data.snb.ch/en/topics/ziredev/cube/rendoeid", maxAgeDays: 14, key: "yields/ch", load: (now) => csvLoad(chUrl(now), parseSnbBonds) },
   CA: { name: "Canada — benchmark bonds", kind: "benchmark bond yield, daily (LONG = long-term benchmark)", source: "Bank of Canada", sourceUrl: "https://www.bankofcanada.ca/rates/interest-rates/canadian-bonds/", maxAgeDays: 5, key: "yields/ca", load: async () => { const f = await fetchText(CA_URL, { timeoutMs: 12000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const rows = parseBocBonds(j); return rows.length ? { data: rows.slice(-HIST) } : { err: "no_data" }; } },

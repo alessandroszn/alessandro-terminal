@@ -132,6 +132,26 @@ await tick("2026-10-08T05:30:00Z", { ...env, AI: undefined });
 ok("no model binding → no edition written (no text invented)", !kv.has("brief/daily-2026-10-08"));
 r = await tick("2026-10-08T12:00:00Z");
 ok("idle minute: no source, no KV write", r.calls.length === 0);
+
+// retries take turns (7 Oct evening: the Bank of England kept failing and used up every retry, so the calendar that had
+// failed once was never fetched again): UK keeps failing, the calendar fails in its minute and is back for the retries
+kv.clear();
+const runs9 = {};
+for (let m = 13; m <= 27; m++) { failing = new Set(m <= 18 ? ["UK", "CALENDAR"] : ["UK"]); runs9[m] = await tick(`2026-10-09T05:${m}:00Z`); }
+failing = new Set();
+const ffCalls = (r) => r.calls.filter((u) => u.includes("faireconomy")).length;
+ok("retries rotate over the inputs still missing: the first retry tries the Bank of England, the second the calendar (staged)", runs9[26].sources.join() === "UK" && ffCalls(runs9[27]) === 1 && !!kv.get("stage/calendar/FF"), JSON.stringify([runs9[26].sources, runs9[27].sources]));
+
+// the Bank of England: year-long three-series request refused → one series per request, merged by date
+const { loadUkForTest, mergeBoeCsv, parseBoeYields } = await import("../src/yields.mjs");
+const m3 = mergeBoeCsv(["DATE,IUDSNPY\n02 Oct 2026,4.89\n05 Oct 2026,4.93", "DATE,IUDMNPY\n05 Oct 2026,5.36", "<html>error</html>"]);
+const pm = parseBoeYields(m3);
+ok("BoE: CSVs of one series each merged by date (a non-CSV answer ignored)", m3.split("\n")[0] === "DATE,IUDSNPY,IUDMNPY" && pm.length === 2 && pm[1].points.find((p) => p.tenor === "10Y").value === 5.36 && pm[0].points.find((p) => p.tenor === "10Y").value == null, m3);
+const realFetch = globalThis.fetch; const ukCalls = [];
+globalThis.fetch = async (u) => { u = String(u); ukCalls.push(u); const codes = new URL(u).searchParams.get("SeriesCodes").split(","); if (codes.length > 1) return new Response("", { status: 500 }); return new Response(`DATE,${codes[0]}\n02 Oct 2026,${codes[0] === "IUDMNPY" ? "5.33" : "4.80"}\n05 Oct 2026,${codes[0] === "IUDMNPY" ? "5.36" : "4.90"}\n`); };
+const uk = await loadUkForTest(at("2026-10-07T20:00:00Z"));
+globalThis.fetch = realFetch;
+ok("BoE: the three-series request fails → one request per series, all three maturities on each date", !!uk.data && uk.data.length === 2 && uk.data[1].points.filter((p) => p.value != null).length === 3 && ukCalls.length === 4, JSON.stringify(uk).slice(0, 200));
 Date.now = realNow;
 
 console.log(`\n${pass} passed, ${fail} failed`);
