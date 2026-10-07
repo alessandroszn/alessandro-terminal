@@ -31,6 +31,7 @@ import { handleDes, handleOptions } from "./company.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
 import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
+import { handleIndices } from "./indices.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -510,6 +511,7 @@ export const app = {
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
     if (url.pathname === "/api/bonds") return handleBonds(url, env, ctx, H, json);
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
+    if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
