@@ -276,7 +276,7 @@ const OK_API = {
   await cmd(page, "MAP"); await page.waitForTimeout(400);
   await page.click('.win [data-mapu="CTRY"]'); await page.waitForTimeout(700);
   let hm = await winOf(page, "COUNTRIES HEAT MAP");
-  ok("[A] heat maps: countries via ETFs — same endpoints with ?u=CTRY, tiles named by country, size by traded value", !!hm && spxCalls.some((c) => c.includes("u=CTRY")) && /ITALY/.test(hm.text) && /JAPAN/.test(hm.text) && /TRADED VALUE/.test(hm.text) && /ETF prices, not index levels/.test(hm.text), hm && hm.text.slice(0, 300));
+  ok("[A] heat maps: countries via ETFs — same endpoints with ?u=CTRY, tiles named by country, equal size (traded value optional)", !!hm && spxCalls.some((c) => c.includes("u=CTRY")) && /ITALY/.test(hm.text) && /JAPAN/.test(hm.text) && /TRADED VALUE/.test(hm.text) && /size: equal/.test(hm.text) && /ETF prices, not index levels/.test(hm.text), hm && hm.text.slice(0, 300));
   ok("[A] heat maps: change from real prices (EWI 50.5 vs 50 → +1.00%)", await page.evaluate(() => { const t = document.querySelector('.spx-t[data-s="EWI"]'); return !!t && /\+1\.00%/.test(t.textContent); }));
   await page.click('.win [data-mapu="FX"]'); await page.waitForTimeout(1500);
   hm = await winOf(page, "FX HEAT MAP");

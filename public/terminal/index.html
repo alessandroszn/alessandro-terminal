@@ -1143,7 +1143,7 @@ tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
   //      FX matrix from live Twelve Data quotes. Every change is computed here from real prices: DERIVED ----
   const MAPU=[['SPX','S&P 500'],['NDX','NASDAQ-100'],['DJI','DOW 30'],['SECT','SECTORS'],['CTRY','COUNTRIES'],['CRYPTO','CRYPTO'],['FX','FX']];
   const MAPU_LABEL=Object.fromEntries(MAPU);
-  const MAP_DV=new Set(['SECT','CTRY','CRYPTO']); // no index weights: size by traded value (or equal)
+  const MAP_DV=new Set(['SECT','CTRY','CRYPTO']); // no index weights: equal tiles (default) or traded value
   const MAPS={};function mapSt(u){return MAPS[u]||(MAPS[u]={u:null,recent:null,live:null,refs:{},err:{},at:{},loading:{}});}
   const SPX=mapSt('SPX');
   const mapQ=(u,extra)=>u==='SPX'?(extra?'?'+extra:''):'?u='+u+(extra?'&'+extra:'');
@@ -1192,7 +1192,7 @@ tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
     return out;}
   function spxPriceStatus(u='SPX'){const M=mapSt(u),L=M.live,R=M.recent;if(L&&L.live)return L.status==='STALE'?S.STALE:S.LIVE;if(R)return R.status==='STALE'?S.STALE:S.LIVE;return M.err.recent||M.err.live?S.NA:S.LOADING;}
   function mapTitle(w){const u=w.state.u||'SPX';return`${MAPU_LABEL[u]||u} HEAT MAP · ${u==='FX'?'1D':w.state.metric||'1D'}`;}
-  function renderMap(body,win){const st=win.state;st.u=st.u||'SPX';const u=st.u;st.metric=st.metric||'1D';if(!st.size||(st.size==='dv'&&!MAP_DV.has(u))||(st.size==='weight'&&MAP_DV.has(u)))st.size=MAP_DV.has(u)?'dv':'weight';st.view=st.view||'map';
+  function renderMap(body,win){const st=win.state;st.u=st.u||'SPX';const u=st.u;st.metric=st.metric||'1D';if(!st.size||(st.size==='dv'&&!MAP_DV.has(u))||(st.size==='weight'&&MAP_DV.has(u)))st.size=MAP_DV.has(u)?'equal':'weight';st.view=st.view||'map';
     body.style.padding='0';body.style.display='flex';body.style.flexDirection='column';
     const btns=(name,list,cur)=>list.map(([v,l])=>`<button class="tf" data-${name}="${v}" aria-pressed="${v===cur}">${l}</button>`).join('');
     const ubar=`<div class="spx-bar spx-ubar"><div class="grp"><span>MAP</span>${btns('mapu',MAPU,u)}</div></div>`;
@@ -1203,7 +1203,7 @@ tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
     win._spxRows=rows;
     const mult=MAP_MULT[u]||1,sc=+(SPX_SCALE[st.metric]*mult).toFixed(1),steps=[-1,-2/3,-1/3,0,1/3,2/3,1];
     const legend=`<span class="spx-legend" title="colour = ${st.metric} change; saturates at ±${sc}%; striped = N/A">`+`<span class="lb">−${sc}%</span>`+steps.map(q=>`<span class="sw" style="background:${spxColor(q*sc,st.metric,mult)}"></span>`).join('')+`<span class="lb">+${sc}%</span><span class="sw spx-na" title="N/A"></span></span>`;
-    const sizes=MAP_DV.has(u)?[['dv','TRADED VALUE'],['equal','EQUAL']]:[['weight','INDEX WT'],['equal','EQUAL']];
+    const sizes=MAP_DV.has(u)?[['equal','EQUAL'],['dv','TRADED VALUE']]:[['weight','INDEX WT'],['equal','EQUAL']];
     const bar=`<div class="spx-bar"><div class="grp"><span>CHANGE</span>${btns('metric',SPX_METRICS.map(m=>[m,m]),st.metric)}</div><div class="grp"><span>SIZE</span>${btns('size',sizes,st.size)}</div><div class="grp"><span>VIEW</span>${btns('view',[['map','MAP'],['table','TABLE']],st.view)}</div>${legend}</div>`;
     const what=u==='SPX'?'S&amp;P 500 constituents':u==='CRYPTO'?'crypto pairs':MAP_DV.has(u)?'ETF list':'constituents';
     let banner='';
