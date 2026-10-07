@@ -45,7 +45,7 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Markets | Twelve Data | FX, crypto, XAU; indices and commodities N/A on the current plan |
 | Indices | — | **NO DATA**: no licensed index source (Basic has none; vendors license even delayed values) |
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
-| Calendar | BLS + BEA ICS schedules | actual/previous N/A until a FRED key is configured; forecast/importance N/A |
+| Calendar | WORLD: Forex Factory weekly export (`nfs.faireconomy.media/ff_calendar_thisweek.json`); US OFFICIAL: BLS + BEA ICS schedules | WORLD (default): USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY, current week only, **high impact only** by default (HIGH + MEDIUM toggle), impact/forecast/previous as published there, actual N/A (not in the export), times in local time, NEXT HIGH-IMPACT banner + status-bar countdown. US OFFICIAL: actual/previous N/A until a FRED key is configured. The briefing uses the high-impact world events. |
 | News | Financial Times + Bloomberg (publishers' public RSS feeds), GDELT DOC 2.0, SEC EDGAR | headline, section, time, link only — never article text; filter ALL / FT / BLOOMBERG / WIRE / SEC |
 | Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT/Bloomberg/wire headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. |
 
@@ -77,7 +77,7 @@ warrants: search the ticker); indices are not in the provider's search.
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=6M[&interval=1day|1d][&adjust=splits]` → `History`
 - `GET /api/yields` → `{ curves: { US, EA }, errors, notConnected }`
-- `GET /api/calendar` → `{ events, sources, errors }`
+- `GET /api/calendar` → `{ world: [{ id, datetime, dateET, timeET, currency, region, indicator, impact, released, actual, forecast, previous, source:"FF" }], events (BLS/BEA), sources, errors }`
 - `GET /api/news?tickers=AAPL,MSFT` → `{ items (GDELT), filings (SEC), sources, errors }`
 - `GET /api/briefing?symbols=…[&refresh=1]` → `{ text, model, generatedAt, sources, verification, inputData }`
 
@@ -112,10 +112,10 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
   paused in hidden tabs; requests of ≤ 7 symbols, and a client-side budget never sends more than
   8 credits per minute. History: 1Y daily per symbol (once per session), 1D intraday on demand.
   Free plan budget: 8 credits/min, 800/day.
-- Yields 30 min, calendar 6 h, news 10 min, briefing 60 min (Worker cache; STALE serving on failure).
+- Yields 30 min, calendar 6 h (Forex Factory 30 min), news 10 min, briefing 60 min (Worker cache; STALE serving on failure).
 
 ## Not available (shown as N/A / NO DATA)
-Index levels, commodities (WTI, Brent), consensus forecasts and importance, fundamentals, yields for
+Index levels, commodities (WTI, Brent), calendar actual values and weeks after the current one, fundamentals, yields for
 countries other than the US and the euro area. Earnings, model portfolio, FX conversion and company
 descriptions were removed. `test/nomock.test.mjs` fails if mock or hard-coded market data comes back.
 
@@ -140,6 +140,7 @@ node test/search.test.mjs       # T05: symbol search, ranking, SYMBOL:MIC quotes
 node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca bars/trades, live phase)
 node test/press.test.mjs        # T06: FT / Bloomberg RSS parsing and endpoint
 node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
+node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export normalizer and endpoint)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)

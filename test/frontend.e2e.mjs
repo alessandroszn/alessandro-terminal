@@ -47,7 +47,12 @@ const PRESS = (src) => { const now = Date.now(), ft = src === "FT";
     items: ft ? [{ title: "Test FT markets headline", url: "https://www.ft.com/content/test-1", timestamp: new Date(now - 60_000).toISOString(), section: "Markets", source: "Financial Times", provider: "FT" }]
               : [{ title: "Test Bloomberg economics headline", url: "https://www.bloomberg.com/news/articles/test-2", timestamp: new Date(now - 120_000).toISOString(), section: "Economics", source: "Bloomberg", provider: "BLOOMBERG" }] }; };
 const CALENDAR = { events: [{ id: "a", datetime: new Date(Date.now() + 2 * 864e5).toISOString(), dateET: "2026-10-14", timeET: "08:30", country: "US", indicator: "Consumer Price Index", source: "BLS", sourceName: "U.S. Bureau of Labor Statistics", sourceUrl: "https://www.bls.gov/schedule/news_release/", released: false, actual: NA("needs FRED API key"), forecast: NA("no licensed consensus source"), previous: NA("needs FRED API key"), importance: NA("no licensed importance rating") }],
-  sources: [{ id: "BLS", name: "U.S. Bureau of Labor Statistics", url: "https://www.bls.gov/schedule/news_release/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "BEA", name: "U.S. Bureau of Economic Analysis", url: "https://www.bea.gov/news/schedule", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
+  world: [
+    { at: -864e5, ccy: "GBP", region: "United Kingdom", ind: "GDP m/m", imp: "High", f: "0.1%", p: "0.0%" },
+    { at: 3 * 3600e3, ccy: "EUR", region: "Euro area", ind: "German Ifo Business Climate", imp: "Medium", f: "", p: "87.7" },
+    { at: 5 * 3600e3, ccy: "USD", region: "United States", ind: "CPI m/m", imp: "High", f: "0.3%", p: "0.2%" },
+  ].map((x, i) => ({ id: "ff" + i, datetime: new Date(Date.now() + x.at).toISOString(), dateET: "2026-10-07", timeET: "08:30", currency: x.ccy, country: x.ccy, region: x.region, indicator: x.ind, impact: x.imp, released: x.at < 0, actual: NA("not in the Forex Factory export"), forecast: x.f ? { value: x.f, status: "LIVE" } : NA("not published"), previous: { value: x.p, status: "LIVE" }, source: "FF", sourceName: "Forex Factory", sourceUrl: "https://www.forexfactory.com/calendar" })),
+  sources: [{ id: "FF", name: "Forex Factory", url: "https://www.forexfactory.com/calendar", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "BLS", name: "U.S. Bureau of Labor Statistics", url: "https://www.bls.gov/schedule/news_release/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "BEA", name: "U.S. Bureau of Economic Analysis", url: "https://www.bea.gov/news/schedule", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
 const NEWS = { items: [{ title: "Stocks close higher as tech rallies", url: "https://www.example-news.com/a", source: "example-news.com", timestamp: new Date().toISOString(), topic: "Stock market", provider: "GDELT" }],
   filings: [{ ticker: "AAPL", company: "Apple Inc.", form: "8-K", description: "8-K", filingDate: today, timestamp: new Date().toISOString(), url: "https://www.sec.gov/Archives/edgar/data/320193/x/aapl-8k.htm", provider: "SEC EDGAR" }],
   sources: [{ id: "GDELT", name: "The GDELT Project", url: "https://www.gdeltproject.org/", status: "LIVE", fetchedAt: new Date().toISOString() }, { id: "SEC", name: "SEC EDGAR", url: "https://www.sec.gov/edgar/search/", status: "LIVE", fetchedAt: new Date().toISOString() }], errors: {} };
@@ -177,7 +182,14 @@ const OK_API = {
   ok("[A] yields: change and 2s10s marked DERIVED; ECB curve; other countries N/A", /Δ BP\s*DRV/.test(yl.text) && /2s10s spread [\d.]+ bp\s*DRV/.test(yl.text) && /European Central Bank/.test(yl.text) && /Not connected: Germany, Italy, Japan — N\/A/.test(yl.text));
   // calendar
   await cmd(page, "CAL");
-  const cal = await winOf(page, "ECONOMIC CALENDAR");
+  let cal = await winOf(page, "ECONOMIC CALENDAR");
+  ok("[A] calendar: WORLD view by default, high impact only (medium hidden), impact chip, forecast/previous as published, actual N/A, source FF", /WORLD/.test(cal.text) && /USD\s+CPI m\/m\s+HIGH\s+N\/A\s+0\.3%\s+0\.2%\s+FF/.test(cal.text) && /GBP\s+GDP m\/m\s+HIGH/.test(cal.text) && !/Ifo/.test(cal.text) && /Forex Factory/.test(cal.text), cal.text.slice(0, 500));
+  ok("[A] calendar: NEXT HIGH-IMPACT banner skips past and medium events; status bar countdown", /NEXT HIGH-IMPACT · United States · CPI m\/m[\s\S]*in (?:4h5\d|5h00) · forecast 0\.3% · previous 0\.2%/.test(cal.text) && /^USD CPI m\/m in (?:4h5\d|5h00)$/.test(await page.$eval("#nextEv", (x) => x.textContent)) && (await page.$$eval(".win table.cal tr.next", (r) => r.length)) === 1, await page.$eval("#nextEv", (x) => x.textContent));
+  await page.click('.win [data-imp="2"]'); await page.waitForTimeout(200);
+  cal = await winOf(page, "ECONOMIC CALENDAR");
+  ok("[A] calendar: HIGH + MEDIUM shows the medium event; forecast not published → N/A", /EUR\s+German Ifo Business Climate\s+MED\s+N\/A\s+N\/A\s+87\.7/.test(cal.text), cal.text.slice(0, 500));
+  await page.click('.win [data-cv="us"]'); await page.waitForTimeout(200);
+  cal = await winOf(page, "ECONOMIC CALENDAR");
   ok("[A] calendar: official event with date, time, country, source; actual/forecast/previous/importance N/A", /2026-10-14\s+08:30\s+US\s+Consumer Price Index\s+N\/A\s+N\/A\s+N\/A\s+N\/A\s+BLS/.test(cal.text) && /U\.S\. Bureau of Labor Statistics/.test(cal.text), cal.text.slice(0, 300));
   // news
   await cmd(page, "N");

@@ -188,6 +188,10 @@
   .brf-open button:hover{color:var(--fg);border-color:var(--amber)}
   .brf-open .all{color:var(--amber)}
   @media (max-width:880px){.brf-wrap{grid-template-columns:1fr}.brf-list{flex-direction:row;overflow-x:auto}}
+  .imp{display:inline-block;font-size:8.5px;font-weight:700;letter-spacing:.06em;border-radius:2px;padding:0 4px;line-height:13px;border:1px solid var(--line-2);color:var(--muted)}
+  .imp-High{color:var(--down);border-color:rgba(240,85,91,.45);background:rgba(240,85,91,.12)}
+  .imp-Medium{color:var(--amber);border-color:rgba(245,166,35,.45);background:var(--amber-soft)}
+  table.pf.cal tr.next td{background:var(--amber-soft)}
   .brief-in{white-space:pre-wrap;font-size:10px;color:var(--muted);max-height:220px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:3px}
 
   /* ---- movers ---- */
@@ -349,6 +353,7 @@
     <span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span>
     <span>US MARKET <b id="sess">—</b></span>
     <span>BREADTH <b id="breadth">—</b></span>
+    <span title="next high-impact event (Forex Factory)">NEXT <b id="nextEv">—</b></span>
     <div class="s-right">
       <span id="dataPull"></span>
       <span id="asof">—</span>
@@ -538,7 +543,7 @@
     try{const r=await fetch(CONFIG.proxyBase+path,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
       if(!j)throw new Error('http '+r.status);e.data=j;e.err=null;}
     catch(x){e.err='network';console.warn('[data]',name,'failed:',x&&x.message);}
-    finally{e.loading=false;e.at=Date.now();wins.forEach(w=>{if(!w.min&&(EXT_WIN[w.type]===name||EXT_OWNER[name]===w.type))liveRepaint(w);});updateGlobal();}}
+    finally{e.loading=false;e.at=Date.now();wins.forEach(w=>{if(!w.min&&(EXT_WIN[w.type]===name||EXT_OWNER[name]===w.type))liveRepaint(w);});updateGlobal();if(name==='calendar')updateNextEvent();}}
   function instStatus(t){return P.instrumentStatus(t.q,{error:t.qErr});}
   function fStatus(t,key){return P.fieldStatus(t.q,key,instStatus(t));}
   function histStatus(t,intraday){return P.historyStatus(intraday?t._intraMeta:t._histMeta,{error:intraday?t._intraErr:t._histErr});}
@@ -736,15 +741,33 @@
   function extSources(d){return (d.sources||[]).map(x=>`${chip(x.status,x.staleReason?P.errorText(x.staleReason):x.status)} <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a> · fetched ${fmtTime(x.fetchedAt)}`).concat(Object.entries(d.errors||{}).map(([k,v])=>`${chip(S.NA)} ${k}: ${esc(P.errorText(v.error))}${v.note?' — '+esc(v.note):''}`)).join(' · ');}
   function extItems(d,prefix){const items={};(d.sources||[]).forEach(x=>items[prefix+x.id]=x.status);Object.keys(d.errors||{}).forEach(k=>items[prefix+k]=S.NA);return items;}
 
-  // ---- CALENDAR: official release schedules; fields without a licensed source are N/A ----
-  function renderCal(body,win){const e=EXT.calendar;loadExt('calendar');
-    if(!e.data&&!e.err){setProv(win,{'ds:CAL':S.LOADING});body.innerHTML='<div class="empty">Loading official release schedules…</div>';return;}
-    const d=e.data||{events:[],sources:[],errors:{network:{error:e.err}}},now=Date.now(),na=f=>`<span class="na" title="${esc((f&&f.note)||'')}">N/A</span>`;
-    body.innerHTML=`<div class="src-line">${extSources(d)}</div>
+  // ---- CALENDAR: world (Forex Factory) + US official schedules; fields without a source are N/A ----
+  // world events (Forex Factory weekly export) filtered by impact; US official schedules (BLS/BEA) in their own tab
+  const IMPACT_RANK={High:3,Medium:2,Low:1,Holiday:0};
+  function calWorld(minImpact){const d=EXT.calendar.data;return d&&Array.isArray(d.world)?d.world.filter(e=>(IMPACT_RANK[e.impact]||0)>=minImpact):[];}
+  function nextHigh(){const now=Date.now();return calWorld(3).find(e=>Date.parse(e.datetime)>now)||null;}
+  function fmtIn(ms){const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60);return h>=24?`${Math.floor(h/24)}d ${h%24}h`:h?`${h}h${String(m%60).padStart(2,'0')}`:`${m}m`;}
+  function updateNextEvent(){const el=$('#nextEv');if(!el)return;const e=nextHigh();
+    el.textContent=e?`${e.currency} ${e.indicator} in ${fmtIn(Date.parse(e.datetime)-Date.now())}`:'—';el.title=e?`${e.region} · ${e.indicator} · ${fmtDT(e.datetime)} (local) · impact high · source Forex Factory`:'no upcoming high-impact event in the current week';}
+  function renderCal(body,win){const st=win.state;st.view=st.view||'world';st.imp=st.imp||3;const e=EXT.calendar;loadExt('calendar');
+    const tabs=`<div class="tfbar"><button class="tf" data-cv="world" aria-pressed="${st.view==='world'}">WORLD</button><button class="tf" data-cv="us" aria-pressed="${st.view==='us'}">US OFFICIAL (BLS / BEA)</button>${st.view==='world'?`<span style="width:12px"></span><button class="tf" data-imp="3" aria-pressed="${st.imp===3}">HIGH IMPACT</button><button class="tf" data-imp="2" aria-pressed="${st.imp===2}">HIGH + MEDIUM</button>`:''}</div>`;
+    const bind=()=>{$$('[data-cv]',body).forEach(b=>b.onclick=()=>{st.view=b.dataset.cv;paintWin(win);});$$('[data-imp]',body).forEach(b=>b.onclick=()=>{st.imp=+b.dataset.imp;paintWin(win);});};
+    if(!e.data&&!e.err){setProv(win,{'ds:CAL':S.LOADING});body.innerHTML=tabs+'<div class="empty">Loading the economic calendar…</div>';bind();return;}
+    const d=e.data||{world:[],events:[],sources:[],errors:{network:{error:e.err}}},now=Date.now(),na=f=>`<span class="na" title="${esc((f&&f.note)||'')}">N/A</span>`,vv=f=>f&&f.value!=null?esc(f.value):na(f);
+    const impChip=i=>`<span class="imp imp-${esc(i)}" title="impact: ${esc(i)} (Forex Factory)">${i==='High'?'HIGH':i==='Medium'?'MED':i==='Low'?'LOW':'HOL'}</span>`;
+    let html;
+    if(st.view==='world'){const list=calWorld(st.imp),nx=nextHigh();let lastDay='';
+      const rows=list.map(ev=>{const t=Date.parse(ev.datetime),day=new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});const sep=day!==lastDay?`<tr class="grp"><td colspan="8">${day.toUpperCase()}</td></tr>`:'';lastDay=day;
+        return sep+`<tr class="${t<now?'past':''}${nx&&ev.id===nx.id?' next':''}"><td class="l">${new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</td><td class="l" title="${esc(ev.region)}">${esc(ev.currency)}</td><td class="l">${esc(ev.indicator)}</td><td>${impChip(ev.impact)}</td><td>${na(ev.actual)}</td><td>${vv(ev.forecast)}</td><td>${vv(ev.previous)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">FF</a></td></tr>`;}).join('');
+      html=`<div class="src-line">${extSources(d)}</div>${nx?`<div class="banner" style="margin-top:8px"><b>NEXT HIGH-IMPACT</b> · ${esc(nx.region)} · ${esc(nx.indicator)} · ${fmtDT(nx.datetime)} local · in ${fmtIn(Date.parse(nx.datetime)-now)}${nx.forecast.value?` · forecast ${esc(nx.forecast.value)}`:''}${nx.previous.value?` · previous ${esc(nx.previous.value)}`:''}</div>`:''}
+        <table class="pf cal"><thead><tr><th class="l">TIME (LOCAL)</th><th class="l">CCY</th><th class="l">EVENT</th><th>IMPACT</th><th>ACTUAL</th><th>FORECAST</th><th>PREVIOUS</th><th class="l">SRC</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="na">NO DATA</td></tr>'}</tbody></table>
+        <div class="scr-count">World calendar: Forex Factory weekly export (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), current week only; impact, forecast and previous as published there. Actual: N/A — not included in the export. Times in your local time zone.</div>`;}
+    else html=`<div class="src-line">${extSources(d)}</div>
       <table class="pf cal"><thead><tr><th class="l">DATE</th><th class="l">TIME ET</th><th class="l">CTRY</th><th class="l">INDICATOR</th><th>ACTUAL</th><th>FORECAST</th><th>PREVIOUS</th><th>IMP.</th><th class="l">SRC</th></tr></thead><tbody>
-      ${(d.events||[]).map(ev=>`<tr class="${Date.parse(ev.datetime)<now?'past':''}"><td class="l">${ev.dateET}</td><td class="l">${ev.timeET||'—'}</td><td class="l">${ev.country}</td><td class="l">${esc(ev.indicator)}</td><td>${na(ev.actual)}</td><td>${na(ev.forecast)}</td><td>${na(ev.previous)}</td><td>${na(ev.importance)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">${ev.source}</a></td></tr>`).join('')||'<tr><td colspan="9" class="empty">NO DATA</td></tr>'}
-      </tbody></table><div class="scr-count">Official U.S. release schedules (BLS, BEA), past 7 and next 35 days. Actual / previous: N/A until a FRED API key is configured. Forecast and importance: N/A — consensus data is proprietary and not licensed.</div>`;
-    setProv(win,extItems(d,'cal:'),'official schedules');}
+      ${(d.events||[]).map(ev=>`<tr class="${Date.parse(ev.datetime)<now?'past':''}"><td class="l">${ev.dateET}</td><td class="l">${ev.timeET||'—'}</td><td class="l">${ev.country}</td><td class="l">${esc(ev.indicator)}</td><td>${na(ev.actual)}</td><td>${na(ev.forecast)}</td><td>${na(ev.previous)}</td><td>${na(ev.importance)}</td><td class="l"><a href="${esc(ev.sourceUrl)}" target="_blank" rel="noopener">${ev.source}</a></td></tr>`).join('')||'<tr><td colspan="9" class="na">NO DATA</td></tr>'}
+      </tbody></table><div class="scr-count">Official U.S. release schedules (BLS, BEA), past 7 and next 35 days. Actual / previous: N/A until a FRED API key is configured. Forecast and importance: N/A in these official schedules.</div>`;
+    body.innerHTML=tabs+html;bind();
+    setProv(win,extItems(d,'cal:'),st.view==='world'?'world calendar':'official schedules');updateNextEvent();}
 
   // ---- NEWS: real headlines (GDELT) and SEC filings — headline, source, time, link only ----
   function renderNews(body,win){const st=win.state;st.src=st.src||'ALL';const e=EXT.news,ft=EXT.ft,bb=EXT.bloomberg;loadExt('news');loadExt('ft');loadExt('bloomberg');
@@ -1195,7 +1218,7 @@
   function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();
     openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
-    renderTape();tickClock();setInterval(tickClock,1000);
+    renderTape();tickClock();setInterval(tickClock,1000);setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
     updateStatusBar();updateGlobal();
     setTimeout(()=>$('#cmd').focus(),60);
     DATA.init();}

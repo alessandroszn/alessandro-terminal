@@ -8,7 +8,7 @@
 // checked against them, links are kept only if they are in DATA, tickers become chips only if in DATA.
 import { cacheRead, cacheWrite, iso, easternDate, num } from "./lib.mjs";
 import { getYieldCurves } from "./yields.mjs";
-import { getCalendar } from "./calendar.mjs";
+import { getCalendar, getWorldCalendar } from "./calendar.mjs";
 import { getHeadlines } from "./news.mjs";
 import { getPress, mergeHeadlines } from "./press.mjs";
 import { getUniverse, getCloses, getLive, alpacaConfigured, todayBarFinal, livePhase } from "./spx.mjs";
@@ -119,8 +119,11 @@ export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, cu
     if (two && ten && two.value != null && ten.value != null) L.push(`SPREAD ${c.id} 10Y minus 2Y: ${((ten.value - two.value) * 100).toFixed(1)} bp [derived from ${c.source}]`);
     sources.push({ name: c.source, timestamp: c.timestamp, url: c.sourceUrl });
   }
-  for (const e of events) L.push(`EVENT ${e.dateET}${e.timeET ? " " + e.timeET + " ET" : ""} US ${e.indicator} [${e.source}]`);
-  if (events.length) sources.push({ name: "BLS / BEA release schedules", timestamp: events[0].datetime });
+  for (const e of events) {
+    const fp = [e.forecast && e.forecast.value ? `forecast ${e.forecast.value}` : null, e.previous && e.previous.value ? `previous ${e.previous.value}` : null].filter(Boolean).join(", ");
+    L.push(`EVENT ${e.dateET}${e.timeET ? " " + e.timeET + " ET" : ""} ${e.region || "United States"}${e.currency ? " (" + e.currency + ")" : ""} ${e.indicator}${e.impact ? " — impact " + e.impact : ""}${fp ? " — " + fp : ""} [${e.source === "FF" ? "Forex Factory" : e.source}]`);
+  }
+  if (events.length) sources.push({ name: events.some((e) => e.source === "FF") ? "Forex Factory calendar (high impact)" : "BLS / BEA release schedules", timestamp: events[0].datetime, url: events[0].sourceUrl });
   for (const h of headlines) L.push(`HEADLINE ${h.timestamp} ${h.source}${h.section ? " (" + h.section + ")" : ""}: ${h.title} — ${h.url}`);
   if (headlines.length) sources.push({ name: "Headlines: " + [...new Set(headlines.map((h) => h.source))].join(", "), timestamp: headlines[0].timestamp });
   if (morning) L.push(...morning.split("\n").filter((l) => /^(EQUITY|QUOTE|YIELDS)/.test(l)).map((l) => "MORNING " + l));
@@ -230,7 +233,10 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
     const series = await tdDaily(env, MARKET_SYMS, now, origin, ctx);
     if (series) { const refDate = addDays(edition.d, period === "weekly" ? -7 : -30); fxHist = Object.fromEntries(MARKET_SYMS.map((s) => [s, periodChange(series[s], refDate)]).filter(([, v]) => v)); }
   }
-  const [y, cal, gd, ft, bb] = await Promise.all([getYieldCurves(origin, ctx, now), getCalendar(origin, ctx, now), getHeadlines(origin, ctx), getPress(origin, ctx, "FT"), getPress(origin, ctx, "BLOOMBERG")]);
+  const [y, world, gd, ft, bb] = await Promise.all([getYieldCurves(origin, ctx, now), getWorldCalendar(origin, ctx, now), getHeadlines(origin, ctx), getPress(origin, ctx, "FT"), getPress(origin, ctx, "BLOOMBERG")]);
+  // world high-impact events (Forex Factory); the US official schedules only if that source is unavailable
+  const cal = world.events.length ? { events: world.events.filter((e) => e.impact === "High") } : await getCalendar(origin, ctx, now);
+  if (!world.events.length) errors.calendarWorld = world.err || "no_data";
   // calendar window per edition (US/Eastern dates)
   const todayET = easternDate(new Date(now)), horizon = { daily: [todayET, todayET], evening: [addDays(todayET, 1), addDays(todayET, 3)], weekly: [addDays(todayET, 1), addDays(todayET, 9)], monthly: [addDays(todayET, 1), addDays(todayET, 35)] }[period];
   const events = (cal.events || []).filter((e) => e.dateET >= horizon[0] && e.dateET <= horizon[1]).slice(0, 14);
