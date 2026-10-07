@@ -84,9 +84,10 @@ export async function handleDes(url, env, ctx, H, json) {
   if (url.pathname.endsWith("/fact")) {
     const id = url.searchParams.get("c") || "", F = FACTS[id];
     if (!F) return send({ error: "bad_request", message: `c must be one of ${Object.keys(FACTS).join(",")}` }, 400);
-    const r = await cachedSource({ origin: url.origin, key: `des/fact2/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 30 * 60_000,
+    const r = await cachedSource({ origin: url.origin, key: `des/fact3/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 60_000,
       load: async () => {
-        const res = await Promise.all(F.concepts.map(([tax, concept]) => fetchText(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10(c.cik)}/${tax}/${concept}.json`, { timeoutMs: 12000, headers: secHeadersFor(env) }).then((f) => ({ tax, concept, p: pj(f) }))));
+        const res = []; // one after another: SEC refuses bursts
+        for (const [tax, concept] of F.concepts) res.push({ tax, concept, p: pj(await fetchText(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10(c.cik)}/${tax}/${concept}.json`, { timeoutMs: 12000, headers: secHeadersFor(env) })) });
         let best = null, err = null;
         for (const { tax, concept, p } of res) {
           if (p.err) { if (p.err !== "no_data") err = err || p.err; continue; } // no_data: the company does not use this concept

@@ -1628,7 +1628,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const e=get7('/api/des?symbol='+encodeURIComponent(s),6*3600000,['DES']),d=e.data;
     if(!d&&!e.err){setProv(win,{'ds:DES':S.LOADING});body.innerHTML=form+`<div class="empty">${tl('Loading the SEC profile…','Caricamento del profilo SEC…')}</div>`;bind();return;}
     if(!d||!d.profile){setProv(win,{'ds:DES':S.NA});body.innerHTML=form+naB(d&&d.error==='not_sec_registrant'?tl('not an SEC registrant: description and fundamentals','non registrata alla SEC: scheda e fondamentali'):tl('company profile unavailable','profilo non disponibile'),(d&&d.error)||e.err);bind();return;}
-    const p=d.profile,F={};DES_FACTS.forEach(id=>{F[id]=get7(`/api/des/fact?symbol=${encodeURIComponent(s)}&c=${id}`,6*3600000,['DES']);});
+    // one fact at a time: SEC refuses bursts of requests
+    const p=d.profile,F={};let prevDone=true;DES_FACTS.forEach(id=>{const path=`/api/des/fact?symbol=${encodeURIComponent(s)}&c=${id}`;F[id]=prevDone?get7(path,6*3600000,['DES']):X7[path]||{loading:true};prevDone=!!(F[id].at&&!F[id].loading);});
     const t=inst(s);if(!t.q&&!t.qErr&&!t._pending&&!t._planBlocked&&DATA.provider)DATA.fetchNow([s]);
     const fv=id=>F[id].data&&!F[id].data.error?F[id].data:null,price=fin(t.px)?t.px:null,ist=instStatus(t);
     const fye=x=>/^\d{4}$/.test(x||'')?new Date(Date.UTC(2001,+x.slice(0,2)-1,+x.slice(2))).toLocaleDateString(I18N.locale(),{day:'numeric',month:'long',timeZone:'UTC'}):'—';
