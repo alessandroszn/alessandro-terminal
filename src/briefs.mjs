@@ -154,7 +154,7 @@ export function systemPrompt(period, lang = "en") {
     `Then exactly these level-2 sections, in this order: ${secs.map((s) => "'## " + s + "'").join(", ")}.`,
     ...(it ? ["Write every number exactly as in DATA, with the decimal point (e.g. 0.70%), not the decimal comma. Write 'è salito dello 0.58%' / 'è sceso dello 0.61%'. Keep tickers, instrument codes and headline titles as they are; you may describe a headline in Italian but link it with its exact URL."] : []),
     `The first section is a single sentence. Total length ${p.words} words. Short paragraphs; bullets only for lists of events.`,
-    "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round prices, yields and percentages to at most two decimals (e.g. 3.50%); FX rates to four.",
+    "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round prices, yields and percentages to at most two decimals (e.g. 0.58%); FX rates to four.",
     "The S&P 500 figure in DATA is an IVV-weighted average of constituent prices, not the index level: never call it the index level or give a level for it.",
     "Write tickers in backticks exactly as in DATA, e.g. `NVDA`, `EUR/USD`.",
     "When you mention a headline, link it with Markdown using its exact URL from DATA, e.g. [FT](https://www.ft.com/...). Use no other URL.",
