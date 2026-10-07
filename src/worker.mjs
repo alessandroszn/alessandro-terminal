@@ -17,6 +17,7 @@ import { handleBriefing } from "./briefing.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
 import { handleSpx } from "./spx.mjs";
+import { handleHeadlines } from "./press.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -469,6 +470,7 @@ export const app = {
     if (url.pathname === "/api/briefing") return handleBriefing(url, env, ctx, H, json);
     if (url.pathname === "/api/search") return handleSearch(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/spx/")) return handleSpx(url, env, ctx, H, json);
+    if (url.pathname === "/api/headlines") return handleHeadlines(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
