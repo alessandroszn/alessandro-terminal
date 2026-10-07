@@ -496,7 +496,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
-  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNCTIONS,SECURITY,SEARCH,WATCHLIST,PORTFOLIO,MARKETS,EXCHANGES,HEAT MAPS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
+  ok("[A] dock (Nico's style): one row = a few functions + the data badge; the ticker tape off by default", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))) === "☰ FUNCTIONS,INDICES,WATCHLIST,YIELDS,CALENDAR,HEAT MAPS,BRIEFING,NEWS,MARKETS,PORTFOLIO,? HELP" && !!(await page.$("#dock #dataBadge")) && !(await page.$("#sess, #breadth, #asof")) && (await page.$eval("#strip", (e) => e.hidden && getComputedStyle(e).display === "none")) && (await page.$eval("#dock", (e) => e.getBoundingClientRect().height)) <= 34);
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(800); await page.screenshot({ path: SHOTS + "/e2e-t05.png" }); }
@@ -653,7 +653,7 @@ const OK_API = {
   const { page, errors, requests, brfState } = await openTerminal(OK_API, htmlFast, () => { try { localStorage.setItem("at-lang", "it"); } catch (e) {} });
   await page.waitForFunction(() => /LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.waitForTimeout(800);
-  ok("[G] Italian: launcher, page language and toggle", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNZIONI,TITOLO,CERCA,WATCHLIST,PORTAFOGLIO,MERCATI,BORSE,HEAT MAP,INDICI,RENDIMENTI,CALENDARIO,NEWS,BRIEFING") && (await page.evaluate(() => document.documentElement.lang)) === "it" && (await page.$eval('#cmdbar [data-lang="it"]', (b) => b.getAttribute("aria-pressed"))) === "true", await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")));
+  ok("[G] Italian: launcher, page language and toggle", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")))=== "☰ FUNZIONI,INDICI,WATCHLIST,RENDIMENTI,CALENDARIO,HEAT MAP,BRIEFING,NEWS,MERCATI,PORTAFOGLIO,? AIUTO" && (await page.evaluate(() => document.documentElement.lang)) === "it" && (await page.$eval('#cmdbar [data-lang="it"]', (b) => b.getAttribute("aria-pressed"))) === "true", await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")));
   await cmd(page, "CAL"); await page.waitForTimeout(400);
   let cal = await winOf(page, "CALENDARIO ECONOMICO");
   ok("[G] Italian: calendar labels translated, event names as published, Italian dates", !!cal && /ORA \(LOCALE\)\s+VALUTA\s+EVENTO\s+IMPATTO\s+EFFETTIVO\s+PREVISTO\s+PRECED\./.test(cal.text) && /USD\s+CPI m\/m\s+ALTO/.test(cal.text) && /PROSSIMO ALTO IMPATTO/.test(cal.text) && /German Ifo|GDP m\/m/.test(cal.text) && /\b(LUN|MAR|MER|GIO|VEN|SAB|DOM)\b/.test(cal.text), cal && cal.text.slice(0, 600));
@@ -678,7 +678,7 @@ const OK_API = {
   const t0 = Date.now(); const regions = await page.evaluate(() => [...document.querySelectorAll(".ex-t tr.grp td")].map((td) => td.textContent).join(" | "));
   ok("[G] Italian: all windows open, page responsive, region names translated once", Date.now() - t0 < 2000 && /ASIA-PACIFICO · 0\/1 APERTE/.test(regions) && !/PACIFICOO/.test(regions) && /EUROPA E AFRICA · 1\/1 APERTE/.test(regions), regions);
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(600);
-  ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNCTIONS,SECURITY,SEARCH,WATCHLIST,PORTFOLIO") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
+  ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNCTIONS,INDICES,WATCHLIST,YIELDS") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
   const body = await page.evaluate(() => document.body.innerText);
   ok("[G] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
   await page.close();

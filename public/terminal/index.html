@@ -338,18 +338,20 @@
   #strip:hover .track{animation-play-state:paused}
   @keyframes scroll{to{transform:translateX(-100%)}}
 
-  /* status */
-  #status{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:5px 12px;background:linear-gradient(180deg,#0d1015,#090b0e);border-top:1px solid var(--line-2);font-size:10.5px;color:var(--muted)}
+  #strip[hidden]{display:none}
+  /* dock: the launcher (a few functions, the rest in ☰ FUNCTIONS) and the state of the data on screen — one row */
+  #dock{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;background:var(--panel-2);border-top:1px solid var(--line-2);flex:0 0 auto}
+  #status{flex:0 0 auto;margin-left:auto;display:flex;align-items:center;font-size:10.5px;color:var(--muted)}
   #status .pvb{color:#000;background:var(--muted);font-weight:700;letter-spacing:.1em;border-radius:3px;padding:1px 6px;font-size:9px;cursor:help;white-space:nowrap}
   #status .pvb.b-LIVE{background:var(--up)} #status .pvb.b-STALE{background:var(--amber)} #status .pvb.b-DERIVED{background:#4dd0c0}
   #status .pvb.b-NA,#status .pvb.b-LOADING{background:var(--line-2);color:var(--fg)}
-  #status .s-right{margin-left:auto;display:flex;gap:16px;flex-wrap:wrap}
-  #status b{color:var(--fg);font-weight:500}
 
   /* bottom launcher */
-  #fnbar{display:flex;gap:1px;background:var(--line);border-top:1px solid var(--line-2);overflow-x:auto}
-  .fn{flex:1 1 auto;background:var(--panel-2);border:0;color:var(--muted);padding:7px 6px;font:inherit;font-size:10px;letter-spacing:.06em;cursor:pointer;white-space:nowrap}
-  .fn:hover{background:#151922;color:var(--fg)}
+  #fnbar{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+  #fnbar::-webkit-scrollbar{display:none}
+  .fn{flex:0 0 auto;background:transparent;border:1px solid var(--line-2);border-radius:2px;color:var(--muted);padding:3px 9px;font:inherit;font-size:10.5px;letter-spacing:.05em;line-height:14px;cursor:pointer;white-space:nowrap}
+  .fn:hover{color:var(--fg);border-color:var(--muted)}
+  .fn.fn-menu{color:var(--amber);border-color:var(--amber)}
 
   /* help */
   #help{position:fixed;inset:0;background:#05060880;backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;padding:18px;z-index:9999}
@@ -452,25 +454,18 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   <div id="desk" aria-label="Workspace"></div>
 
-  <div id="strip"><span class="lbl">TAPE</span><div class="track-wrap notranslate"><div class="track" id="tape"></div></div></div>
+  <div id="strip" hidden><span class="lbl">TAPE</span><div class="track-wrap notranslate"><div class="track" id="tape"></div></div></div>
 
-  <div id="status">
-    <span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span>
-    <span>US MARKET <b id="sess">—</b></span>
-    <span>BREADTH <b id="breadth">—</b></span>
-    <div class="s-right">
-      <span id="dataPull"></span>
-      <span id="asof">—</span>
-    </div>
-  </div>
-
-  <div id="fnbar"></div>
+  <footer id="dock">
+    <div id="fnbar" aria-label="Launcher"></div>
+    <div id="status"><span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span></div>
+  </footer>
 </div>
 
 <div id="help" role="dialog" aria-modal="true" aria-label="Help">
   <div class="help-card">
     <h2>ALESSANDRO°TERMINAL</h2>
-    <p class="sub">A command-driven, multi-window market workspace. Type in the command line, use the launcher at the bottom, or the taskbar up top.</p>
+    <p class="sub">A command-driven, multi-window market workspace. Type in the command line, use the dock at the bottom (☰ FUNCTIONS has every function), or the taskbar up top.</p>
     <div class="help-grp">WINDOWS</div>
     <div class="help-row"><code>drag title</code><span>Move a window; drag the corner grip to resize</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
@@ -752,19 +747,21 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const c={};inst.forEach(k=>{const s=items[k],g=(s===S.PARTIAL||s===S.DERIVED)?S.LIVE:s;c[g]=(c[g]||0)+1;});
     const parts=[];[[S.LIVE,'LIVE'],[S.STALE,'STALE'],[S.NA,'N/A'],[S.LOADING,'LOADING']].forEach(([k,l])=>{if(c[k])parts.push(c[k]+' '+l);});
     b.textContent='● '+label+(parts.length?' · '+parts.join(' · '):'');b.className='pvb b-'+pvKey(label);
-    b.title='Data on screen now'+(sum.text?' ('+sum.text+')':'')+':\n'+inst.map(k=>`${k} — ${items[k]}`).join('\n');
+    b.dataset.base='Data on screen now'+(sum.text?' ('+sum.text+')':'')+':\n'+inst.map(k=>`${k} — ${items[k]}`).join('\n');b.title=b.dataset.base+(SB_INFO?'\n\n'+SB_INFO:'');
     const ts=$('#topStatus'),tl2=$('#tsLabel');if(ts&&tl2){ts.className='tstat s-'+(label===S.LIVE||label===S.PARTIAL||label===S.DERIVED?'live':label===S.STALE?'stale':label===S.NA?'na':'loading');tl2.textContent=label===S.PARTIAL||label===S.DERIVED?'LIVE':label;
-      tl2.title=b.title+(DATA.lastPull?'\n\n'+tl('Last pull: ','Ultimo aggiornamento: ')+fmtTime(DATA.lastPull):'')+'\n'+tl('Click: system status (sources, credits, scheduled runs)','Clic: stato del sistema (fonti, crediti, esecuzioni programmate)');}}
+      tl2.title=b.dataset.base+(DATA.lastPull?'\n\n'+tl('Last pull: ','Ultimo aggiornamento: ')+fmtTime(DATA.lastPull):'')+'\n'+tl('Click: system status (sources, credits, scheduled runs)','Clic: stato del sistema (fonti, crediti, esecuzioni programmate)');}}
+  let SB_INFO='';
   function updateStatusBar(){
     const live=UNI.filter(t=>t.q&&fin(t.px));
     const mo=live.map(t=>t.q.marketOpen).filter(x=>typeof x==='boolean');
-    $('#sess').textContent=!mo.length?'—':mo.some(Boolean)?tl('OPEN','APERTO'):tl('CLOSED','CHIUSO');
     const adv=live.filter(t=>t.chg>=0).length,dec=live.filter(t=>t.chg<0).length;
-    $('#breadth').textContent=live.length?`${adv} ▲  /  ${dec} ▼ · ${live.length} live`:'—';
     const tt=$('#tsTime');if(tt)tt.textContent=DATA.lastPull?fmtHM(DATA.lastPull):'';
     const tsMax=live.map(t=>Date.parse(t.q.timestamp)).filter(isFinite);
-    $('#asof').textContent=tsMax.length?'DATA AS OF '+fmtTime(Math.max(...tsMax))+' local':'DATA AS OF —';
-    $('#dataPull').textContent=DATA.lastPull?'PULL '+fmtTime(DATA.lastPull):'';}
+    SB_INFO=[tl('U.S. market','Mercato USA')+': '+(!mo.length?'—':mo.some(Boolean)?tl('open','aperto'):tl('closed','chiuso')),
+      tl('Watchlist breadth','Ampiezza della watchlist')+': '+(live.length?`${adv} ▲ / ${dec} ▼ · ${live.length} live`:'—'),
+      tl('Last pull','Ultimo aggiornamento')+': '+(DATA.lastPull?fmtTime(DATA.lastPull):'—'),
+      tl('Data as of','Dati al')+': '+(tsMax.length?fmtTime(Math.max(...tsMax)):'—')].join('\n');
+    const b=$('#dataBadge');if(b&&b.dataset.base!=null)b.title=b.dataset.base+'\n\n'+SB_INFO;}
   function repaintAll(){renderTape();wins.forEach(w=>{if(!w.min){const sc=w.bodyEl.scrollTop;paintWin(w);w.bodyEl.scrollTop=sc;}});updateStatusBar();updateGlobal();}
 
   /* ---------- canvas ---------- */
@@ -1625,11 +1622,17 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     renderTape();wins.forEach(w=>{if(!w.min&&w.type!=='SET'){const s=w.bodyEl.scrollTop;paintWin(w);w.bodyEl.scrollTop=s;}});}
   function loadTheme(){try{const s=localStorage.getItem('at-theme');if(s){const t=JSON.parse(s),root=document.documentElement.style;root.setProperty('--amber',t.accent);root.setProperty('--focus-ring',t.accent);root.setProperty('--up',t.up);root.setProperty('--down',t.down);}}catch(e){}}
   function syncColorInputs(w){const b=w.bodyEl;const a=b.querySelector('.col-accent'),u=b.querySelector('.col-up'),d=b.querySelector('.col-down');if(a)a.value=toHex(cssVar('--amber'));if(u)u.value=toHex(cssVar('--up'));if(d)d.value=toHex(cssVar('--down'));}
+  // the ticker tape is optional (off by default): the bottom of the screen is one dock row
+  function tapeOn(){try{return localStorage.getItem('at-tape')==='1';}catch(e){return false;}}
+  function setTape(on){try{localStorage.setItem('at-tape',on?'1':'0');}catch(e){}const t=$('#strip');if(t)t.hidden=!on;}
   function renderSettings(body,win){setProv(win,{});const cur={accent:cssVar('--amber'),up:cssVar('--up'),down:cssVar('--down')};
     body.innerHTML=`<div class="set-grp">PRESET THEMES</div><div class="theme-row">${Object.entries(THEMES).map(([k,t])=>`<button class="theme-btn" data-theme="${k}"><span class="sw"><i style="background:${t.accent}"></i><i style="background:${t.up}"></i><i style="background:${t.down}"></i></span>${k.toUpperCase()}</button>`).join('')}</div>
       <div class="set-grp">CUSTOM COLOURS</div><div class="color-row"><label class="color-field">ACCENT<input type="color" class="col-accent" value="${toHex(cur.accent)}"></label><label class="color-field">UP<input type="color" class="col-up" value="${toHex(cur.up)}"></label><label class="color-field">DOWN<input type="color" class="col-down" value="${toHex(cur.down)}"></label></div>
       <button class="set-reset">RESET TO DEFAULT</button>
+      <div class="set-grp">TICKER TAPE</div><div class="tfbar" style="margin:0">${tb7('tape',[['off','OFF'],['on','ON']],tapeOn()?'on':'off')}</div>
+      <div class="des">Scrolling watchlist quotes above the dock. Off by default, to keep the bottom of the screen quiet.</div>
       <div class="des" style="margin-top:18px">Changes apply instantly across every window and are remembered on this device.</div>`;
+    $$('[data-tape]',body).forEach(b=>b.onclick=()=>{setTape(b.dataset.tape==='on');paintWin(win);});
     $$('[data-theme]',body).forEach(b=>b.onclick=()=>{applyTheme(THEMES[b.dataset.theme],true);syncColorInputs(win);});
     const a=body.querySelector('.col-accent'),u=body.querySelector('.col-up'),d=body.querySelector('.col-down');
     const upd=()=>applyTheme({accent:a.value,up:u.value,down:d.value},true);a.oninput=upd;u.oninput=upd;d.oninput=upd;
@@ -2252,8 +2255,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ['#tabs',tl('TASKBAR','BARRA DELLE FINESTRE'),tl('Open windows. TILE arranges them, CLOSE closes all, UNDO brings them back.','Finestre aperte. AFFIANCA le dispone, CHIUDI le chiude tutte, ANNULLA le riapre.')],
     ['#desk',tl('WINDOWS','FINESTRE'),tl('Drag a window by its title, resize from the corner, double-click the title to maximise. Drag to an edge to snap.','Trascina una finestra dal titolo, ridimensionala dall\'angolo, doppio clic sul titolo per ingrandirla. Trascinala su un bordo per agganciarla.')],
     ['.win .w-pv',tl('DATA LABELS','ETICHETTE DEI DATI'),tl('Each window says what its data is: LIVE, STALE (real but old), PARTIAL, DERIVED (computed here from real data) or N/A (no real source — nothing is invented). Hover for details.','Ogni finestra dice com\'è il suo dato: LIVE, STALE (reale ma vecchio), PARTIAL, DERIVED (calcolato qui da dati reali) o N/A (nessuna fonte reale — nulla è inventato). Passa sopra per i dettagli.')],
-    ['#status',tl('STATUS BAR','BARRA DI STATO'),tl('U.S. session, breadth of the watchlist, exchanges open now, the next high-impact event, and the state of all the data on screen.','Seduta USA, ampiezza della watchlist, borse aperte ora, il prossimo evento ad alto impatto e lo stato di tutti i dati sullo schermo.')],
-    ['#fnbar',tl('LAUNCHER','BARRA DI AVVIO'),tl('The most used functions, one click away.','Le funzioni più usate, a un clic.')],
+    ['#topStatus',tl('STATUS','STATO'),tl('The state of the data on screen, the exchanges open now and the next high-impact event. Click each for details (system status, world exchanges, calendar).','Lo stato dei dati sullo schermo, le borse aperte ora e il prossimo evento ad alto impatto. Clic su ognuno per i dettagli (stato del sistema, borse mondiali, calendario).')],
+    ['#dock',tl('DOCK','BARRA IN BASSO'),tl('A few functions one click away — every other one is in ☰ FUNCTIONS or the command line. On the right, the count of live, stale and N/A data on screen (hover for the U.S. session, watchlist breadth and the last pull).','Alcune funzioni a un clic — tutte le altre sono in ☰ FUNZIONI o nella riga di comando. A destra, il conteggio dei dati live, vecchi e N/A sullo schermo (passa sopra per seduta USA, ampiezza della watchlist e ultimo aggiornamento).')],
     ['#cmdbar [data-lang]',tl('LANGUAGE','LINGUA'),tl('Interface in English or Italian. Data, headlines and names stay as published.','Interfaccia in inglese o italiano. Dati, titoli e nomi restano come pubblicati.')]];
   let tourI=-1;
   function startTour(){toggleMenu(false);toggleHelp(false);tourI=0;tourShow();}
@@ -2444,9 +2447,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       c.innerHTML=`<i></i>${WINTYPES[w.type].tag}${w.type==='GP'?' '+w.state.ticker:''}`;
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
       bar.appendChild(c);});}
+  // a few functions, one click away (Nico's dock); everything else is in ☰ FUNCTIONS or the command line
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
-    [['MENU',tl('☰ FUNCTIONS','☰ FUNZIONI')],['GP','SECURITY'],['SRCH','SEARCH'],['WL','WATCHLIST'],['PF','PORTFOLIO'],['MKT','MARKETS'],['EXCH','EXCHANGES'],['MAP','HEAT MAPS'],['IDX','INDICES'],['YLD','YIELDS'],['CAL','CALENDAR'],['N','NEWS'],['BRF','BRIEFING'],['MOV','MOVERS'],['SCR','SCREENER'],['COMP','COMPARE'],['CORR','CORREL'],['DES','DES'],['ERN','EARNINGS'],['CB','CENTRAL BANKS'],['ALRT','ALERTS'],['SET','SETTINGS'],['HELP','HELP']].forEach(([code,label])=>{
-      const b=document.createElement('button');b.className='fn';b.textContent=label;
+    [['MENU',tl('☰ FUNCTIONS','☰ FUNZIONI')],['IDX','INDICES'],['WL','WATCHLIST'],['YLD','YIELDS'],['CAL','CALENDAR'],['MAP','HEAT MAPS'],['BRF','BRIEFING'],['N','NEWS'],['MKT','MARKETS'],['PF','PORTFOLIO'],['HELP','? HELP']].forEach(([code,label])=>{
+      const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
@@ -2501,7 +2505,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();
     openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
-    renderTape();tickClock();setInterval(tickClock,1000);
+    setTape(tapeOn());renderTape();tickClock();setInterval(tickClock,1000);
     $('#tsLabel').onclick=()=>openOrFocus('SYS',defaultState('SYS'));$('#mktsOpen').onclick=()=>openOrFocus('EXCH',defaultState('EXCH'));$('#nextEv').onclick=()=>openOrFocus('CAL',defaultState('CAL'));setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
     // interface language: EN / IT (remembered in this browser); data and AI briefings follow their own language
     const paintLang=()=>$$('#cmdbar [data-lang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===I18N.lang())));
