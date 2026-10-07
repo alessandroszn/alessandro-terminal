@@ -133,7 +133,8 @@
   .heat-wrap{display:flex;flex-direction:column;gap:12px}
   /* S&P 500 map */
   .spx-bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--line)}
-  .spx-bar .grp{display:flex;gap:2px;align-items:center}
+  .spx-bar .grp{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+  .spx-bar .grp button{white-space:nowrap}
   .spx-bar .grp>span{color:var(--dim);font-size:9.5px;letter-spacing:.08em;margin-right:4px}
   .spx-legend{display:flex;align-items:center;gap:1px;font-size:9.5px;color:var(--muted);margin-left:auto}
   .spx-legend .sw{width:24px;height:10px;display:inline-block}
