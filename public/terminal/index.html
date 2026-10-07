@@ -1335,7 +1335,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ['Shanghai','XSHG','Asia/Shanghai','09:30','15:00',null],['Hong Kong','XHKG','Asia/Hong_Kong','09:30','16:00',null],['Mumbai','XNSE','Asia/Kolkata','09:15','15:30',null],
     ['Frankfurt','XETR','Europe/Berlin','09:00','17:30','DAX'],['Milan','XMIL','Europe/Rome','09:00','17:30',null],['Paris','XPAR','Europe/Paris','09:00','17:30',null],
     ['Zurich','XSWX','Europe/Zurich','09:00','17:30',null],['Madrid','XMAD','Europe/Madrid','09:00','17:30',null],['London','XLON','Europe/London','08:00','16:30',null],
-    ['São Paulo','BVMF','America/Sao_Paulo','10:00','17:00',null],['Toronto','XTSE','America/Toronto','09:30','16:00',null],['New York','XNYS','America/New_York','09:30','16:00','SPX']];
+    ['São Paulo','BVMF','America/Sao_Paulo','10:00','18:00',null],['Toronto','XTSE','America/Toronto','09:30','16:00',null],['New York','XNYS','America/New_York','09:30','16:00','SPX']];
   const WM_NOIDX={XASX:'S&P/ASX 200',XKRX:'KOSPI',XSHG:'SSE Composite',XHKG:'Hang Seng',XNSE:'Nifty 50',XMIL:'FTSE MIB',XPAR:'CAC 40',XSWX:'SMI',XMAD:'IBEX 35',XLON:'FTSE 100',BVMF:'Ibovespa',XTSE:'S&P/TSX Composite'};
   // wall-clock time in a time zone → UTC instant
   function zonedMs(tz,y,mo,d,hh,mm){const g=Date.UTC(y,mo-1,d,hh,mm);let t=g-tzOffMin(tz,g)*60000;t=g-tzOffMin(tz,t)*60000;return t;}
