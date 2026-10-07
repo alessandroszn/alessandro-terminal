@@ -183,7 +183,7 @@ export const COUNTRY_ETFS = [
   ["Asia-Pacific", [["EWJ", "Japan"], ["MCHI", "China"], ["EWH", "Hong Kong"], ["EWT", "Taiwan"], ["EWY", "South Korea"], ["INDA", "India"], ["EWA", "Australia"], ["EWS", "Singapore"], ["EWM", "Malaysia"], ["EIDO", "Indonesia"], ["THD", "Thailand"], ["EPHE", "Philippines"], ["ENZL", "New Zealand"]]],
   ["Middle East & Africa", [["EIS", "Israel"], ["KSA", "Saudi Arabia"], ["QAT", "Qatar"], ["UAE", "United Arab Emirates"], ["EZA", "South Africa"]]],
 ].flatMap(([g, list]) => list.map(([s, c, issuer]) => etf(s, `${c} — ${issuer || "iShares MSCI " + c} (${s})`, g, c.toUpperCase())));
-export const CRYPTO_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "AVAX", "LINK", "LTC", "BCH", "DOT", "UNI", "AAVE", "SHIB", "PEPE", "XTZ", "CRV", "GRT", "BAT", "SUSHI", "YFI", "MKR", "TRUMP"]
+export const CRYPTO_PAIRS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "AVAX", "LINK", "LTC", "BCH", "DOT", "UNI", "AAVE", "SHIB", "PEPE", "XTZ", "CRV", "GRT", "BAT", "SUSHI", "YFI", "TRUMP"]
   .map((c) => ({ sym: `${c}/USD`, name: `${c} / US dollar`, sector: "Crypto", short: c, weight: null }));
 
 // Invesco holdings JSON → equities with weights (cash, futures, money market excluded)
@@ -217,7 +217,8 @@ export function parseSpdrRows(rows) {
     const sym = String(r[iT] || "").trim().replace(/\s+/g, "."), weight = numC(r[iW]);
     if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym) || weight == null || weight <= 0 || seen.has(sym)) continue;
     seen.add(sym);
-    items.push({ sym, name: String(r[iN] || "").trim() || null, sector: iS >= 0 ? String(r[iS] || "").trim() || null : null, weight });
+    const sec = iS >= 0 ? String(r[iS] || "").trim() : "";
+    items.push({ sym, name: String(r[iN] || "").trim() || null, sector: sec && sec !== "-" ? sec : null, weight });
   }
   return { asOf, items };
 }
@@ -282,11 +283,12 @@ export async function getLive(origin, env, ctx, symbols, u = "SPX") {
   const crypto = UNIVERSES[u].kind === "crypto";
   return cachedSource({ origin, key: u === "SPX" ? "spx/live" : `map/${u}/live`, ttlMs: 60_000, staleMaxMs: 24 * 3600_000, ctx, failTtlMs: 30_000, load: () => (crypto ? alpacaCryptoTrades(env, symbols) : alpacaLatestTrades(env, symbols)) });
 }
-// crypto trades around the clock: live when the trades are recent
+// crypto trades around the clock, but thin pairs can go hours without a trade: the map is live when the
+// most traded quarter of the pairs traded in the last 20 minutes; each tile keeps its own last-trade time
 export function cryptoPhase(trades, now = Date.now()) {
   const ages = Object.values(trades).map(([, t]) => now - Date.parse(t)).filter(Number.isFinite).sort((a, b) => a - b);
-  const median = ages.length ? ages[Math.floor(ages.length / 2)] : Infinity;
-  return { live: median <= 20 * 60_000, medianAgeSec: Number.isFinite(median) ? Math.round(median / 1000) : null };
+  const q1 = ages.length ? ages[Math.floor((ages.length - 1) / 4)] : Infinity, median = ages.length ? ages[Math.floor(ages.length / 2)] : Infinity;
+  return { live: q1 <= 20 * 60_000, medianAgeSec: Number.isFinite(median) ? Math.round(median / 1000) : null };
 }
 
 // ---------- handlers ----------

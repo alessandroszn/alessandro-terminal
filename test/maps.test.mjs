@@ -27,9 +27,9 @@ const QQQ = { effectiveDate: "2026-10-05", holdings: [
 const q = parseQqq(QQQ);
 ok("Invesco QQQ: equities and ADRs with weights; cash, futures, duplicates out; date kept", q.asOf === "2026-10-05" && q.items.map((x) => x.sym).join() === "NVDA,ASML" && q.items[0].weight === 9.1 && q.items[0].sector === null);
 const rows = [["SPDR® Dow Jones Industrial Average ETF Trust"], ["Ticker Symbol:", "DIA"], ["Holdings:", "As of 06-Oct-2026"], [], ["Name", "Ticker", "Identifier", "SEDOL", "Weight", "Sector", "Shares Held", "Local Currency"],
-  ["GOLDMAN SACHS GROUP INC", "GS", "38141G104", "2407966", "11.2", "Financials", "1", "USD"], ["CASH", "", "", "", "0.01", "", "", "USD"], ["UNITEDHEALTH GROUP INC", "UNH", "x", "y", "6.1", "Health Care", "1", "USD"]];
+  ["GOLDMAN SACHS GROUP INC", "GS", "38141G104", "2407966", "11.2", "Financials", "1", "USD"], ["CASH", "", "", "", "0.01", "", "", "USD"], ["UNITEDHEALTH GROUP INC", "UNH", "x", "y", "6.1", "Health Care", "1", "USD"], ["CATERPILLAR INC", "CAT", "x", "y", "9.9", "-", "1", "USD"]];
 const dj = parseSpdrRows(rows);
-ok("SPDR DIA sheet: header found, as-of date, tickers with weight and sector; blank ticker rows skipped", dj.asOf === "2026-10-06" && dj.items.map((x) => x.sym).join() === "GS,UNH" && dj.items[0].sector === "Financials" && dj.items[0].weight === 11.2);
+ok("SPDR DIA sheet: header found, as-of date, tickers with weight and sector; blank ticker rows skipped", dj.asOf === "2026-10-06" && dj.items.map((x) => x.sym).join() === "GS,UNH,CAT" && dj.items[0].sector === "Financials" && dj.items[2].sector === null && dj.items[0].weight === 11.2);
 
 // a real .xlsx is a ZIP of XML parts: build one (deflated shared strings, stored sheet) and read it back
 async function zip(files) {
@@ -70,7 +70,7 @@ globalThis.fetch = async (u) => {
 const env = { ALLOWED_ORIGIN: "https://alessandrozanichelli.com", ALPACA_KEY_ID: "id", ALPACA_SECRET_KEY: "secret" }, ctx = { waitUntil: () => {} };
 const cb = await alpacaCryptoBars(env, ["BTC/USD"], "2026-10-01", new Date(NOW).toISOString(), NOW);
 ok("crypto bars: the running UTC day is not a close; traded value = close × volume", cb.data["BTC/USD"].length === 2 && cb.data["BTC/USD"][1][0] === "2026-10-06" && cb.data["BTC/USD"][1][2] === 732000);
-ok("crypto live phase: 24/7, live when trades are recent", cryptoPhase({ A: [1, new Date(NOW - 60_000).toISOString()] }, NOW).live === true && cryptoPhase({ A: [1, new Date(NOW - 3600_000).toISOString()] }, NOW).live === false);
+ok("crypto live phase: 24/7, live when the most traded quarter traded recently (thin pairs do not block it)", cryptoPhase({ A: [1, new Date(NOW - 60_000).toISOString()], B: [1, new Date(NOW - 5 * 3600_000).toISOString()], C: [1, new Date(NOW - 6 * 3600_000).toISOString()], D: [1, new Date(NOW - 7 * 3600_000).toISOString()] }, NOW).live === true && cryptoPhase({ A: [1, new Date(NOW - 3600_000).toISOString()] }, NOW).live === false);
 const call = async (path, init, e = env) => { const r = await worker.fetch(new Request("https://alessandrozanichelli.com" + path, init), e, ctx); return { status: r.status, j: await r.json() }; };
 let r = await call("/api/spx/universe?u=CTRY");
 ok("/api/spx/universe?u=CTRY: fixed ETF list, labelled, source named", r.status === 200 && r.j.universe === "CTRY" && r.j.items.length === COUNTRY_ETFS.length && /ETFs/.test(r.j.source));
