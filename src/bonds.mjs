@@ -34,10 +34,12 @@ export function countryRow(id, def, rows, today) {
   }
   return { id, name: def.name, kind: def.kind, source: def.source, sourceUrl: def.sourceUrl, date: last.date, status, tenors };
 }
-export function bundSpreads(countries) {
-  const de = countries.find((c) => c.id === "DE" && c.tenors && c.tenors["10Y"]);
-  if (!de) return [];
-  return countries.filter((c) => c.id !== "DE" && c.tenors && c.tenors["10Y"] && c.date === de.date).map((c) => ({ id: c.id, tenor: "10Y", bp: r2((c.tenors["10Y"].value - de.tenors["10Y"].value) * 100), date: c.date }));
+// 10-year spread vs the Bund on the latest date both have published (never across two dates)
+export const tenSeries = (rows) => (rows || []).map((r) => { const p = r.points.find((x) => x.tenor === "10Y"); return p && p.value != null ? [r.date, p.value] : null; }).filter(Boolean);
+export function bundSpreads(series) {
+  const de = new Map(series.DE || []);
+  if (!de.size) return [];
+  return Object.entries(series).filter(([id]) => id !== "DE").map(([id, s]) => { const both = s.filter(([d]) => de.has(d)).pop(); return both ? { id, tenor: "10Y", bp: r2((both[1] - de.get(both[0])) * 100), date: both[0] } : null; }).filter(Boolean);
 }
 
 export async function handleBonds(url, env, ctx, H, json) {
@@ -57,7 +59,8 @@ export async function handleBonds(url, env, ctx, H, json) {
     });
     fred = { status: groups.some((g) => g.rows.some((x) => x.value != null)) ? "LIVE" : "N/A", groups, source: "FRED, Federal Reserve Bank of St. Louis", sourceUrl: "https://fred.stlouisfed.org/" };
   }
-  const res = json({ countries, spreads: bundSpreads(countries), fred, tenors: BOND_TENORS, notConnected: ["Italy", "France", "Spain", "China", "Australia"],
+  const series = Object.fromEntries(rows.filter(({ r }) => r.data && r.data.length).map(({ id, r }) => [id, tenSeries(r.data)]));
+  const res = json({ countries, spreads: bundSpreads(series), fred, tenors: BOND_TENORS, notConnected: ["Italy", "France", "Spain", "China", "Australia"],
     basis: "yields as published by each source (methods differ: par, spot or benchmark yields); changes in basis points between real publications; spreads only between values of the same date — all changes and spreads DERIVED",
     generatedAt: iso(now) }, H, countries.some((c) => c.status !== "N/A") ? 200 : 502);
   res.headers.set("cache-control", "no-store");

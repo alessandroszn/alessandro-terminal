@@ -48,8 +48,8 @@ ok("changes: vs previous publication, ~1 week and ~1 month earlier, in bp", c.d1
 ok("changes: not enough history → null, never estimated", changes([["2026-10-07", 3.52]]).d1 === null && changes([["2026-10-06", 3.5], ["2026-10-07", 3.52]]).m1 === null);
 const row = countryRow("DE", { name: "Germany", kind: "k", source: "Deutsche Bundesbank", sourceUrl: "u", maxAgeDays: 4 }, de, "2026-10-07");
 ok("country row: tenors with level and changes; a tenor the source does not publish is absent", row.tenors["10Y"].value === 3.52 && row.tenors["10Y"].d1 === 3 && row.tenors["10Y"].m1 === 12 && !row.tenors["5Y"] && row.status === "LIVE");
-const sp = bundSpreads([row, { id: "UK", date: "2026-10-07", tenors: { "10Y": { value: 5.36 } } }, { id: "JP", date: "2026-10-06", tenors: { "10Y": { value: 3.1 } } }]);
-ok("10Y spread vs the Bund: only on the same date (UK +184 bp; Japan's other date → none)", sp.length === 1 && sp[0].id === "UK" && sp[0].bp === 184);
+const sp = bundSpreads({ DE: [["2026-10-06", 3.49], ["2026-10-07", 3.52]], UK: [["2026-10-05", 5.36], ["2026-10-07", 5.36]], JP: [["2026-10-06", 3.1]], CH: [["2026-09-30", 0.53]] });
+ok("10Y spread vs the Bund: on the latest date both published (UK 7 Oct +184 bp, Japan 6 Oct −39 bp); no common date → none", sp.length === 2 && sp[0].id === "UK" && sp[0].bp === 184 && sp[0].date === "2026-10-07" && sp[1].id === "JP" && sp[1].bp === -39 && sp[1].date === "2026-10-06", JSON.stringify(sp));
 
 // ---------- endpoints with mocked providers ----------
 const KEYF = "fred-test-key-000";
@@ -70,7 +70,7 @@ let r = await call("/api/yields", env);
 ok("/api/yields: Germany, UK, Japan, Switzerland, Canada curves next to the others; the Treasury unreachable → US N/A", r.j.curves.DE && r.j.curves.UK && r.j.curves.JP && r.j.curves.CH && r.j.curves.CA && r.j.errors.US && r.j.curves.DE.points.find((p) => p.tenor === "10Y").changeBp === 3, JSON.stringify(Object.keys(r.j.curves)));
 ok("/api/yields: the Swiss point says which bond it is", /Confederation bond V13_1/.test(r.j.curves.CH.points.find((p) => p.tenor === "10Y").note || ""));
 r = await call("/api/bonds", env);
-ok("/api/bonds without FRED_KEY: countries shown, inflation / credit NO DATA naming the secret", r.status === 200 && r.j.countries.find((x) => x.id === "DE").tenors["10Y"].value === 3.52 && r.j.fred.error === "fred_not_configured" && r.j.spreads.some((x) => x.id === "UK" || x.id === "CH" || x.id === "JP") === false);
+ok("/api/bonds without FRED_KEY: countries shown, inflation / credit NO DATA naming the secret", r.status === 200 && r.j.countries.find((x) => x.id === "DE").tenors["10Y"].value === 3.52 && r.j.fred.error === "fred_not_configured" && JSON.stringify(r.j.spreads) === JSON.stringify([{ id: "CH", tenor: "10Y", bp: -273, date: "2026-09-30" }, { id: "CA", tenor: "10Y", bp: 43, date: "2026-10-06" }]), JSON.stringify(r.j.spreads));
 store = new Map(); calls = [];
 const envF = { ...env, FRED_KEY: KEYF };
 r = await call("/api/bonds", envF);
