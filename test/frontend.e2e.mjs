@@ -214,6 +214,19 @@ const COT_FIX = () => ({ report: "Commitments of Traders — legacy, futures onl
   { code: "13874A", name: "E-mini S&P 500", group: "Equity indices", root: "ES", date: "2026-09-29", oi: 1895922, long: 209587, short: 352086, net: -142499, commNet: 35281, chg1w: -9271, chg4w: 12000, netPctOi: -7.5, range: { weeks: 26, min: -200000, max: -100000, pos: 58 }, history: [-150000, -140000, -133228, -142499] },
   { code: "088691", name: "Gold", group: "Metals", root: "GC", date: "2026-09-29", oi: 406456, long: 249736, short: 31104, net: 218632, commNet: -250967, chg1w: -7221, chg4w: 5000, netPctOi: 53.8, range: { weeks: 26, min: 150000, max: 230000, pos: 86 }, history: [210000, 225853, 218632] },
   { code: "133741", name: "Bitcoin", group: "Crypto", root: "BTC", status: "N/A" }] });
+// indices: Cboe-style delayed rows, STOXX / Nikkei / FRED closes; histories are straight lines so 1M / YTD are checkable
+const IDX_DAYS = (n) => { const out = []; for (let i = 1; out.length < n; i++) { const d = dShift(today, -i), w = new Date(d + "T12:00:00Z").getUTCDay(); if (w % 6) out.push(d); } return out.reverse(); };
+const IDX_ROW = (id, name, g, last, pct, kind, extra = {}) => ({ id, name, group: g, last, prev: +(last / (1 + pct / 100)).toFixed(2), chg: +(last - last / (1 + pct / 100)).toFixed(2), chgPct: pct, open: null, high: null, low: null, date: kind === "delayed" ? today : dShift(today, -1), asOf: kind === "delayed" ? new Date(Date.now() - 16 * 60e3).toISOString() : null, kind, source: kind === "delayed" ? "Cboe (15-min delayed)" : "STOXX (daily close)", sourceUrl: "https://www.cboe.com/us/indices/", status: "LIVE", fetchedAt: T7_NOW(), ...extra });
+const IDX_FIX = (g) => ({ group: g, status: "LIVE", indices: {
+  us: [IDX_ROW("SPX", "S&P 500", "us", 7800.12, -0.24, "delayed", { open: 7792.98, high: 7804.32, low: 7763.34 }), IDX_ROW("DJI", "Dow Jones Industrial Average", "us", 51215, -0.59, "delayed", { status: "DERIVED", note: "Cboe DJX (1/100 of the DJIA) × 100, ±0.5 point" }), IDX_ROW("COMP", "Nasdaq Composite", "us", 27599.89, 0.45, "close", { source: "FRED · Nasdaq (daily close)" }), { id: "RUT", name: "Russell 2000", group: "us", source: "Cboe (15-min delayed)", status: "N/A", error: "provider_timeout" }],
+  eu: [IDX_ROW("SX5E", "EURO STOXX 50", "eu", 6180.29, -1.47, "close"), IDX_ROW("DAX", "DAX", "eu", 25104.36, -1.36, "close")],
+  world: [IDX_ROW("N225", "Nikkei 225", "world", 70035.71, -0.92, "close", { source: "Nikkei Inc. (daily)" })] }[g],
+  notConnected: { us: [], eu: [{ id: "UKX", name: "FTSE 100" }, { id: "CAC", name: "CAC 40" }, { id: "FTSEMIB", name: "FTSE MIB" }, { id: "SMI", name: "SMI" }], world: [{ id: "HSI", name: "Hang Seng" }] }[g] });
+// SPX: 420 sessions rising by 1 point a day to 7,700 (OHLC); DAX: 64 STOXX closes (close only)
+const IDX_HIST = (id) => { const eu = id === "SX5E" || id === "DAX", n = eu ? 64 : 420, ds = IDX_DAYS(n), end = { SPX: 7700, DJI: 51000, COMP: 27500, SX5E: 6100, DAX: 25000, N225: 70000 }[id] || 1000;
+  const pts = ds.map((d, i) => { const c = end - (n - 1 - i); return eu ? [d, c] : [d, c - 2, c + 5, c - 6, c]; });
+  return { id, name: id, source: eu ? "STOXX (daily close)" : "Cboe (daily history)", sourceUrl: "https://www.stoxx.com/", note: eu ? "STOXX publishes the last 3 months for free" : null, fields: eu ? "close" : "ohlc", points: pts, from: pts[0][0], to: pts[pts.length - 1][0], count: pts.length, status: "LIVE", fetchedAt: T7_NOW() }; };
+const indicesApi = (u) => u.pathname === "/api/indices/history" ? { body: IDX_HIST(u.searchParams.get("id")) } : { body: IDX_FIX(u.searchParams.get("g")) };
 const t07Api = (u, method, body, st) => {
   const p = u.pathname; st.calls.push(method + " " + p + u.search);
   if (p === "/api/cb") return { body: CB_FIX() };
@@ -268,6 +281,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
+    if (u.origin === ORIGIN && (u.pathname === "/api/indices" || u.pathname === "/api/indices/history")) return send(api.indices ? api.indices(u) : indicesApi(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
@@ -339,11 +353,26 @@ const OK_API = {
   const mkt = await winOf(page, "MARKETS");
   ok("[A] markets: FX, crypto, metals with real-shaped quotes", /EUR\/USD[\s\S]*1\.12601/.test(mkt.text) && /BTC\/USD[\s\S]*85,650\.01/.test(mkt.text) && /XAU\/USD[\s\S]*4,165\.24/.test(mkt.text), mkt.text.slice(0, 300));
   ok("[A] markets: FX volume N/A, equity volume PARTIAL", /EUR\/USD[^\n]*\n?[^\n]*N\/A/.test(mkt.text) && /537\.8K\s*PART/.test(mkt.text));
-  ok("[A] markets: indices and commodities shown as N/A, not substituted", /INDICES[\s\S]*N\/A — no licensed index source/.test(mkt.text) && /WTI[\s\S]*N\/A — not available on the current data plan/.test(mkt.text));
+  ok("[A] markets: the main indices from /api/indices (a failed one N/A with its reason); commodities still N/A", /INDICES[\s\S]*SPX\s+S&P 500\s+7,800\.12\s+-0\.24%/.test(mkt.text) && /DJI\s+Dow Jones Industrial Average\s+51,215\.00[\s\S]*?DRV/.test(mkt.text) && /RUT\s+Russell 2000\s+N\/A — provider timed out/.test(mkt.text) && /WTI[\s\S]*N\/A — not available on the current data plan/.test(mkt.text), (mkt.text.match(/INDICES[\s\S]{0,400}/) || [])[0]);
   // indices
   await cmd(page, "IDX");
   const idx = await winOf(page, "WORLD INDICES");
-  ok("[A] indices: NO DATA with the reason, every level N/A, no numbers", /NO DATA — no real index source/.test(idx.text) && idx.pill === "N/A" && (idx.text.match(/N\/A/g) || []).length >= 13 * 4 && !/\d+\.\d+/.test(idx.text.split("ETFs are not shown")[1] || ""));
+  await page.waitForTimeout(900);
+  const idx2 = await winOf(page, "WORLD INDICES");
+  // expected 1M / YTD from the fixture itself (last close on or before the day)
+  const H = IDX_HIST("SPX").points, at = (d) => H.filter((p) => p[0] <= d).pop(), m1d = new Date(today + "T12:00:00Z"); m1d.setUTCMonth(m1d.getUTCMonth() - 1);
+  const y1d = new Date(today + "T12:00:00Z"); y1d.setUTCFullYear(y1d.getUTCFullYear() - 1); const lo52 = Math.min(...H.filter((p) => p[0] >= y1d.toISOString().slice(0, 10)).map((p) => p[3])).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pc = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%", ytd = pc((7800.12 / at((Number(today.slice(0, 4)) - 1) + "-12-31")[4] - 1) * 100), m1 = pc((7800.12 / at(m1d.toISOString().slice(0, 10))[4] - 1) * 100);
+  ok("[A] indices: groups with level, change, day range, 1M / YTD / 52W DERIVED from the history, time and status", /UNITED STATES[\s\S]*S&P 500 SPX\s+7,800\.12\s+−18\.\d\d\s+-0\.24%\s+7,763\.34 – 7,804\.32/.test(idx2.text) && idx2.text.includes(m1) && idx2.text.includes(ytd) && idx2.text.includes(lo52 + " – 7,804.32") && /EUROPE[\s\S]*DAX DAX\s+25,104\.36/.test(idx2.text) && /ASIA & GLOBAL[\s\S]*Nikkei 225 N225\s+70,035\.71/.test(idx2.text), [m1, ytd, idx2.text.slice(0, 700)].join(" | "));
+  ok("[A] indices: Dow DERIVED (DJX × 100), a failed index N/A with the reason, not-connected ones named, STOXX history too short for YTD / 52W", /Dow Jones Industrial Average DJI[^\n]*[\s\S]*?DRV/.test(idx2.text) && /Russell 2000 RUT\s+N\/A — provider timed out/.test(idx2.text) && /FTSE 100 · CAC 40 · FTSE MIB · SMI: no free official source/.test(idx2.text) && /Hang Seng: no free official source/.test(idx2.text) && /EURO STOXX 50 SX5E[^\n]*\n?[^\n]*N\/A\s+N\/A/.test(idx2.text), idx2.text.slice(0, 1200));
+  ok("[A] indices: the chart of the selected index (candles from Cboe history + the session in progress) with ranges", /S&P 500 SPX 7,800\.12/.test(idx2.text) && /420 sessions/.test(idx2.text) && /today from the delayed quote/.test(idx2.text) && (await page.$$eval(".ix-box canvas", (c) => c.length)) >= 1 && /1M\s*3M\s*6M\s*YTD\s*1Y\s*MAX/.test(idx2.text), idx2.text.slice(0, 300));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "WORLD INDICES"); w.querySelector('.ix-t tr[data-ix="DAX"]').click(); });
+  await page.waitForTimeout(700);
+  const idx3 = await winOf(page, "WORLD INDICES");
+  ok("[A] indices: clicking DAX charts its STOXX closes (3 months, close only)", /^DAX DAX 25,104\.36/m.test(idx3.text) && /64 sessions/.test(idx3.text) && /STOXX publishes the last 3 months for free/.test(idx3.text) && /1M\s*3M\s*MAX/.test(idx3.text), idx3.text.slice(0, 300));
+  await cmd(page, "IDX N225");
+  await page.waitForTimeout(500);
+  ok("[A] indices: IDX N225 selects the Nikkei", /NIKKEI 225 N225 70,035\.71/.test((await winOf(page, "WORLD INDICES")).text));
   // yields
   await page.waitForTimeout(600);
   let yl = await winOf(page, "GOVERNMENT YIELDS");
@@ -478,6 +507,7 @@ const OK_API = {
 {
   const DOWN = {
     yieldsIds: () => ({ status: 502, body: { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } } } }),
+    indices: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
     briefs: () => ({ status: 503, body: { error: "storage_not_configured", status: "N/A" } }),
     quote: (syms) => ({ status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "rate_limited", status: "N/A" }])), meta: {} } }),
     history: () => ({ status: 429, body: { error: "rate_limited", status: "N/A" } }),
@@ -490,6 +520,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[B] no price anywhere (no fallback value)", !/\$\d/.test(body) && !/\d\.\d{3,}/.test(body), (body.match(/.{20}(\$\d|\d\.\d{3,}).{10}/) || [])[0]);
   ok("[B] yields: N/A with the provider reason, no curve", /US United States\s+N\/A provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text), (await winOf(page, "GOVERNMENT YIELDS")).text.slice(0, 300));
+  ok("[B] indices: every group N/A with the reason, no level", /UNITED STATES\s+N\/A — provider unreachable[\s\S]*EUROPE\s+N\/A — provider unreachable/.test((await winOf(page, "WORLD INDICES")).text) && !/\d,\d{3}\.\d\d/.test((await winOf(page, "WORLD INDICES")).text), (await winOf(page, "WORLD INDICES")).text.slice(0, 300));
   ok("[B] calendar and news: NO DATA with the reason", /NO DATA/.test((await winOf(page, "ECONOMIC CALENDAR")).text) && /provider unreachable/.test((await winOf(page, "NEWS")).text));
   ok("[B] briefing: N/A, no text produced", /briefing archive unavailable/.test((await winOf(page, "BRIEFING")).text) && (await winOf(page, "BRIEFING")).pill === "N/A" && !(await page.$(".brf-art")));
   ok("[B] no NaN rendered; no JavaScript errors", !/NaN/.test(body) && errors.length === 0, errors.join(" | "));
@@ -660,7 +691,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "IDX,FUT,RDT", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "FUT,RDT", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");

@@ -124,6 +124,7 @@
   .yw-nav .yw-c.m{opacity:.75;font-style:italic}
   .yw-reg{color:var(--dim);font-size:9px;letter-spacing:.08em;margin:0 2px 0 8px;text-transform:uppercase}
   .yw-mb{display:inline-block;font-size:8.5px;line-height:1;padding:2px 3px;border:1px solid var(--line-2);border-radius:2px;color:var(--muted);vertical-align:middle}
+  .ix-top{position:sticky;top:-12px;z-index:4;margin:-12px -12px 8px;padding:12px 12px 8px;background:var(--panel);border-bottom:1px solid var(--line)}table.pf.ix-t td{white-space:nowrap}.ix-t tbody tr[data-ix]{cursor:pointer}.ix-t tbody tr[data-ix]:hover td{background:var(--amber-soft)}.ix-t tbody tr.sel td{background:#ffffff10}.ix-t tbody tr.sel td:first-child{box-shadow:inset 2px 0 0 var(--amber)}
   table.pf.yw-t td{white-space:nowrap}
   table.pf.yw-t tr.yw-na td{color:var(--dim)}
   table.pf.yw-t td.yw-src{max-width:170px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
@@ -486,7 +487,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
     <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
     <div class="help-row"><code>MAP</code><span>Heat maps: S&amp;P 500, Nasdaq-100, Dow 30, sectors, countries, crypto, FX — coloured by 1D / 1W / 1M / 3M / 6M / YTD / 1Y change</span></div>
-    <div class="help-row"><code>IDX</code><span>World indices — NO DATA until a licensed source is connected</span></div>
+    <div class="help-row"><code>IDX</code><span>World indices: US, MSCI EAFE and EM from Cboe (15-min delayed), Europe from STOXX, Nikkei 225, Nasdaq Composite from FRED; 1M, YTD, 52 weeks and a chart</span></div>
+    <div class="help-row"><code>IDX DAX</code><span>World indices with one index on the chart</span></div>
     <div class="help-row"><code>YLD</code><span>Government yields of 35 countries and the euro area from central banks and debt offices (monthly OECD average where no daily source exists): WORLD table with changes, 2s10s and spreads; each country's curve vs past dates and its 10Y history</span></div>
     <div class="help-row"><code>CURVE US IT DE</code><span>Yield curves of up to 6 countries on one chart, or one country at several dates</span></div>
     <div class="help-row"><code>CAL</code><span>Economic calendar: world high-impact events (Forex Factory) with market reaction, plus official US schedules</span></div>
@@ -1029,16 +1031,94 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     body.innerHTML=`<table class="pf mkt"><thead><tr><th>SYM</th><th class="l">NAME</th><th>LAST</th><th>CHG%</th><th>VOLUME</th><th>TIME</th><th>DATA</th></tr></thead><tbody>
       ${grp('EQUITIES · WATCHLIST',UNI.filter(t=>!t.sym.includes('/')))}
       ${MARKET_GROUPS.map(([g,syms])=>grp(g,syms.map(x=>BY[x]))).join('')}
-      ${na('INDICES',['IDX'],'no licensed index source (see INDICES)')}
+      ${mktIdx(items)}
       ${na('COMMODITIES',['WTI','BRENT','NAT GAS'],'not available on the current data plan')}
     </tbody></table><div class="scr-count">Equity volume is PARTIAL (venue subset). The provider sends no volume for FX, crypto and gold: N/A.</div>`;
-    setProv(win,items);bindFocusRows(body);}
+    setProv(win,items);bindFocusRows(body);win._load=()=>IDX_G.forEach(g=>idxG(g));
+    $$('tr[data-ix]',body).forEach(tr=>{const go=()=>{const w=openOrFocus('IDX',{});w.state.id=tr.dataset.ix;paintWin(w);};tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});}
 
-  // ---- INDICES: kept as a section, NO DATA until a licensed real source exists ----
-  const INDEX_ROWS=["S&P 500","Nasdaq-100","Nasdaq Composite","Dow Jones Industrial Average","Russell 2000","Cboe VIX","Euro Stoxx 50","DAX","FTSE 100","CAC 40","FTSE MIB","Nikkei 225","Hang Seng"];
-  function renderIndices(body,win){setProv(win,{'ds:IDX':S.NA},'no licensed index source');
-    body.innerHTML=`<div class="banner warn"><b>NO DATA</b> — no real index source is connected. The current plan has no index data (test 2026-10-06: SPX and NDX need a higher plan; DJI, IXIC, RUT and VIX are not available), and index vendors (S&amp;P DJI, Nasdaq, Cboe, STOXX, Deutsche Börse) license even delayed values for display. ETFs are not shown as substitutes.</div>
-      <table class="pf"><thead><tr><th class="l">INDEX</th><th>LEVEL</th><th>CHG%</th><th>OPEN / HIGH / LOW</th><th>52W</th><th>TIME</th><th>DATA</th></tr></thead><tbody>${INDEX_ROWS.map(n=>`<tr><td class="l">${n}</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="na">—</td><td>${chip(S.NA,'no licensed source')}</td></tr>`).join('')}</tbody></table>`;}
+  // ---- INDICES (IDX): Cboe 15-minute delayed quotes (US, MSCI EAFE / EM), STOXX and Nikkei daily closes, FRED (Nasdaq
+  // Composite; the official close stands in when Cboe does not answer). Levels only as /api/indices returns them;
+  // 1M, YTD and the 52-week range DERIVED here from the real daily history; nothing filled in where a source stops ----
+  const IDX_G=['us','eu','world'],IDX_IDS=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','SXXP','DAX','MDAX','SX7E','N225','MXEA','MXEF'];
+  const idxGName=g=>({us:tl('UNITED STATES','STATI UNITI'),eu:tl('EUROPE','EUROPA'),world:tl('ASIA & GLOBAL','ASIA E GLOBALI')})[g]||g;
+  const idxG=g=>get7('/api/indices?g='+g,60000,['IDX','MKT']);
+  const idxH=id=>get7('/api/indices/history?id='+id,1800000,['IDX']);
+  const idxS=r=>({LIVE:S.LIVE,STALE:S.STALE,DERIVED:S.DERIVED})[r&&r.status]||S.NA;
+  const lvl=v=>fin(v)?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  const lvlS=v=>fin(v)?(v>=0?'+':'−')+lvl(Math.abs(v)):'—';
+  const dmy=d=>{const t=new Date(String(d||'').slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{day:'2-digit',month:'short',timeZone:'UTC'}):'—';};
+  const isoShift=(d,mo,yr,dd)=>{const t=new Date(d+'T12:00:00Z');if(mo)t.setUTCMonth(t.getUTCMonth()-mo);if(yr)t.setUTCFullYear(t.getUTCFullYear()-yr);if(dd)t.setUTCDate(t.getUTCDate()-dd);return t.toISOString().slice(0,10);};
+  function idxTime(r){return r.kind==='delayed'?`${fmtHM(r.asOf)} <span class="k" title="${tl('Cboe quotes are 15 minutes delayed','le quotazioni Cboe sono ritardate di 15 minuti')}">15m</span>`:`<span title="${tl('daily close published by the source','chiusura giornaliera pubblicata dalla fonte')}">${tl('close','chiusura')} ${dmy(r.date)}</span>`;}
+  // 1M and YTD against real past closes (the last close on or before that day); the 52-week range from the daily highs and
+  // lows (closes when the source publishes only closes) plus today's range — only when the history covers the whole year
+  function idxStats(r,h){const P=h&&h.points;if(!P||!P.length||!fin(r.last))return null;const oh=h.fields==='ohlc',c=p=>p[p.length-1];
+    const at=d=>{if(P[0][0]>d)return null;let x=null;for(const p of P){if(p[0]<=d)x=p;else break;}return x;};
+    const ref=r.date||P[P.length-1][0],p1=at(isoShift(ref,1)),py=at((Number(ref.slice(0,4))-1)+'-12-31'),y1=isoShift(ref,0,1);
+    let lo=null,hi=null;if(P[0][0]<=y1){for(const p of P){if(p[0]<y1)continue;const l=oh&&fin(p[3])?p[3]:c(p),u=oh&&fin(p[2])?p[2]:c(p);lo=lo==null?l:Math.min(lo,l);hi=hi==null?u:Math.max(hi,u);}
+      [r.low,r.high,r.last].forEach(v=>{if(fin(v)){lo=Math.min(lo,v);hi=Math.max(hi,v);}});}
+    return{m1:p1?(r.last/c(p1)-1)*100:null,ytd:py?(r.last/c(py)-1)*100:null,lo,hi,fromCloses:!oh};}
+  // markets board: the main indices, each opening IDX on its chart
+  const MKT_IDX=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','DAX','N225'];
+  function mktIdx(items){const G=IDX_G.map(g=>idxG(g)),rows=G.flatMap(e=>e.data&&Array.isArray(e.data.indices)?e.data.indices:[]).filter(r=>MKT_IDX.includes(r.id));
+    let h=`<tr class="grp"><td colspan="7">INDICES</td></tr>`;
+    if(!rows.length){const err=G.map(e=>(e.data&&e.data.error)||e.err).find(Boolean);return h+(G.every(e=>e.err||(e.data&&!e.data.indices))&&err?`<tr><td class="na">IDX</td><td class="l na" colspan="5">N/A — ${esc(P.errorText(err))}</td><td>${chip(S.NA)}</td></tr>`:`<tr><td colspan="7" class="dim l">${tl('Loading…','Caricamento…')}</td></tr>`);}
+    return h+MKT_IDX.map(id=>rows.find(r=>r.id===id)).filter(Boolean).map(r=>{const s=idxS(r);items['idx:'+r.id]=s;
+      return s===S.NA?`<tr data-ix="${r.id}" tabindex="0" role="button"><td>${r.id}</td><td class="l nm">${esc(r.name)}</td><td class="l na" colspan="4">N/A — ${esc(P.errorText(r.error))}</td><td>${chip(S.NA,r.source)}</td></tr>`
+        :`<tr data-ix="${r.id}" tabindex="0" role="button" title="${esc(r.source+(r.note?' · '+r.note:''))}"><td>${r.id}</td><td class="l nm">${esc(r.name)}</td><td class="num">${lvl(r.last)}</td><td class="num ${cls(r.chgPct)}">${pctN(r.chgPct)}</td><td class="num"><span class="dim" title="${tl('an index has no volume','un indice non ha volume')}">—</span></td><td>${r.kind==='delayed'?fmtHM(r.asOf):dmy(r.date)}</td><td>${chip(s,r.source)}</td></tr>`;}).join('');}
+  function idxRange(x){if(!x||!fin(x.lo)||!fin(x.hi))return null;const p=x.hi>x.lo?Math.round((x.cur-x.lo)/(x.hi-x.lo)*100):50;return`<span class="cot-bar" title="${lvl(x.lo)} … ${lvl(x.hi)}${x.fromCloses?' · '+tl('from daily closes','dalle chiusure giornaliere'):''}"><i style="left:${p}%"></i></span> <span class="k">${lvl(x.lo)} – ${lvl(x.hi)}</span>`;}
+  function renderIndices(body,win){const st=win.state;st.id=IDX_IDS.includes(st.id)?st.id:'SPX';st.rng=st.rng||'1Y';
+    const G=IDX_G.map(g=>[g,idxG(g)]);win._load=()=>IDX_G.forEach(g=>idxG(g));
+    const all=G.flatMap(([,e])=>e.data&&Array.isArray(e.data.indices)?e.data.indices:[]),items={};
+    // every index's history is read once (cached 30 min) for its 1M / YTD / 52W
+    all.filter(r=>r.status!=='N/A').forEach(r=>idxH(r.id));
+    let tb='';for(const [g,e] of G){tb+=`<tr class="grp"><td colspan="10">${esc(idxGName(g))}</td></tr>`;const d=e.data;
+      if(!d&&!e.err){tb+=`<tr><td colspan="10" class="dim l">${tl('Loading…','Caricamento…')}</td></tr>`;continue;}
+      if(!d||!Array.isArray(d.indices)){items['idx:'+g]=S.NA;tb+=`<tr><td colspan="9" class="na l">N/A — ${esc(P.errorText((d&&d.error)||e.err))}</td><td>${chip(S.NA)}</td></tr>`;continue;}
+      for(const r of d.indices){const s=idxS(r);items['idx:'+r.id]=s;
+        if(s===S.NA){tb+=`<tr data-ix="${r.id}"><td class="l"><b>${esc(r.name)}</b> <span class="k notranslate">${r.id}</span></td><td colspan="8" class="na l">N/A — ${esc(P.errorText(r.error))}</td><td>${chip(S.NA,r.source)}</td></tr>`;continue;}
+        const H=X7['/api/indices/history?id='+r.id],x=idxStats(r,H&&H.data),pend=!H||(!H.data&&!H.err);if(x)x.cur=r.last;
+        const short=!!(H&&H.data&&Array.isArray(H.data.points)&&!(x&&fin(x.lo))),naR=pend?'<span class="dim">…</span>':short?naS(tl('the free history is shorter than a year','lo storico gratuito è più corto di un anno')):naS(tl('history unavailable','storico non disponibile'));
+        const dr=fin(r.low)&&fin(r.high)?`${lvl(r.low)} – ${lvl(r.high)}`:`<span class="dim" title="${tl('the source publishes only the close','la fonte pubblica solo la chiusura')}">—</span>`;
+        const title=[r.source,r.owner?tl('index','indice')+' © '+r.owner:'',r.note||''].filter(Boolean).join(' · ');
+        tb+=`<tr data-ix="${r.id}" class="${r.id===st.id?'sel':''}" tabindex="0" role="button"><td class="l"><b>${esc(r.name)}</b> <span class="k notranslate">${r.id}</span></td><td class="num"><b>${lvl(r.last)}</b></td><td class="num ${cls(r.chg)}">${lvlS(r.chg)}</td><td class="num ${cls(r.chgPct)}">${pctN(r.chgPct)}</td><td class="num k">${dr}</td>
+          <td class="num ${cls(x&&x.m1)}">${x&&fin(x.m1)?pctN(x.m1):naR}</td><td class="num ${cls(x&&x.ytd)}">${x&&fin(x.ytd)?pctN(x.ytd):naR}</td><td class="l">${idxRange(x)||naR}</td><td class="l k">${idxTime(r)}</td><td>${chip(s,title)}</td></tr>`;}
+      const nc=(d.notConnected||[]).map(n=>n.name);if(nc.length)tb+=`<tr class="ix-nc"><td class="l na" colspan="9">N/A — ${esc(nc.join(' · '))}: ${tl('no free official source','nessuna fonte ufficiale gratuita')}</td><td>${chip(S.NA,tl('no free official source','nessuna fonte ufficiale gratuita'))}</td></tr>`;}
+    // the chart of the selected index: its real daily history (+ the session in progress from the delayed quote)
+    const r=all.find(x=>x.id===st.id)||{id:st.id,name:st.id},H=idxH(st.id),hd=H.data&&H.data.points?H.data:null;
+    let rows=[],span='',RNG=[['1M',1],['3M',3],['6M',6],['YTD','ytd'],['1Y',12],['5Y',60],['10Y',120],['MAX',0]];
+    if(hd){const oh=hd.fields==='ohlc',pts=hd.points;rows=pts.map(p=>oh?{time:p[0],open:p[1],high:p[2],low:p[3],close:p[4]}:{time:p[0],close:p[1]});
+      if(r.kind==='delayed'&&r.date&&r.date>pts[pts.length-1][0]&&fin(r.last)){if(!oh)rows.push({time:r.date,close:r.last,live:1});else if(fin(r.open)&&fin(r.high)&&fin(r.low))rows.push({time:r.date,open:r.open,high:r.high,low:r.low,close:r.last,live:1});}
+      const last=rows[rows.length-1].time,first=rows[0].time,startOf=v=>v==='ytd'?(Number(last.slice(0,4))-1)+'-12-31':v?isoShift(last,v):first;
+      const tol=isoShift(first,0,0,7);RNG=RNG.filter(([,v])=>!v||startOf(v)>=tol);if(!RNG.some(([k])=>k===st.rng))st.rng=RNG[RNG.length>1?RNG.length-2:0][0];
+      const from=startOf(RNG.find(([k])=>k===st.rng)[1]);rows=rows.filter(x=>x.time>=from);
+      span=`${pts.length} ${tl('sessions','sedute')} · ${fmtDay(pts[0][0])} – ${fmtDay(pts[pts.length-1][0])}${rows.some(x=>x.live)?' · '+tl('today from the delayed quote','oggi dalla quotazione ritardata')+' '+chip(S.PARTIAL,tl('session in progress','seduta in corso')):''} · <a href="${esc(hd.sourceUrl)}" target="_blank" rel="noopener">${esc(hd.source)}</a>${hd.note?' · '+esc(hd.note):''}`;}
+    // the chart stays on top while the table scrolls under it
+    body.innerHTML=`<div class="ix-top"><div class="yc-h">${esc(String(r.name||st.id).toUpperCase())} <span class="k notranslate">${esc(st.id)}</span> ${fin(r.last)?`<b>${lvl(r.last)}</b> <span class="${cls(r.chgPct)}">${pctN(r.chgPct)}</span>`:''}</div>
+      <div class="tfbar" style="margin:6px 0 4px">${tb7('irng',RNG.map(([k])=>[k,k]),st.rng)}</div>
+      <div class="chart-box ix-box" style="height:220px" aria-label="${esc(st.id)} history"></div>
+      <div class="src-line">${hd?span:H.err?naS()+' '+esc(P.errorText((H.data&&H.data.error)||H.err)):tl('loading the history…','carico lo storico…')}</div></div>
+      <div class="corr-wrap"><table class="pf ix-t"><thead><tr><th class="l">${tl('INDEX','INDICE')}</th><th>${tl('LEVEL','LIVELLO')}</th><th>${tl('CHG','VAR.')}</th><th>${tl('CHG%','VAR.%')}</th><th>${tl('DAY RANGE','RANGE DEL GIORNO')}</th><th>1M</th><th>YTD</th><th class="l">${tl('52 WEEKS','52 SETTIMANE')}</th><th class="l">${tl('AS OF','AGGIORN.')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${tb}</tbody></table></div>
+      <div class="src-line">${chip(S.DERIVED)} ${tl('changes against the previous close; 1M, YTD and the 52-week range computed from the daily history of the same source','variazioni rispetto alla chiusura precedente; 1M, YTD e range a 52 settimane calcolati dallo storico giornaliero della stessa fonte')} · ${tl('US indices, MSCI EAFE and EM: Cboe, 15 minutes delayed · Europe: STOXX daily closes · Nikkei 225: Nikkei Inc. · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)','indici USA, MSCI EAFE ed EM: Cboe, ritardo 15 minuti · Europa: chiusure giornaliere STOXX · Nikkei 225: Nikkei Inc. · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)')} · ${tl('the index providers reserve redistribution: private use only','i fornitori degli indici riservano la ridistribuzione: solo uso privato')}</div>`;
+    setProv(win,{...items,'idx:calc':S.DERIVED},'Indices: Cboe (15-min delayed), STOXX, Nikkei Inc., FRED');
+    $$('tr[data-ix]',body).forEach(tr=>{const go=()=>{st.id=tr.dataset.ix;paintWin(win);};tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});
+    $$('[data-irng]',body).forEach(b=>b.onclick=()=>{st.rng=b.dataset.irng;paintWin(win);});
+    lwBars(win,body.querySelector('.ix-box'),'ix:'+st.id+':'+st.rng,rows,{empty:H.err?'N/A':tl('Loading…','Caricamento…')});}
+  // daily bars on one interactive chart: candles when the source publishes open/high/low for every day shown, else the close
+  function lwBars(win,box,key,rows,opt={}){const h=lwHost(win,key);if(box)box.appendChild(h.el);const leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
+    if(!LW){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return h;}
+    if(!rows.length){lwReset(h);leg.innerHTML='';msg.textContent=opt.empty||'N/A';return h;}
+    msg.textContent='';const candles=rows.every(r=>fin(r.open)&&fin(r.high)&&fin(r.low));
+    const sig=[key,candles,C.up,C.down,C.amber,I18N.locale()].join('|'),dsig=rows.length+':'+rows[0].time+':'+rows[rows.length-1].time+':'+rows[rows.length-1].close;
+    if(h.sig!==sig){lwReset(h);const ch=h.chart=LW.createChart(h.el,lwOpts({timeScale:{lockVisibleTimeRangeOnResize:true}}));h.sig=sig;const pf={type:'price',precision:2,minMove:0.01};
+      h.s.m=candles?ch.addSeries(LW.CandlestickSeries,{upColor:C.up,downColor:C.down,wickUpColor:C.up,wickDownColor:C.down,borderVisible:false,priceFormat:pf})
+        :ch.addSeries(LW.AreaSeries,{lineColor:C.amber,topColor:hexA(C.amber,0.18),bottomColor:hexA(C.amber,0.01),lineWidth:2,priceFormat:pf});
+      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;lwBarsLegend(h,h.lastP);});ch.subscribeDblClick(()=>ch.timeScale().fitContent());}
+    if(h.dsig!==dsig){h.dsig=dsig;h.s.m.setData(rows.map(r=>candles?{time:r.time,open:r.open,high:r.high,low:r.low,close:r.close}:{time:r.time,value:r.close}));lwFit(h);}
+    h.rows=rows;h.candles=candles;lwBarsLegend(h,h.lastP||null);return h;}
+  function lwBarsLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.rows)return;const R=h.rows;let i=R.length-1;
+    if(p){const k=tKey(p.time),j=R.findIndex(r=>r.time===k);if(j>=0)i=j;}const r=R[i],pv=i>0?R[i-1].close:null,ch=fin(pv)?(r.close/pv-1)*100:null;
+    leg.innerHTML=`<span>${esc(fmtDay(r.time))}${r.live?' · '+tl('in progress','in corso'):''}</span> &nbsp;`+(h.candles?`O <span class="v">${lvl(r.open)}</span> H <span class="v">${lvl(r.high)}</span> L <span class="v">${lvl(r.low)}</span> C <span class="v">${lvl(r.close)}</span>`:`${tl('close','chiusura')} <span class="v">${lvl(r.close)}</span>`)+(fin(ch)?` <span class="${cls(ch)}">${pctN(ch)}</span>`:'');}
 
   // ---- YIELDS: official curves of many countries (central banks, debt offices) and the OECD monthly 10Y where no free
   // official daily source exists — a few countries per request; nothing interpolated or estimated ----
@@ -1787,7 +1867,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---------- FUNCTION MENU (all functions by category, with their codes) ----------
   const menuDef=()=>[
-    ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali'),'na'],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['ETF',tl('ETFs by asset class','ETF per asset class')],['FUT',tl('Futures prices','Prezzi dei futures'),'na'],['COT',tl('Futures positioning (CFTC)','Posizionamento futures (CFTC)')],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit sentiment','Sentiment Reddit'),'na'],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
+    ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali')],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['ETF',tl('ETFs by asset class','ETF per asset class')],['FUT',tl('Futures prices','Prezzi dei futures'),'na'],['COT',tl('Futures positioning (CFTC)','Posizionamento futures (CFTC)')],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit sentiment','Sentiment Reddit'),'na'],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
     ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['SPRD',tl('Spreads (2s10s)','Spread (2s10s)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves (energy)','Curve dei futures (energia)')]]],
     ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')]]],
     ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['ALRT',tl('Price alerts','Avvisi di prezzo')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
@@ -2264,7 +2344,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     CORR:{tag:'CORR',w:560,h:420,title:()=>'CORRELATION',render:renderCorr},
     MKT:{tag:'MKT',w:620,h:470,title:()=>'MARKETS',render:renderMarkets},
     MAP:{tag:'MAP',w:980,h:620,title:mapTitle,render:renderMap},
-    IDX:{tag:'IDX',w:620,h:430,title:()=>'WORLD INDICES',render:renderIndices},
+    IDX:{tag:'IDX',w:900,h:680,title:()=>'WORLD INDICES',render:renderIndices},
     YLD:{tag:'YLD',w:780,h:600,title:()=>'GOVERNMENT YIELDS',render:renderYields},
     CRV:{tag:'CURVE',w:760,h:600,title:()=>'YIELD CURVES',render:renderCurve},
     CAL:{tag:'CAL',w:760,h:470,title:()=>'ECONOMIC CALENDAR',render:renderCal},
@@ -2389,6 +2469,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function runCmd(raw){const cmd=raw.trim().toUpperCase();if(!cmd)return false;const parts=cmd.split(/\s+/);
     // function + ticker in either order (DES AAPL, AAPL DES); CROSS A B
     if((parts[0]==='CURVE'||parts[0]==='CURVES')&&parts.length>1){const ids=new Set(ywCat().map(c=>c.id)),sel=parts.slice(1).map(x=>x==='GB'?'UK':x).filter(x=>ids.has(x)).slice(0,6);if(sel.length){const w=openOrFocus('CRV',{});w.state.mode=sel.length===1?'dates':'countries';w.state.sel=sel;w.state.id=sel[0];paintWin(w);return true;}}
+    if(parts[0]==='IDX'&&parts.length===2&&IDX_IDS.includes(parts[1]==='DJIA'?'DJI':parts[1])){const w=openOrFocus('IDX',{});w.state.id=parts[1]==='DJIA'?'DJI':parts[1];paintWin(w);return true;}
     if(parts[0]==='CROSS'&&parts.length===3&&SYMBOL_OK.test(parts[1])&&SYMBOL_OK.test(parts[2])){const w=openOrFocus('CROSS',{});w.state.a=parts[1];w.state.b=parts[2];paintWin(w);return true;}
     if(parts.length===2&&SYM_FUNCS.has(parts[0])&&SYMBOL_OK.test(parts[1])){applyFunc(parts[0],parts[1]);return true;}
     if(parts.length===2&&SYM_FUNCS.has(parts[1])&&SYMBOL_OK.test(parts[0])&&!FUNCSET.has(parts[0])){applyFunc(parts[1],parts[0]);return true;}
