@@ -586,12 +586,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // client-side credit budget: never more than CONFIG.creditsPerMin provider credits in any 61 s window
   const Budget={log:[],
     wait(n){const now=Date.now();this.log=this.log.filter(x=>now-x.t<61000);const used=this.log.reduce((a,x)=>a+x.n,0);
-      if(used+n<=CONFIG.creditsPerMin){this.log.push({t:now,n});return 0;}
+      if(used+n<=CONFIG.creditsPerMin){this.last={t:now,n};this.log.push(this.last);return 0;}
       let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of this.log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
     eta(n){const now=Date.now(),log=this.log.filter(x=>now-x.t<61000),used=log.reduce((a,x)=>a+x.n,0);if(used+n<=CONFIG.creditsPerMin)return 0;let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
     // what the owner just asked for (a chart, a range, a symbol to compare) takes the next free credit; background refreshes wait
     hi:0,
-    async take(n,first){if(first)this.hi++;try{for(;;){if(!first&&this.hi>0){await new Promise(r=>setTimeout(r,400));continue;}const w=this.wait(n);if(!w)return;await new Promise(r=>setTimeout(r,Math.min(w+50,first?w+50:2000)));}}finally{if(first)this.hi--;}}};
+    async take(n,first){if(first)this.hi++;try{for(;;){if(!first&&this.hi>0){await new Promise(r=>setTimeout(r,400));continue;}const w=this.wait(n);if(!w)return this.last;await new Promise(r=>setTimeout(r,Math.min(w+50,first?w+50:2000)));}}finally{if(first)this.hi--;}},
+    // answers the Worker served from its cache cost the provider nothing: their credits go back
+    refund(tk,k){if(tk&&k>0)tk.n=Math.max(0,tk.n-k);}};
   function histMeta(h){return{status:h.status||'LIVE',fetchedAt:h.fetchedAt||h.asOf||null,staleAt:h.staleAt||null,lastBarPartial:!!h.lastBarPartial,adjust:h.adjust,count:h.count,interval:h.interval,staleReason:h.staleReason||null};}
   const RETRY_MS=60000, INTRADAY_REFRESH_MS=600000;
   const DATA={lastPull:null,provider:null,_q:Promise.resolve(),_gap:0,_timer:null,
@@ -610,8 +612,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       alrtSyms().forEach(x=>{inst(x);s.add(x);});wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
     // quotes in chunks of ≤7 symbols, each waiting for room in the per-minute credit budget
     async fetchNow(syms){syms=syms.filter(x=>BY[x]&&!BY[x]._pending&&!BY[x]._planBlocked);syms.forEach(x=>BY[x]._pending=true);
-      try{for(let i=0;i<syms.length;i+=7){const chunk=syms.slice(i,i+7);await Budget.take(chunk.length);
-        try{const j=await this.provider.quotes(chunk);this.lastPull=Date.now();applyQuotes(j,chunk);}
+      try{for(let i=0;i<syms.length;i+=7){const chunk=syms.slice(i,i+7);const tk=await Budget.take(chunk.length);
+        try{const j=await this.provider.quotes(chunk);Budget.refund(tk,j&&j.meta&&j.meta.cache&&j.meta.cache.hit);this.lastPull=Date.now();applyQuotes(j,chunk);}
         catch(e){console.warn('[data] quote request failed:',e&&e.message);quoteFailure('network',chunk);}}}
       finally{syms.forEach(x=>{if(BY[x])BY[x]._pending=false;});}},
     async refresh(){if(this._busy)return;this._busy=true;
@@ -1674,8 +1676,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // daily history for analysis windows (Twelve Data via /api/history; one credit each, cached 30 min here)
   const H7={};
   function hist7(sym,range,adjust,types,o={}){const iv=o.interval||(range==='5Y'?'1day':''),k=`${sym}|${range}|${adjust}|${iv}`,e=H7[k]||(H7[k]={});if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:o.ttl||1800000)))return e;e.loading=true;
-    (async()=>{try{e.eta=Budget.eta(1);if(e.eta)setTimeout(()=>repaintTypes(types),0);await Budget.take(1,true);e.eta=0;const qs=new URLSearchParams({symbol:sym,range,adjust});if(iv)qs.set('interval',iv);
-        const r=await fetch(`${CONFIG.proxyBase}/api/history?${qs}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
+    (async()=>{try{e.eta=Budget.eta(1);if(e.eta)setTimeout(()=>repaintTypes(types),0);const tk=await Budget.take(1,true);e.eta=0;const qs=new URLSearchParams({symbol:sym,range,adjust});if(iv)qs.set('interval',iv);
+        const r=await fetch(`${CONFIG.proxyBase}/api/history?${qs}`,{cache:'no-store'});if(r.headers.get('x-cache')==='HIT')Budget.refund(tk,1);let j=null;try{j=await r.json();}catch(x){}
         if(!r.ok||!j||!Array.isArray(j.points)||j.points.length<2)e.err=(j&&j.error)||'http '+r.status;else{e.data=j;e.err=null;}}
       catch(x){e.err='network';}finally{e.loading=false;e.at=Date.now();repaintTypes(types);}})();
     return e;}
