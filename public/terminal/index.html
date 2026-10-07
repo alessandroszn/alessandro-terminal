@@ -42,8 +42,17 @@
   #cmd.err{border-color:var(--down);animation:shake .3s}
   @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
   .status-right{display:flex;align-items:center;gap:14px;white-space:nowrap;font-size:11px;color:var(--muted)}
-  .live{display:flex;align-items:center;gap:6px;color:var(--fg)}
-  .live .pulse{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 0 0 rgba(46,194,138,.6);animation:pulse 2.2s infinite}
+  /* top-right status, one line: ● LIVE 19:13 · 39/140 open · next USD … in 46m   19:13:09 */
+  .tstat{display:flex;align-items:center;gap:6px;color:var(--fg);font-size:12px;min-width:0;overflow:hidden}
+  .tstat .tdot{color:var(--dim);font-size:11px;line-height:1}
+  .tstat.s-live .tdot{color:var(--up)} .tstat.s-stale .tdot{color:var(--amber)} .tstat.s-na .tdot{color:var(--down)}
+  .tlink{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;white-space:nowrap}
+  .tlink:hover{color:var(--amber)}
+  .tlab{font-weight:600;letter-spacing:.04em}
+  .tsep{color:var(--dim)}
+  .tnext{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #tsNext{color:var(--muted)}
+  .tclock{color:var(--fg);font-size:12px;font-variant-numeric:tabular-nums;margin-left:6px}
   @keyframes pulse{70%{box-shadow:0 0 0 6px rgba(46,194,138,0)}100%{box-shadow:0 0 0 0 rgba(46,194,138,0)}}
 
   /* taskbar */
@@ -367,7 +376,6 @@
   }
   @media (prefers-reduced-motion:reduce){
     #strip .track{animation:none;padding-left:14px}
-    .live .pulse{animation:none}
     #cmd.err{animation:none}
   }
 .news-item .newtag{font-size:9px;letter-spacing:.06em;color:var(--bg,#111);background:var(--up,#3fb950);padding:0 4px;margin-right:6px;border-radius:2px;align-self:center}
@@ -434,8 +442,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     </div>
     <div class="status-right">
       <span class="lang notranslate" role="group" aria-label="Language"><button type="button" data-lang="en">EN</button><button type="button" data-lang="it">IT</button></span>
-      <span class="live"><span class="pulse"></span><span id="clk">--:--:--</span></span>
-      <span id="breadth-top">—</span>
+      <span class="tstat" id="topStatus"><span class="tdot" id="tsDot">●</span><button type="button" class="tlink tlab" id="tsLabel" title="">LOADING</button> <span id="tsTime"></span><span class="tsep">·</span><button type="button" class="tlink" id="mktsOpen" title="">—</button><span class="tsep">·</span><span class="tnext"><span id="tsNext">next</span> <button type="button" class="tlink" id="nextEv" title="">—</button></span></span>
+      <time class="tclock" id="clk">--:--:--</time>
     </div>
   </div>
 
@@ -449,8 +457,6 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <span class="pvb b-LOADING" id="dataBadge" title="">● LOADING</span>
     <span>US MARKET <b id="sess">—</b></span>
     <span>BREADTH <b id="breadth">—</b></span>
-    <span title="major exchanges open now (Twelve Data market_state)">MKTS <b id="mktsOpen">—</b></span>
-    <span title="next high-impact event (Forex Factory)">NEXT <b id="nextEv">—</b></span>
     <div class="s-right">
       <span id="dataPull"></span>
       <span id="asof">—</span>
@@ -742,14 +748,15 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const parts=[];[[S.LIVE,'LIVE'],[S.STALE,'STALE'],[S.NA,'N/A'],[S.LOADING,'LOADING']].forEach(([k,l])=>{if(c[k])parts.push(c[k]+' '+l);});
     b.textContent='● '+label+(parts.length?' · '+parts.join(' · '):'');b.className='pvb b-'+pvKey(label);
     b.title='Data on screen now'+(sum.text?' ('+sum.text+')':'')+':\n'+inst.map(k=>`${k} — ${items[k]}`).join('\n');
-    const pulse=$('.live .pulse');if(pulse)pulse.style.background=label===S.LIVE?'var(--up)':label===S.STALE?'var(--amber)':'var(--dim)';}
+    const ts=$('#topStatus'),tl2=$('#tsLabel');if(ts&&tl2){ts.className='tstat s-'+(label===S.LIVE||label===S.PARTIAL||label===S.DERIVED?'live':label===S.STALE?'stale':label===S.NA?'na':'loading');tl2.textContent=label===S.PARTIAL||label===S.DERIVED?'LIVE':label;
+      tl2.title=b.title+(DATA.lastPull?'\n\n'+tl('Last pull: ','Ultimo aggiornamento: ')+fmtTime(DATA.lastPull):'')+'\n'+tl('Click: system status (sources, credits, scheduled runs)','Clic: stato del sistema (fonti, crediti, esecuzioni programmate)');}}
   function updateStatusBar(){
     const live=UNI.filter(t=>t.q&&fin(t.px));
     const mo=live.map(t=>t.q.marketOpen).filter(x=>typeof x==='boolean');
     $('#sess').textContent=!mo.length?'—':mo.some(Boolean)?tl('OPEN','APERTO'):tl('CLOSED','CHIUSO');
     const adv=live.filter(t=>t.chg>=0).length,dec=live.filter(t=>t.chg<0).length;
     $('#breadth').textContent=live.length?`${adv} ▲  /  ${dec} ▼ · ${live.length} live`:'—';
-    $('#breadth-top').textContent=`${live.length}/${UNI.length} live`;
+    const tt=$('#tsTime');if(tt)tt.textContent=DATA.lastPull?fmtHM(DATA.lastPull):'';
     const tsMax=live.map(t=>Date.parse(t.q.timestamp)).filter(isFinite);
     $('#asof').textContent=tsMax.length?'DATA AS OF '+fmtTime(Math.max(...tsMax))+' local':'DATA AS OF —';
     $('#dataPull').textContent=DATA.lastPull?'PULL '+fmtTime(DATA.lastPull):'';}
@@ -1212,8 +1219,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function exchList(){const d=EXT.exchanges.data;return d&&Array.isArray(d.exchanges)?d.exchanges:null;}
   let exchRefetchAt=0;
   function updateMktsOpen(){const el=$('#mktsOpen');const L=exchList();if(!el)return;if(!L){el.textContent=EXT.exchanges.err||(EXT.exchanges.data&&EXT.exchanges.data.error)?'N/A':'—';return;}
-    const now=Date.now(),maj=L.filter(e=>e.major),open=maj.filter(e=>exchNow(e,now).open);
-    el.textContent=`${open.length}/${maj.length} open`;el.title=open.length?'Open now: '+open.map(e=>e.label).join(', '):'No major exchange open now';
+    const now=Date.now(),maj=L.filter(e=>e.major),open=L.filter(e=>exchNow(e,now).open),mo=maj.filter(e=>exchNow(e,now).open),nc=new Set(L.map(e=>e.country).filter(Boolean)).size;
+    el.textContent=`${open.length}/${L.length} ${tl('open','aperti')}`;
+    el.title=`${tl('Exchanges open now','Borse aperte ora')}: ${open.length} ${tl('of','su')} ${L.length} ${tl('in','in')} ${nc} ${tl('countries','paesi')} (Twelve Data market_state, ${tl('holidays and early closes included','festività e chiusure anticipate incluse')})\n${tl('Major markets open','Mercati principali aperti')}: ${mo.length?mo.map(e=>e.label).join(', '):tl('none','nessuno')}\n${tl('Click: world exchanges','Clic: borse mondiali')}`;
     // an open/close the cached state predicted has passed: ask again (the Worker refreshes at that moment too)
     if(maj.some(e=>exchNow(e,now).moved)&&now>exchRefetchAt){exchRefetchAt=now+120000;loadExt('exchanges',true);}}
   const fmtIn2=ms=>{const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60),d=Math.floor(h/24);return d?`${d}d ${h%24}h`:h?`${h}h ${String(m%60).padStart(2,'0')}m`:`${m}m`;};
@@ -2395,7 +2403,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const q=movers.map(t=>`<span title="${esc(instTitle(t))}"><b>${t.sym}</b> ${pxText(t)} <span class="${cls(t.chg)}">${pct(t.chg)}</span> ${chip(tapeItems[t.sym])}</span>`).join('');
     $('#tape').innerHTML=q?q+q:'<span>waiting for live quotes…</span>';}
   function two(n){return String(n).padStart(2,'0');}
-  function tickClock(){const d=new Date();$('#clk').textContent=two(d.getHours())+":"+two(d.getMinutes())+":"+two(d.getSeconds());}
+  function tickClock(){const d=new Date(),c=$('#clk');c.textContent=two(d.getHours())+":"+two(d.getMinutes())+":"+two(d.getSeconds());c.title=d.toLocaleDateString(I18N.locale(),{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const n=$('#tsNext');if(n)n.textContent=tl('next','prossimo');}
 
   /* ---------- events ---------- */
   $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const ok=runCmd(e.target.value);if(ok)e.target.value='';else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
@@ -2408,7 +2417,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();
     openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
     if(!isMobile())tileAll();
-    renderTape();tickClock();setInterval(tickClock,1000);setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
+    renderTape();tickClock();setInterval(tickClock,1000);
+    $('#tsLabel').onclick=()=>openOrFocus('SYS',defaultState('SYS'));$('#mktsOpen').onclick=()=>openOrFocus('EXCH',defaultState('EXCH'));$('#nextEv').onclick=()=>openOrFocus('CAL',defaultState('CAL'));setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
     // interface language: EN / IT (remembered in this browser); data and AI briefings follow their own language
     const paintLang=()=>$$('#cmdbar [data-lang]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===I18N.lang())));
     $$('#cmdbar [data-lang]').forEach(b=>b.onclick=()=>{if(b.dataset.lang===I18N.lang())return;I18N.set(b.dataset.lang);paintLang();renderLauncher();renderTaskbar();BRF.at={};repaintAll();updateMktsOpen();updateNextEvent();});

@@ -433,7 +433,7 @@ const OK_API = {
   await cmd(page, "EXCH"); await page.waitForTimeout(500);
   let ex = await winOf(page, "WORLD EXCHANGES");
   ok("[A] exchanges: open now / next open from the provider, grouped by region with local time and countdown", /OPEN NOW · LSE/.test(ex.text) && /NEXT · NYSE opens in 2h 15m/.test(ex.text) && /EUROPE & AFRICA · 1\/1 OPEN/.test(ex.text) && /LSE\s+London\s+OPEN\s+closes in 3h 30m/.test(ex.text) && /NYSE\s+New York\s+CLOSED\s+opens in 2h 15m/.test(ex.text) && !/Other Exchange/.test(ex.text) && /not in the provider's list: XNAS/.test(ex.text), ex.text.slice(0, 700));
-  ok("[A] exchanges: status bar shows how many major markets are open", /^1\/3 open$/.test(await page.$eval("#mktsOpen", (x) => x.textContent)));
+  ok("[A] exchanges: the top bar shows how many markets are open (every exchange the provider reports)", /^2\/4 open$/.test(await page.$eval("#mktsOpen", (x) => x.textContent)));
   await page.click('.win [data-scope="all"]'); await page.waitForTimeout(200);
   ex = await winOf(page, "WORLD EXCHANGES");
   ok("[A] exchanges: ALL lists every exchange the provider returns (local time N/A without a time zone)", /Other Exchange/.test(ex.text));
