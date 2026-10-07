@@ -14,7 +14,8 @@ const all = Object.values(shipped).join("\n");
 const html = shipped["terminal/index.html"];
 const script = (html.match(/<script>\n([\s\S]*?)<\/script>/) || [])[1] || "";
 
-ok("shipped files = the page and its provenance rules only", Object.keys(shipped).sort().join() === "terminal/index.html,terminal/provenance.js", Object.keys(shipped).join());
+ok("shipped files = the page, its provenance rules and its interface translations only", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/provenance.js", Object.keys(shipped).join());
+ok("translations hold words only: no prices, rates or levels", !/\b\d+\.\d+\b/.test(shipped["terminal/i18n.js"].replace(/\/\*[\s\S]*?\*\//, "")) && !/fetch\(|XMLHttpRequest/.test(shipped["terminal/i18n.js"]));
 ok("no random generator (Math.random / seeded PRNG)", !/Math\.random|0x6D2B79F5|function rng\(|function path\(/.test(all));
 ok("no simulated/mock/demo/sample/fake/seed wording", !/simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed/i.test(all), (all.match(/.{30}(simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed).{30}/i) || [])[0]);
 ok("no SIMULATED / MIXED status in the rules", !/SIMULATED|MIXED/.test(all));

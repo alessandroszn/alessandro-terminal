@@ -152,7 +152,7 @@ export function systemPrompt(period, lang = "en") {
       : `You write the ${p.label} markets briefing of a personal market terminal, in English, in Markdown.`,
     it ? "First line exactly: 'TITLE: ' followed by a headline in Italian of at most 12 words." : "First line exactly: 'TITLE: ' followed by a headline of at most 12 words.",
     `Then exactly these level-2 sections, in this order: ${secs.map((s) => "'## " + s + "'").join(", ")}.`,
-    ...(it ? ["Write every number exactly as in DATA, with the decimal point (e.g. 0.70%, 4.13%), not the decimal comma. Write 'è salito dello 0.58%' / 'è sceso dello 0.61%'. Keep tickers, instrument codes and headline titles as they are; you may describe a headline in Italian but link it with its exact URL."] : []),
+    ...(it ? ["Write every number exactly as in DATA, with the decimal point (e.g. 0.70%), not the decimal comma. Write 'è salito dello 0.58%' / 'è sceso dello 0.61%'. Keep tickers, instrument codes and headline titles as they are; you may describe a headline in Italian but link it with its exact URL."] : []),
     `The first section is a single sentence. Total length ${p.words} words. Short paragraphs; bullets only for lists of events.`,
     "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round numbers as written in DATA.",
     "The S&P 500 figure in DATA is an IVV-weighted average of constituent prices, not the index level: never call it the index level or give a level for it.",
