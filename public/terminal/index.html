@@ -785,8 +785,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(h.dsig!==dsig){h.dsig=dsig;h.lines=ok;h.fmt=opt.fmt||(v=>v.toFixed(2));ok.forEach((x,i)=>h.s[i].setData(x.pts.map(p=>({time:p.time,value:p.value}))));lwFit(h);}
     h.lines=ok;lwLinesLegend(h,h.lastP||null);return h;}
   function lwLinesLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.lines)return;const f=h.fmt;let when='';
-    const parts=h.lines.map((x,i)=>{let v;if(p){const d=p.seriesData.get(h.s[i]);v=d?d.value:null;when=tKey(p.time);}else{const l=x.pts[x.pts.length-1];v=l.value;if(!when||tKey(l.time)>when)when=tKey(l.time);}
-      return`<i class="sw" style="background:${x.base!=null?(fin(v)&&v<x.base?C.down:C.up):x.col}"></i>${esc(x.name)} <span class="v">${fin(v)?f(v):'—'}</span>`;});
+    // without the cursor each line shows its latest value; a line whose latest day is older says which day
+    const lastK=h.lines.map(x=>tKey(x.pts[x.pts.length-1].time)),newest=lastK.reduce((a,k)=>k>a?k:a,'');
+    const parts=h.lines.map((x,i)=>{let v,own='';if(p){const d=p.seriesData.get(h.s[i]);v=d?d.value:null;when=tKey(p.time);}else{v=x.pts[x.pts.length-1].value;when=newest;if(lastK[i]!==newest)own=` <span>(${esc(isDay(lastK[i])?fmtDay(lastK[i]):lastK[i])})</span>`;}
+      return`<i class="sw" style="background:${x.base!=null?(fin(v)&&v<x.base?C.down:C.up):x.col}"></i>${esc(x.name)} <span class="v">${fin(v)?f(v):'—'}</span>${own}`;});
     leg.innerHTML=(when?`<span>${esc(isDay(when)?fmtDay(when):when)}</span> &nbsp;`:'')+parts.join(' &nbsp;');}
   // a yield curve on a true maturity axis (months): the latest publication and the one before it
   const tenorLabel=m=>m<12?Math.round(m)+'M':(m%12?(m/12).toFixed(1):m/12)+'Y';
@@ -837,7 +839,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const gpTf=tf=>GP_TF.includes(tf)?tf:tf==='1W'?'5D':'6M';
   // where the bars come from: intraday requests for 1D and 5D; ONE daily request (5 years) serves 1M…5Y — those
   // buttons only move the view, so they cost nothing; 10Y in weekly bars; MAX in monthly bars
-  function gpSrc(tf){return tf==='1D'?{range:'1D',iv:'5min',intra:true,ttl:120000,about:['5-minute bars, latest session','barre da 5 minuti, ultima seduta']}:
+  function gpSrc(tf){return tf==='1D'?{range:'1D',iv:'5min',intra:true,ttl:120000,about:['5-minute bars (the last 78), opened on the latest session','barre da 5 minuti (le ultime 78), aperto sull\'ultima seduta']}:
     tf==='5D'?{range:'5D',iv:'15min',intra:true,ttl:120000,about:['15-minute bars, last 5 sessions','barre da 15 minuti, ultime 5 sedute']}:
     tf==='10Y'?{range:'10Y',iv:'1week',ttl:3600000,about:['weekly bars, 10 years, split-adjusted','barre settimanali, 10 anni, rettificate per gli split']}:
     tf==='MAX'?{range:'MAX',iv:'1month',ttl:3600000,about:['monthly bars, all the history the provider has, split-adjusted','barre mensili, tutto lo storico del fornitore, rettificate per gli split']}:
@@ -873,7 +875,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!ts.width()&&tries<40){clearTimeout(h.zt);h.zt=setTimeout(()=>gpZoom(win,h,tries+1),50);return;}
     const st=win.state,rows=h.rows,last=h.live&&h.live.live==='new'?h.live.t:rows[rows.length-1].t;h.tf=st.tf;
     const from=gpSrc(st.tf).zoom?gpFrom(st.tf,last):null;
-    if(from&&from>rows[0].t){try{ts.setVisibleRange({from,to:last});}catch(e){ts.fitContent();}}else ts.fitContent();
+    // 1D opens on the latest session; the bars before it stay a scroll away (and warm up the studies)
+    const day=r=>typeof r.time==='number'?new Date(r.time*1000).toISOString().slice(0,10):r.t,i0=st.tf==='1D'?rows.findIndex(r=>day(r)===day(rows[rows.length-1])):-1;
+    if(i0>0&&rows.length-i0>=2){try{ts.setVisibleRange({from:rows[i0].time,to:rows[rows.length-1].time});}catch(e){ts.fitContent();}}
+    else if(from&&from>rows[0].t){try{ts.setVisibleRange({from,to:last});}catch(e){ts.fitContent();}}else ts.fitContent();
     try{h.chart.priceScale('right').applyOptions({autoScale:true});}catch(e){}}
   function gpLegend(win,h,p){const leg=h.el.querySelector('.lw-leg'),t=BY[win.state.ticker];if(!leg||!h.rows||!t)return;
     const rows=h.rows;let i=rows.length-1,r=rows[i];
@@ -887,7 +892,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(h.ind.bbU){const u=at('bbU'),l=at('bbL');iv.push(`<i class="sw" style="background:${C.muted}"></i>BOLL <span class="v">${fin(u)?f(u):'—'} / ${fin(l)?f(l):'—'}</span>`);}
       if(h.ind.rsi){const v=at('rsi');iv.push(`<i class="sw" style="background:#c084fc"></i>RSI 14 <span class="v">${fin(v)?v.toFixed(1):'—'}</span>`);}}
     if(iv.length)html+='<br>'+iv.join(' &nbsp;')+' '+chip(S.DERIVED,'computed here from the real bars');
-    if(h.cmp&&h.cmp.length){const lr=h.chart.timeScale().getVisibleLogicalRange(),from=lr?Math.max(0,Math.ceil(lr.from)):0,MD=(LW.MismatchDirection&&LW.MismatchDirection.NearestRight)||1;
+    if(h.cmp&&h.cmp.length){const lr=h.chart.timeScale().getVisibleLogicalRange(),from=lr?Math.max(0,Math.floor(lr.from)):0,MD=(LW.MismatchDirection&&LW.MismatchDirection.NearestRight)||1;
       const pc=(s,val)=>{let b=null;try{b=s.dataByIndex(from,MD);}catch(e){}const v0=b?(b.value!=null?b.value:b.close):null;return fin(v0)&&v0&&fin(val)?(val/v0-1)*100:null;};
       const at=p&&p.time!==undefined,mainV=r.c;
       html+='<br>'+[`<i class="sw" style="background:${h.ct==='candle'?C.fg:C.amber}"></i>${esc(t.sym)} <span class="${cls(pc(h.s.main,mainV))}">${pctN(pc(h.s.main,mainV))}</span>`]
