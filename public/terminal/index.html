@@ -794,7 +794,7 @@
     const items=st.src==='SEC'?extItems(d,'news:'):{};shown.forEach(p=>items['news:'+p.id]=p.status);setProv(win,items);}
 
   // ---- BRIEFING: Daily / Evening / Weekly / Monthly editions, written once from real data and archived ----
-  const BRF={idx:{},at:{},items:{},writing:{},fail:{},loading:{}};
+  const BRF={idx:{},at:{},items:{},writing:{},fail:{},loading:{},poll:{}};
   const BRF_PERIODS=[['daily','DAILY'],['evening','EVENING'],['weekly','WEEKLY'],['monthly','MONTHLY']];
   function brfRepaint(){wins.forEach(w=>{if(!w.min&&w.type==='BRF')liveRepaint(w);});updateGlobal();}
   async function brfIndex(period,force){if(BRF.loading['i:'+period])return;if(!force&&BRF.at[period]&&Date.now()-BRF.at[period]<300000)return;BRF.loading['i:'+period]=true;
@@ -812,6 +812,7 @@
       for(let tries=0;tries<6;tries++){
         const r=await fetch(`${CONFIG.proxyBase}/api/briefs/write?period=${period}${force?'&force=1':''}&symbols=${encodeURIComponent(syms)}`,{method:'POST',cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
         if(r.status===202){await new Promise(z=>setTimeout(z,15000));force=false;continue;}
+        if(r.status===409&&j&&j.error==='scheduled_write')break; // the scheduled run is writing it
         if(!j||!j.body){BRF.fail['w:'+period]=(j&&j.error)||('http '+r.status);break;}
         BRF.items[j.id]=j;wins.forEach(w=>{if(w.type==='BRF'&&(w.state.period||'daily')===period)w.state.id=j.id;});break;}}
     catch(e){BRF.fail['w:'+period]='network';}
@@ -831,27 +832,32 @@
     if(!ix){setProv(win,{'ds:BRF':BRF.fail['i:'+period]?S.NA:S.LOADING});body.innerHTML=tabs+(BRF.fail['i:'+period]?`<div class="banner warn"><b>N/A</b> — briefing archive unavailable: ${esc(P.errorText(BRF.fail['i:'+period]))}.</div>`:'<div class="empty">Loading the briefing archive…</div>');bind();return;}
     if(ix.error){setProv(win,{'ds:BRF':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — briefing archive unavailable: ${esc(P.errorText(ix.error))}.</div>`;bind();return;}
     const briefs=ix.briefs||[];
-    // the edition that is due and not written yet is written now, once
-    if(ix.due&&ix.due.writable&&!ix.dueWritten&&!BRF.writing[period]&&!BRF.fail['w:'+period])brfWrite(period);
+    // the due edition is written by the scheduled run at its time; the terminal writes it only if that has not happened
+    const pending=!!(ix.due&&ix.due.writable&&!ix.dueWritten&&ix.due.auto&&Date.now()<Date.parse(ix.due.auto.until));
+    if(pending){if(!BRF.poll[period])BRF.poll[period]=setTimeout(()=>{BRF.poll[period]=null;brfIndex(period,true);},60000);}
+    else if(ix.due&&ix.due.writable&&!ix.dueWritten&&!BRF.writing[period]&&!BRF.fail['w:'+period])brfWrite(period);
+    const pendNote=pending?`<div class="banner" style="margin-bottom:8px"><b>SCHEDULED</b> · the ${esc(ix.label.toLowerCase())} edition for ${esc(ix.due.d)} is written automatically at ${fmtHM(ix.due.auto.writeAt)} from real data; it appears here within a few minutes.</div>`:'';
+    const autoLine=`<div class="scr-count" style="margin-top:8px">Automatic writing: ${ix.automatic&&ix.automatic.lastRun?'last scheduled run '+fmtDT(ix.automatic.lastRun):'no scheduled run recorded yet'}.</div>`;
     const curId=st.id||(briefs[0]&&briefs[0].id)||null;if(curId)brfItem(curId);
     const b=curId?BRF.items[curId]:null;
-    const list=`<div class="brf-list">${BRF.writing[period]?`<button class="on"><span class="dt">${esc(ix.due?ix.due.d:'')}</span>writing…</button>`:''}${briefs.map(x=>`<button data-id="${esc(x.id)}" class="${x.id===curId?'on':''}"><span class="dt">${esc(x.d)}</span>${esc(x.title)}</button>`).join('')||(BRF.writing[period]?'':`<div class="scr-count">No ${esc(ix.label.toLowerCase())} edition yet.</div>`)}</div>`;
+    const list=`<div class="brf-list">${BRF.writing[period]?`<button class="on"><span class="dt">${esc(ix.due?ix.due.d:'')}</span>writing…</button>`:pending?`<button class="on" disabled><span class="dt">${esc(ix.due.d)}</span>scheduled · ${fmtHM(ix.due.auto.writeAt)}</button>`:''}${briefs.map(x=>`<button data-id="${esc(x.id)}" class="${x.id===curId?'on':''}"><span class="dt">${esc(x.d)}</span>${esc(x.title)}</button>`).join('')||(BRF.writing[period]||pending?'':`<div class="scr-count">No ${esc(ix.label.toLowerCase())} edition yet.</div>`)}${autoLine}</div>`;
     let art='';
     if(BRF.writing[period]&&!b)art=`<div class="empty">Writing the ${esc(ix.label)} briefing for ${esc(ix.due?ix.due.d:'')} from real data… (model: Workers AI, about 20 s)</div>`;
     else if(BRF.fail['w:'+period]&&!b)art=`<div class="banner warn"><b>N/A</b> — the ${esc(ix.label.toLowerCase())} briefing could not be written: ${esc(P.errorText(BRF.fail['w:'+period]))}. No text is produced without real inputs and a working model.</div><button class="set-reset brf-retry">RETRY</button>`;
+    else if(!b&&pending&&!curId)art='';
     else if(!b)art=curId?'<div class="empty">Loading…</div>':`<div class="empty">No ${esc(ix.label.toLowerCase())} briefing yet. ${esc(ix.schedule)}${ix.due&&!ix.due.writable&&!ix.dueWritten?' The '+esc(ix.due.d)+' edition was not written in its window, so it is not written later with newer data.':''}</div>`;
     else{const v=b.verification||{checked:0,unverified:[]},tf=ix.chipTf||'1M';
       const wl=(b.windows||[]).map((w,i)=>`<button data-win="${i}" title="${esc(w.why||'')}">${esc(w.label)}</button>`).join('');
       const issues=[];if(v.unverified&&v.unverified.length)issues.push(`${v.unverified.length} figure(s) not found in the source data: ${esc(v.unverified.join(', '))}`);if(v.removedLinks&&v.removedLinks.length)issues.push(`${v.removedLinks.length} link(s) not in the source data removed`);if(v.missingSections&&v.missingSections.length)issues.push(`missing section(s): ${esc(v.missingSections.join(', '))}`);
-      art=`<article class="brf-art"><h2>${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
+      art=`<article class="brf-art"><h2>${esc(b.title)}</h2><div class="meta">${esc(ix.label)} · ${esc(b.d)} · written ${fmtDT(new Date(b.created*1000).toISOString())}${b.writtenBy==='schedule'?' (scheduled)':''} · ${chip(S.DERIVED,'AI-written from the real data below')} ${esc(b.provider||'')} · ${esc(b.model||'')}</div>
         ${brfMd(b.body,b.symbols,tf)}
         ${wl?`<div class="brf-open"><button class="all" data-allwin="1" title="Open these windows and tile them next to the briefing">▦ Open all ${b.windows.length} as a view</button>${wl}</div>`:''}
         <div class="${issues.length?'banner warn':'scr-count'}">${issues.length?'<b>CHECK</b> — '+issues.join(' · '):`Number check: all ${v.checked} figures match the source data.`}</div>
         <div class="set-grp" style="margin-top:10px">SOURCES</div>${(b.sources||[]).map(x=>`<div class="scr-count">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>`:esc(x.name)} · ${esc(x.timestamp||'')}</div>`).join('')}
         <details><summary class="scr-count">Input data given to the model</summary><pre class="brief-in">${esc(b.inputData||'')}</pre></details>
         <div class="scr-count">${esc(b.disclaimer||'')} ${ix.due&&ix.due.writable&&b.id===ix.due.id?'<button class="set-reset brf-rewrite" style="margin-left:8px">REWRITE</button>':''}</div></article>`;}
-    body.innerHTML=tabs+`<div class="brf-wrap">${list}<div>${art}</div></div>`;bind();
-    setProv(win,{'ds:BRF':b?S.DERIVED:BRF.writing[period]?S.LOADING:S.NA},'AI-written from real data');
+    body.innerHTML=tabs+`<div class="brf-wrap">${list}<div>${pendNote}${art}</div></div>`;bind();
+    setProv(win,{'ds:BRF':b?S.DERIVED:BRF.writing[period]||pending?S.LOADING:S.NA},'AI-written from real data');
     $$('[data-id]',body).forEach(x=>x.onclick=()=>{st.id=x.dataset.id;paintWin(win);});
     $$('.brief-sym',body).forEach(x=>x.onclick=()=>{const w=openSecurity(x.dataset.sym);if(w&&ix.chipTf){w.state.tf=ix.chipTf;paintWin(w);}});
     $$('[data-win]',body).forEach(x=>x.onclick=()=>brfOpenWindow(b.windows[+x.dataset.win]));

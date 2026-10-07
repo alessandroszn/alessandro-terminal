@@ -22,7 +22,13 @@ directory = "./public"
 [ai]
 binding = "AI"
 
-# briefing archive (Daily / Evening / Weekly / Monthly editions)
+# scheduled briefings (src/cron.mjs): every minute in these UTC hours, which contain the
+# Rome slots in both CET and CEST (Daily 07:30, Weekly/Monthly Sat 08:00, Evening 22:30).
+# Outside a slot's ~30 minutes a run returns at once; 300 runs a day (free plan: 5 cron triggers).
+[triggers]
+crons = ["* 5-7 * * *", "* 20-21 * * *"]
+
+# briefing archive (Daily / Evening / Weekly / Monthly editions) + staged inputs of scheduled runs
 [[kv_namespaces]]
 binding = "BRIEFS"
 id = "96055847b5bc43aeb3d57eb5a15abcb3"

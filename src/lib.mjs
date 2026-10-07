@@ -23,13 +23,24 @@ export async function fetchText(url, { timeoutMs = 8000, headers = {} } = {}) {
 }
 
 function cacheStore() { return typeof caches !== "undefined" ? caches.default : null; }
-export async function cacheRead(origin, key) {
+// Scheduled runs (Cron Trigger) execute in any data center, so they cannot share the per-location
+// Cache API: they pass a ctx whose `store` is Workers KV instead (see cron.mjs). `readOnly` serves only
+// what was staged and never calls a source.
+export function kvStore(kv, prefix = "stage/") {
+  return {
+    async get(key) { try { const t = await kv.get(prefix + key); return t ? JSON.parse(t) : null; } catch { return null; } },
+    put(key, obj, ttlSec) { return kv.put(prefix + key, JSON.stringify(obj), { expirationTtl: Math.max(60, Math.min(ttlSec || 86400, 3 * 86400)) }); },
+  };
+}
+export async function cacheRead(origin, key, ctx) {
+  if (ctx && ctx.store) return ctx.store.get(key);
   const c = cacheStore(); if (!c) return null;
   const r = await c.match(new Request(`${origin}/__cache/${key}`));
   if (!r) return null;
   try { return await r.json(); } catch { return null; }
 }
 export function cacheWrite(origin, key, obj, ctx, maxAgeSec = 7 * 86400) {
+  if (ctx && ctx.store) { const p = ctx.store.put(key, obj, maxAgeSec); if (ctx.waitUntil) ctx.waitUntil(p); return p; }
   const c = cacheStore(); if (!c) return;
   const p = c.put(new Request(`${origin}/__cache/${key}`), new Response(JSON.stringify(obj), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${maxAgeSec}` } }));
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -39,8 +50,10 @@ export function cacheWrite(origin, key, obj, ctx, maxAgeSec = 7 * 86400) {
 // fresh entry → HIT; else load() → MISS; load failed → last real entry as STALE (bounded); else error.
 // failTtlMs: after a failure, report the same error for this long instead of waiting on the source again
 export async function cachedSource({ origin, key, ttlMs, staleMaxMs, ctx, load, failTtlMs = 0, now = Date.now() }) {
-  const e = await cacheRead(origin, key);
+  const e = await cacheRead(origin, key, ctx);
   if (e && e.data && now - e.fetchedAt < ttlMs) return { data: e.data, fetchedAt: e.fetchedAt, cache: "HIT" };
+  if (ctx && ctx.readOnly) return e && e.data && now - e.fetchedAt < staleMaxMs ? { data: e.data, fetchedAt: e.fetchedAt, cache: "STALE", staleReason: "not_refreshed" } : { err: "not_staged", cache: "MISS" };
+  if (ctx && ctx.store) failTtlMs = 0; // scheduled runs: no failure memo (it would cost KV writes)
   const f = failTtlMs ? await cacheRead(origin, key + "@fail") : null;
   const recentFail = f && now - f.at < failTtlMs;
   const r = recentFail ? { err: f.err } : await load();

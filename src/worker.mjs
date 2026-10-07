@@ -14,6 +14,7 @@ import { handleYields } from "./yields.mjs";
 import { handleCalendar } from "./calendar.mjs";
 import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
+import { runCron } from "./cron.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
 import { handleSpx } from "./spx.mjs";
@@ -490,5 +491,9 @@ export default {
       }
     }
     return app.fetch(req, env, ctx);
+  },
+  // Cron Trigger (wrangler.toml [triggers]): briefing editions written at their time — see cron.mjs
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runCron(event.scheduledTime, env, ctx, { fetchQuotes: (syms) => fetchQuotesCoalesced(syms, env.TWELVEDATA_KEY) }));
   },
 };

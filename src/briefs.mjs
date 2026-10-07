@@ -14,22 +14,22 @@ import { getUniverse, getCloses, getLive, alpacaConfigured, todayBarFinal, liveP
 import { BRIEF_MODEL, verifyNumbers } from "./briefing.mjs";
 
 export const PERIODS = {
-  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "300 to 450", schedule: "Written on weekday mornings from 07:30 (Rome time).", chipTf: "1W", eq: "1D" },
-  evening: { label: "Evening", sections: ["In one line", "How the day went", "What changed since this morning", "Tomorrow"], words: "250 to 400", schedule: "Written on weekday evenings from 22:30 (Rome time), after the US close.", chipTf: "1D", eq: "1D" },
-  weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "450 to 700", schedule: "Written on Saturday mornings from 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
-  monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "450 to 700", schedule: "Written on the first Saturday of each month from 08:00 (Rome time).", chipTf: "6M", eq: "1M" },
+  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "300 to 450", schedule: "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "1W", eq: "1D" },
+  evening: { label: "Evening", sections: ["In one line", "How the day went", "What changed since this morning", "Tomorrow"], words: "250 to 400", schedule: "Written automatically on weekday evenings at 22:30 (Rome time), after the US close.", chipTf: "1D", eq: "1D" },
+  weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "450 to 700", schedule: "Written automatically on Saturday mornings at 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
+  monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "450 to 700", schedule: "Written automatically on the first Saturday of each month at 08:00 (Rome time).", chipTf: "6M", eq: "1M" },
 };
-const SLOT_MIN = { daily: 450, evening: 1350, weekly: 480, monthly: 480 }; // minutes after midnight, Rome
-const MARKET_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD", "XAU/USD"];
+export const SLOT_MIN = { daily: 450, evening: 1350, weekly: 480, monthly: 480 }; // minutes after midnight, Rome
+export const MARKET_SYMS = ["EUR/USD", "GBP/USD", "USD/JPY", "BTC/USD", "ETH/USD", "XAU/USD"];
 
 // ---------- edition schedule (Europe/Rome) ----------
 export function romeNow(now = Date.now()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(now)).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, minutes: (Number(p.hour) % 24) * 60 + Number(p.minute) };
 }
-const addDays = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+export const addDays = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const weekday = (d) => new Date(d + "T12:00:00Z").getUTCDay(); // 0 Sun … 6 Sat
-function isSlotDay(period, d) {
+export function isSlotDay(period, d) {
   const w = weekday(d);
   if (period === "daily" || period === "evening") return w >= 1 && w <= 5;
   if (period === "weekly") return w === 6;
@@ -39,6 +39,11 @@ function isSlotDay(period, d) {
 // an edition is written only while its data still describes it: daily until the evening slot,
 // evening until the next morning, weekly / monthly over the weekend. Later it is not written at all.
 const WRITE_WINDOW_MIN = { daily: 15 * 60, evening: 9 * 60, weekly: 48 * 60, monthly: 48 * 60 };
+// the scheduled run (cron.mjs) writes each edition at slot + WRITE_OFFSET, retrying at +5 / +10 min;
+// until then the terminal does not write it itself (it would race the schedule)
+export const WRITE_OFFSET = { daily: 0, evening: 3, weekly: 0, monthly: 2 };
+export const WRITE_RETRY = [0, 5, 10];
+export const autoUntilMs = (period, slotAtMs) => slotAtMs + (WRITE_OFFSET[period] + WRITE_RETRY[WRITE_RETRY.length - 1] + 2) * 60_000;
 // the latest edition whose writing time has passed
 export function dueEdition(period, now = Date.now()) {
   const { date, minutes } = romeNow(now);
@@ -47,7 +52,8 @@ export function dueEdition(period, now = Date.now()) {
     if (!isSlotDay(period, d)) continue;
     if (i === 0 && minutes < SLOT_MIN[period]) continue;
     const ageMin = i * 1440 + minutes - SLOT_MIN[period];
-    return { id: `${period}-${d}`, d, writable: ageMin < WRITE_WINDOW_MIN[period] };
+    const at = Math.floor(now / 60_000) * 60_000 - ageMin * 60_000; // slot time (approximate across a DST change)
+    return { id: `${period}-${d}`, d, writable: ageMin < WRITE_WINDOW_MIN[period], at: new Date(at).toISOString(), auto: { writeAt: new Date(at + WRITE_OFFSET[period] * 60_000).toISOString(), until: new Date(autoUntilMs(period, at)).toISOString() } };
   }
   return null;
 }
@@ -180,21 +186,23 @@ export function attachWindows(period, eq) {
 }
 
 // ---------- inputs ----------
-async function tdDaily(env, symbols, now, origin, ctx) {
+export async function tdDaily(env, symbols, now, origin, ctx) {
   // weekly / monthly change for FX, crypto, gold: one batched daily series (credits = symbols)
-  const key = `brief/td-daily/${new Date(now).toISOString().slice(0, 10)}`;
-  const c = await cacheRead(origin, key);
+  const key = tdDailyKey(now);
+  const c = await cacheRead(origin, key, ctx);
   if (c && c.data) return c.data;
-  if (!env.TWELVEDATA_KEY) return null;
+  if (!env.TWELVEDATA_KEY || (ctx && ctx.readOnly)) return null;
   try {
     const r = await fetch(`https://api.twelvedata.com/time_series?${new URLSearchParams({ symbol: symbols.join(","), interval: "1day", outputsize: "40", order: "asc" })}`, { headers: { authorization: `apikey ${env.TWELVEDATA_KEY}` } });
     const j = await r.json();
+    if (j && j.status === "error") return null;
     const out = {};
     for (const s of symbols) { const x = symbols.length === 1 ? j : j[s]; if (x && Array.isArray(x.values)) out[s] = x.values.map((v) => [String(v.datetime).slice(0, 10), num(v.close)]).filter((v) => v[1] != null); }
     cacheWrite(origin, key, { data: out, fetchedAt: now }, ctx, 12 * 3600);
     return out;
   } catch { return null; }
 }
+export const tdDailyKey = (now) => `brief/td-daily/${new Date(now).toISOString().slice(0, 10)}`;
 function periodChange(series, refDate) {
   if (!series || series.length < 2) return null;
   const last = series[series.length - 1], base = series.filter(([d]) => d <= refDate).pop();
@@ -224,7 +232,7 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
   // quotes (Twelve Data cache: watchlist + markets board), never a new quote call here
   const quotes = [];
   for (const s of symbolsParam) {
-    const e = await cacheRead(origin, `quote/${encodeURIComponent(s)}`);
+    const e = await cacheRead(origin, `quote/${encodeURIComponent(s)}`, ctx);
     if (e && e.rec && now - e.fetchedAt < 24 * 3600_000) quotes.push({ symbol: s, name: e.rec.name, price: e.rec.price, changePct: e.rec.changePct, prevClose: e.rec.prevClose, currency: e.rec.currency, timestamp: e.rec.asOf });
   }
   let fxHist = null;
@@ -245,9 +253,9 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
 
 // ---------- archive (KV) ----------
 const IDX = (period) => `index/${period}`;
-async function kvJson(env, key) { try { const t = await env.BRIEFS.get(key); return t ? JSON.parse(t) : null; } catch { return null; } }
+export async function kvJson(env, key) { try { const t = await env.BRIEFS.get(key); return t ? JSON.parse(t) : null; } catch { return null; } }
 
-async function writeEdition(origin, env, ctx, period, edition, symbols, now, force) {
+export async function writeEdition(origin, env, ctx, period, edition, symbols, now, force, by = "terminal") {
   const lockKey = `lock/${edition.id}`;
   if (await env.BRIEFS.get(lockKey)) return { status: 202, body: { writing: true, id: edition.id } };
   await env.BRIEFS.put(lockKey, String(now), { expirationTtl: 120 });
@@ -265,12 +273,12 @@ async function writeEdition(origin, env, ctx, period, edition, symbols, now, for
     const brief = {
       id: edition.id, period, d: edition.d, title: p.title, body: s.body, created: Math.floor(now / 1000), n: s.body.length,
       status: "DERIVED", model: BRIEF_MODEL, provider: "Cloudflare Workers AI",
-      verification: { ...verifyNumbers(s.body, data.text), removedLinks: s.removedLinks, missingSections: p.missingSections },
+      verification: { ...verifyNumbers(s.body, data.text), removedLinks: s.removedLinks, missingSections: p.missingSections }, writtenBy: by,
       symbols: data.symbols, windows: attachWindows(period, g.eq), sources: data.sources, inputData: data.text, inputErrors: g.errors,
       disclaimer: "AI-written summary of the real data listed below. Not investment advice.",
     };
     const idx = (await kvJson(env, IDX(period))) || [];
-    const meta = { id: brief.id, period, d: brief.d, title: brief.title, created: brief.created, n: brief.n };
+    const meta = { id: brief.id, period, d: brief.d, title: brief.title, created: brief.created, n: brief.n, writtenBy: by };
     const next = [meta, ...idx.filter((x) => x.id !== brief.id)].sort((a, b) => (a.d < b.d ? 1 : -1)).slice(0, 60);
     await env.BRIEFS.put(`brief/${brief.id}`, JSON.stringify(brief));
     await env.BRIEFS.put(IDX(period), JSON.stringify(next));
@@ -295,8 +303,8 @@ export async function handleBriefs(url, env, ctx, H, json, req) {
   if (!PERIODS[period]) return send({ error: "bad_request", message: `period must be one of ${Object.keys(PERIODS).join(",")}` }, 400);
   const now = Date.now(), due = dueEdition(period, now);
   if (sub === "") {
-    const briefs = (await kvJson(env, IDX(period))) || [];
-    return send({ period, label: PERIODS[period].label, sections: PERIODS[period].sections, schedule: PERIODS[period].schedule, chipTf: PERIODS[period].chipTf, due, dueWritten: !!(due && briefs.some((b) => b.id === due.id)), briefs });
+    const [briefs, last] = await Promise.all([kvJson(env, IDX(period)), kvJson(env, "cron/last")]);
+    return send({ period, label: PERIODS[period].label, sections: PERIODS[period].sections, schedule: PERIODS[period].schedule, chipTf: PERIODS[period].chipTf, due, dueWritten: !!(due && (briefs || []).some((b) => b.id === due.id)), briefs: briefs || [], automatic: { lastRun: last ? last.at : null } });
   }
   if (sub === "write") {
     if (req && req.method !== "POST") return send({ error: "method_not_allowed" }, 405);
@@ -304,6 +312,8 @@ export async function handleBriefs(url, env, ctx, H, json, req) {
     if (!due.writable) return send({ error: "edition_window_passed", status: "N/A", due }, 409);
     const force = url.searchParams.get("force") === "1";
     if (!force) { const ex = await kvJson(env, `brief/${due.id}`); if (ex) return send(ex); }
+    // the scheduled run is writing it now: the terminal does not race it (REWRITE, force=1, still can)
+    if (!force && now < Date.parse(due.auto.until)) return send({ error: "scheduled_write", status: "PENDING", due }, 409);
     if (!env.AI || typeof env.AI.run !== "function") return send({ error: "model_unavailable", status: "N/A" }, 503);
     const symbols = [...new Set((url.searchParams.get("symbols") || "").split(",").map((s) => s.trim().toUpperCase()).filter((s) => SYMBOL_RE.test(s)))].slice(0, 20);
     const r = await writeEdition(url.origin, env, ctx, period, due, symbols, now, force);

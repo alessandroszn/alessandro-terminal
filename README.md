@@ -47,7 +47,25 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
 | Calendar | WORLD: Forex Factory weekly export (`nfs.faireconomy.media/ff_calendar_thisweek.json`); US OFFICIAL: BLS + BEA ICS schedules | WORLD (default): USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY, current week only, **high impact only** by default (HIGH + MEDIUM toggle), impact/forecast/previous as published there, actual N/A (not in the export), times in local time, NEXT HIGH-IMPACT banner + status-bar countdown. US OFFICIAL: actual/previous N/A until a FRED key is configured. The briefing uses the high-impact world events. |
 | News | Top publishers' own public RSS feeds: Financial Times, Bloomberg, The Wall Street Journal, MarketWatch; official releases of the Federal Reserve (press + speeches), ECB and Bank of England; SEC EDGAR filings for the watchlist | headline, section, time, link only — never article text; tabs ALL (publishers + central banks) / FT / BLOOMBERG / WSJ / MARKETWATCH / CENTRAL BANKS / SEC FILINGS. No wire or aggregator (the GDELT feed was removed: it indexed any site). |
-| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. |
+| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. Written automatically at its time (see Scheduled briefings). |
+
+## Scheduled briefings (Cron Trigger)
+Editions are written at their time whether or not the terminal is open: Daily 07:30 and Evening 22:30
+(Mon–Fri), Weekly 08:00 (Saturday), Monthly 08:00 (first Saturday), Rome time (CET/CEST handled by the
+time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21 * * *`, UTC).
+- Free plan = 10 ms CPU per run, so **one run does one thing**: from ~15 minutes before the slot, each
+  minute fetches one source with the same loaders the terminal uses (IVV universe, yields, world calendar,
+  FT, Bloomberg, WSJ, MarketWatch, central banks, Alpaca closes, Twelve Data FX; weekly/monthly also the
+  1W/1M references and FX daily series), plus two retry minutes for anything that failed.
+- Inputs are staged in Workers KV (`stage/…`, ≤ 3 days), not in the per-location cache: scheduled runs
+  execute in any Cloudflare location.
+- At the slot the edition is written **from staged data only** (no source is called), retried at +5 and
+  +10 minutes if the write failed. Evening: today's consolidated closes are read at 22:30 (16:30 ET, session
+  final) and the edition is written at 22:33. Monthly is written at 08:02, after the weekly.
+- The terminal does not write an edition while the scheduled run is due (`409 scheduled_write`); it shows
+  it as SCHEDULED and writes it itself only if it is still missing ~12 minutes after its time. REWRITE still
+  works. Each edition records `writtenBy: schedule | terminal`; `/api/briefs` reports the last scheduled run.
+- Usage: ~300 runs/day, ~70 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition.
 
 ## Symbol discovery (T05)
 search → select → fetch. Nothing is preloaded and no ticker list is maintained by hand.
@@ -141,6 +159,7 @@ node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca
 node test/press.test.mjs        # T06: publishers' and central banks' RSS parsing and endpoint
 node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
 node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export normalizer and endpoint)
+node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)

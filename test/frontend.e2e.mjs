@@ -102,7 +102,10 @@ const briefsApi = (u, method, state) => {
   if (u.pathname === "/api/briefs/item") { const id = u.searchParams.get("id"); return { body: BRIEF_ITEM(id, id.slice(6), id.endsWith(BRF_TODAY) ? "Constituents edge up while the euro slips" : "Yesterday's edition") }; }
   const period = u.searchParams.get("period");
   const list = period === "daily" ? [...(state.written ? [{ id: `daily-${BRF_TODAY}`, period, d: BRF_TODAY, title: "Constituents edge up while the euro slips", created: 1, n: 400 }] : []), { id: `daily-${BRF_PREV}`, period, d: BRF_PREV, title: "Yesterday's edition", created: 1, n: 400 }] : [];
-  return { body: { period, label: period[0].toUpperCase() + period.slice(1), schedule: period === "weekly" ? "Written on Saturday mornings from 08:00 (Rome time)." : "Written on weekday mornings from 07:30 (Rome time).", chipTf: "1W", due: period === "daily" ? { id: `daily-${BRF_TODAY}`, d: BRF_TODAY, writable: true } : null, dueWritten: period === "daily" ? !!state.written : false, briefs: list } };
+  return { body: { period, label: period[0].toUpperCase() + period.slice(1), schedule: period === "weekly" ? "Written automatically on Saturday mornings at 08:00 (Rome time)." : "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "1W",
+    // daily: due, scheduled window over (the terminal writes it); evening: the scheduled run is writing it now
+    due: period === "daily" ? { id: `daily-${BRF_TODAY}`, d: BRF_TODAY, writable: true } : period === "evening" ? { id: `evening-${BRF_TODAY}`, d: BRF_TODAY, writable: true, auto: { writeAt: new Date(Date.now() - 60_000).toISOString(), until: new Date(Date.now() + 10 * 60_000).toISOString() } } : null,
+    dueWritten: period === "daily" ? !!state.written : false, briefs: list, automatic: { lastRun: new Date(Date.now() - 15 * 60_000).toISOString() } } };
 };
 
 // ---------- harness ----------
@@ -225,9 +228,13 @@ const OK_API = {
   ok("[A] briefing: a chip opens the instrument at the edition's range (daily → 1W)", await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("NVDA")); return !!w && w.querySelector('.tf[aria-pressed="true"]').textContent === "1W"; }));
   await page.click('[data-allwin="1"]'); await page.waitForTimeout(900);
   ok("[A] briefing: 'Open all as a view' opens the attached windows (heat map, chart, curves)", (await page.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent))).filter((x) => ["MAP", "YLD"].includes(x)).length === 2);
+  await page.click('.win [data-period="evening"]'); await page.waitForTimeout(500);
+  br = await winOf(page, "BRIEFING");
+  ok("[A] briefing: an edition the scheduled run is writing is not written by the terminal; shown as SCHEDULED with its time", /SCHEDULED · the evening edition for \d{4}-\d{2}-\d{2} is written automatically at \d{2}:\d{2}/.test(br.text) && /scheduled · \d{2}:\d{2}/.test(br.text) && brfState.writes.length === 1 && !brfState.writes.some((w) => /evening/.test(w)), br.text.slice(0, 400));
+  ok("[A] briefing: automatic writing status shown (last scheduled run)", /Automatic writing: last scheduled run/.test(br.text));
   await page.click('.win [data-period="weekly"]'); await page.waitForTimeout(500);
   br = await winOf(page, "BRIEFING");
-  ok("[A] briefing: an empty period says when it is written (no text invented)", /No weekly briefing yet\. Written on Saturday mornings/.test(br.text) && brfState.writes.length === 1);
+  ok("[A] briefing: an empty period says when it is written (no text invented)", /No weekly briefing yet\. Written automatically on Saturday mornings at 08:00/.test(br.text) && brfState.writes.length === 1);
   await page.click('.win [data-period="daily"]'); await page.waitForTimeout(300);
   // global checks
   const body = await page.evaluate(() => document.body.innerText);
