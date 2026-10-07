@@ -590,7 +590,7 @@ const OK_API = {
   let des = await winOf(page, "DES · AAPL");
   ok("[H] DES: SEC profile (industry, fiscal year end, address) and filings", /Apple Inc\./.test(des.text) && /Electronic Computers/.test(des.text) && /27 September/.test(des.text) && /CUPERTINO/.test(des.text) && /10-K/.test(des.text), des.text.slice(0, 500));
   ok("[H] DES: fundamentals as filed — revenue, YoY DERIVED, latest quarter", /Revenue\s+\$416\.16B[\s\S]{0,40}\$391\.04B\s+\+6\.4%\s+\$94\.04B/.test(des.text), (des.text.match(/Revenue[^\n]*\n?[^\n]*/) || [])[0]);
-  ok("[H] DES: market cap = live price × cover-page shares; P/E on last fiscal year EPS (DERIVED)", /MARKET CAP\s*DRV\s+\$3\.70T/.test(des.text) && /P\/E\s*DRV\s+40\.0×/.test(des.text) && /NET MARGIN\s*DRV\s+26\.9%/.test(des.text), des.text.slice(des.text.indexOf("VALUATION"), des.text.indexOf("VALUATION") + 400));
+  ok("[H] DES: market cap = live price × cover-page shares; P/E on last fiscal year EPS when no 12-month figure (DERIVED)", /MARKET CAP\s*DRV\s+\$3\.70T/.test(des.text) && /P\/E\s*DRV\s+40\.0×\s+price ÷ diluted EPS of the last fiscal year/.test(des.text) && /NET MARGIN\s*DRV\s+26\.9%/.test(des.text), des.text.slice(des.text.indexOf("VALUATION"), des.text.indexOf("VALUATION") + 400));
   await shotWin(page, "DES · AAPL", "t07-des");
   await cmd(page, "ZZQ DES"); await page.waitForTimeout(700);
   des = await winOf(page, "DES · ZZQ");

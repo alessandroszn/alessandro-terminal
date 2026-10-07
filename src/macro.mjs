@@ -22,13 +22,14 @@ const lastObs = (rows, dateKey, valKey) => rows.map((r) => [r[dateKey], numv(r[v
 
 // ---------- central banks ----------
 export const ECB_RATES = { DFR: "Deposit facility", MRR_FR: "Main refinancing operations", MLFR: "Marginal lending facility" };
-const ecbRateUrl = (k) => `https://data-api.ecb.europa.eu/service/data/FM/B.U2.EUR.4F.KR.${k}.LEV?lastNObservations=700&format=csvdata`;
+// the ECB key-rate series hold one observation per change (not a daily repeat); detail=dataonly drops the long attribute columns
+export const ECB_RATES_URL = `https://data-api.ecb.europa.eu/service/data/FM/B.U2.EUR.4F.KR.${Object.keys(ECB_RATES).join("+")}.LEV?lastNObservations=6&format=csvdata&detail=dataonly`;
 export const NYFED_URL = "https://markets.newyorkfed.org/api/rates/unsecured/effr/last/500.json";
 export const BOE_URL = "https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes&Datefrom=01/Jan/2024&Dateto=now&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N";
 export const snbUrl = (now = Date.now()) => `https://data.snb.ch/api/cube/snbgwdzid/data/csv/en?fromDate=${new Date(now - 3 * 365 * 86400_000).toISOString().slice(0, 10)}`;
 export const BOC_URL = "https://www.bankofcanada.ca/valet/observations/V39079/json?recent=750";
 
-export function parseEcbRate(text) { return lastChange(lastObs(csvRows(text), "TIME_PERIOD", "OBS_VALUE")); }
+export function parseEcbRate(text, code) { const rows = csvRows(text).filter((r) => !code || String(r.KEY || "").includes(`.KR.${code}.`)); return lastChange(lastObs(rows, "TIME_PERIOD", "OBS_VALUE")); }
 export function parseNyFed(j) {
   const r = j && Array.isArray(j.refRates) ? j.refRates.filter((x) => x && x.type === "EFFR" && Number.isFinite(x.percentRate)).sort((a, b) => (a.effectiveDate < b.effectiveDate ? 1 : -1)) : [];
   if (!r.length) return null;
@@ -60,7 +61,7 @@ export function parseBoc(j) {
 
 export const BANKS = [
   { id: "ECB", name: "European Central Bank", ccy: "EUR", page: "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/key_ecb_interest_rates/html/index.en.html",
-    load: async () => { const out = {}; for (const k of Object.keys(ECB_RATES)) { const f = await fetchText(ecbRateUrl(k), { timeoutMs: 10000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const p = parseEcbRate(f.text); if (p) out[k] = p; } return out.DFR ? { data: { rate: out.DFR, label: "Deposit facility rate", others: Object.fromEntries(Object.entries(out).filter(([k]) => k !== "DFR").map(([k, v]) => [ECB_RATES[k], v])) } } : { err: "no_data" }; } },
+    load: async () => { const out = {}; const f = await fetchText(ECB_RATES_URL, { timeoutMs: 15000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; for (const k of Object.keys(ECB_RATES)) { const p = parseEcbRate(f.text, k); if (p) out[k] = p; } return out.DFR ? { data: { rate: out.DFR, label: "Deposit facility rate", others: Object.fromEntries(Object.entries(out).filter(([k]) => k !== "DFR").map(([k, v]) => [ECB_RATES[k], v])) } } : { err: "no_data" }; } },
   { id: "FED", name: "Federal Reserve", ccy: "USD", page: "https://www.newyorkfed.org/markets/reference-rates/effr",
     load: async () => { const f = await fetchText(NYFED_URL, { timeoutMs: 10000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const p = parseNyFed(j); return p ? { data: { rate: { date: p.date, value: p.value }, label: "Effective federal funds rate", target: p.targetFrom != null ? { from: p.targetFrom, to: p.targetTo, previous: p.targetPrevious, changedOn: p.targetChangedOn, unchangedSince: p.targetUnchangedSince } : null } } : { err: "no_data" }; } },
   { id: "BOE", name: "Bank of England", ccy: "GBP", page: "https://www.bankofengland.co.uk/monetary-policy/the-interest-rate-bank-rate",
@@ -78,7 +79,7 @@ export async function handleCentralBanks(url, env, ctx, H, json) {
 }
 
 // ---------- euro-area 2s10s history (ECB AAA spot curve) ----------
-export const ECB_SPRD_URL = "https://data-api.ecb.europa.eu/service/data/YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y+SR_10Y?lastNObservations=270&format=csvdata";
+export const ECB_SPRD_URL = "https://data-api.ecb.europa.eu/service/data/YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y+SR_10Y?lastNObservations=270&format=csvdata&detail=dataonly";
 export function parseSpread(text) {
   const by = {};
   for (const r of csvRows(text)) { const m = /SR_(2Y|10Y)/.exec(r.KEY || r.DATA_TYPE_FM || ""); const v = numv(r.OBS_VALUE); if (m && r.TIME_PERIOD && Number.isFinite(v)) (by[r.TIME_PERIOD] = by[r.TIME_PERIOD] || {})[m[1]] = v; }

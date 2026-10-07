@@ -36,7 +36,8 @@ async function secCompany(url, env, ctx, sym) {
   const c = map.data[sym] || map.data[sym.replace(".", "-")];
   return c ? { cik: c.cik, name: c.name } : { err: "not_sec_registrant" };
 }
-// facts: the first concept the company reports wins (companies tag revenue differently)
+// facts: companies tag the same item with different concepts over time (Apple's revenue moved from Revenues to
+// RevenueFromContractWithCustomer… in 2018), so every listed concept is read and the most recently reported wins
 export const FACTS = {
   revenue: { label: "Revenue", unit: "USD", concepts: [["us-gaap", "Revenues"], ["us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"], ["us-gaap", "SalesRevenueNet"]] },
   netIncome: { label: "Net income", unit: "USD", concepts: [["us-gaap", "NetIncomeLoss"]] },
@@ -45,21 +46,34 @@ export const FACTS = {
   equity: { label: "Shareholders' equity", unit: "USD", concepts: [["us-gaap", "StockholdersEquity"]] },
   shares: { label: "Shares outstanding", unit: "shares", concepts: [["dei", "EntityCommonStockSharesOutstanding"]] },
 };
-// latest annual (10-K, full fiscal year) and latest quarterly value, as filed
+const DAY = 86400000;
+// latest annual (10-K, full fiscal year), the year before, latest single quarter, and for flows the trailing twelve
+// months = latest year-to-date + last fiscal year − the same year-to-date a year earlier (DERIVED from the filings)
 export function pickFact(j, unit) {
   const list = j && j.units && j.units[unit] ? j.units[unit] : null;
   if (!list) return null;
   const ok = list.filter((x) => Number.isFinite(x.val) && x.end && x.form);
-  const by = (pred) => ok.filter(pred).sort((a, b) => (a.end === b.end ? (a.filed < b.filed ? 1 : -1) : a.end < b.end ? 1 : -1))[0] || null;
-  const dur = (x) => (x.start ? (Date.parse(x.end) - Date.parse(x.start)) / 86400000 : null);
+  const newest = (a, b) => (a.end === b.end ? (a.filed < b.filed ? 1 : -1) : a.end < b.end ? 1 : -1);
+  const by = (pred) => ok.filter(pred).sort(newest)[0] || null;
+  const dur = (x) => (x.start ? (Date.parse(x.end) - Date.parse(x.start)) / DAY : null);
   const annual = by((x) => /^(10-K|20-F)/.test(x.form) && (x.fp === "FY" || x.fp == null) && (dur(x) == null || dur(x) > 330));
   const quarter = by((x) => /^10-Q/.test(x.form) && (dur(x) == null || dur(x) < 100));
   const latest = by(() => true);
   const pack = (x) => (x ? { value: x.val, end: x.end, form: x.form, filed: x.filed, fy: x.fy || null, fp: x.fp || null } : null);
   const prevAnnual = annual ? by((x) => /^(10-K|20-F)/.test(x.form) && x.end < annual.end && (dur(x) == null || dur(x) > 330) && Number(annual.end.slice(0, 4)) - Number(x.end.slice(0, 4)) === 1) : null;
-  // several different values for the same period and filing (e.g. one per share class): no single figure to use
-  const latestMulti = latest ? new Set(ok.filter((x) => x.end === latest.end && x.filed === latest.filed && x.form === latest.form).map((x) => x.val)).size > 1 : false;
-  return { annual: pack(annual), prevAnnual: pack(prevAnnual), quarter: pack(quarter), latest: pack(latest), latestMulti };
+  let ttm = null;
+  if (annual && dur(annual) != null) {
+    if (!quarter || quarter.end <= annual.end) ttm = { value: annual.val, end: annual.end, basis: "last fiscal year" };
+    else {
+      const ytd = ok.filter((x) => /^10-Q/.test(x.form) && x.end === quarter.end && x.start && dur(x) < 300).sort((a, b) => dur(b) - dur(a) || (a.filed < b.filed ? 1 : -1))[0];
+      const target = ytd ? Date.parse(ytd.end) - 364 * DAY : null;
+      const prior = ytd ? ok.filter((x) => x.start && Math.abs(Date.parse(x.end) - target) <= 8 * DAY && Math.abs(dur(x) - dur(ytd)) <= 8).sort((a, b) => (a.filed < b.filed ? 1 : -1))[0] : null;
+      if (ytd && prior && annual.end > prior.end && annual.end < ytd.end) ttm = { value: ytd.val + annual.val - prior.val, end: ytd.end, basis: "year-to-date + last fiscal year − year-to-date a year earlier" };
+    }
+  }
+  // several different values for the same instant and filing (e.g. one per share class): no single figure to use
+  const latestMulti = latest ? new Set(ok.filter((x) => x.end === latest.end && x.filed === latest.filed && x.form === latest.form && (x.start || null) === (latest.start || null)).map((x) => x.val)).size > 1 : false;
+  return { annual: pack(annual), prevAnnual: pack(prevAnnual), quarter: pack(quarter), latest: pack(latest), ttm, latestMulti };
 }
 export async function handleDes(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
@@ -72,14 +86,15 @@ export async function handleDes(url, env, ctx, H, json) {
     if (!F) return send({ error: "bad_request", message: `c must be one of ${Object.keys(FACTS).join(",")}` }, 400);
     const r = await cachedSource({ origin: url.origin, key: `des/fact/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 30 * 60_000,
       load: async () => {
-        for (const [tax, concept] of F.concepts) {
-          const p = pj(await fetchText(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10(c.cik)}/${tax}/${concept}.json`, { timeoutMs: 12000, headers: secHeadersFor(env) }));
-          if (p.err === "no_data") continue; // concept not reported: try the next one
-          if (p.err) return p;
+        const res = await Promise.all(F.concepts.map(([tax, concept]) => fetchText(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10(c.cik)}/${tax}/${concept}.json`, { timeoutMs: 12000, headers: secHeadersFor(env) }).then((f) => ({ tax, concept, p: pj(f) }))));
+        let best = null, err = null;
+        for (const { tax, concept, p } of res) {
+          if (p.err) { if (p.err !== "no_data") err = err || p.err; continue; } // no_data: the company does not use this concept
           const v = pickFact(p.j, F.unit);
-          if (v && v.latest) return { data: { ...v, concept: `${tax}:${concept}` } };
+          const end = v && (v.annual || v.latest) ? (v.annual || v.latest).end : null;
+          if (end && (!best || end > best.end)) best = { end, data: { ...v, concept: `${tax}:${concept}` } };
         }
-        return { err: "no_data" };
+        return best ? { data: best.data } : { err: err || "no_data" };
       } });
     return send(r.data ? { symbol: sym, fact: id, label: F.label, unit: F.unit, ...r.data, source: "SEC EDGAR XBRL (company filings)", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE" } : { symbol: sym, fact: id, label: F.label, error: r.err, status: "N/A" });
   }

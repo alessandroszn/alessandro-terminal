@@ -20,7 +20,9 @@ const call = async (path, init, env) => { const r = await worker.fetch(new Reque
 
 // ---------- central bank parsers (official formats) ----------
 const ECB_CSV = "KEY,FREQ,REF_AREA,CURRENCY,PROVIDER_FM,INSTRUMENT_FM,PROVIDER_FM_ID,DATA_TYPE_FM,TIME_PERIOD,OBS_VALUE\nFM.B.U2.EUR.4F.KR.DFR.LEV,B,U2,EUR,4F,KR,DFR,LEV,2026-06-10,2.25\nFM.B.U2.EUR.4F.KR.DFR.LEV,B,U2,EUR,4F,KR,DFR,LEV,2026-06-11,2.0\n";
-ok("ECB key rate: latest level, the level before the last change and its date", JSON.stringify(parseEcbRate(ECB_CSV)) === JSON.stringify({ date: "2026-06-11", value: 2, previous: 2.25, changedOn: "2026-06-11" }));
+ok("ECB key rate: latest level, the level before the last change and its date", JSON.stringify(parseEcbRate(ECB_CSV, "DFR")) === JSON.stringify({ date: "2026-06-11", value: 2, previous: 2.25, changedOn: "2026-06-11" }));
+const ECB_ALL = ECB_CSV + ["MRR_FR,2026-06-11,2.15", "MLFR,2026-06-11,2.4"].map((x) => { const [k, d, v] = x.split(","); return `FM.B.U2.EUR.4F.KR.${k}.LEV,B,U2,EUR,4F,KR,${k},LEV,${d},${v}`; }).join("\n") + "\n";
+ok("ECB key rates: one request for the three rates, each read from its own series", parseEcbRate(ECB_ALL, "MRR_FR").value === 2.15 && parseEcbRate(ECB_ALL, "MLFR").value === 2.4 && parseEcbRate(ECB_ALL, "DFR").value === 2);
 ok("last change: daily repeats are not a change; no change in the data → unchangedSince", JSON.stringify(lastChange([["a", 1], ["b", 2], ["c", 2], ["d", 2]])) === JSON.stringify({ date: "d", value: 2, previous: 1, changedOn: "b" }) && lastChange([["a", 2], ["b", 2]]).unchangedSince === "a" && lastChange([["a", 2], ["b", 2]]).previous === null && lastChange([]) === null);
 const NYF = { refRates: [{ effectiveDate: "2026-09-17", type: "EFFR", percentRate: 3.83, targetRateFrom: 3.75, targetRateTo: 4 }, { effectiveDate: "2026-09-18", type: "EFFR", percentRate: 3.6, targetRateFrom: 3.5, targetRateTo: 3.75 }, { effectiveDate: "2026-10-05", type: "EFFR", percentRate: 3.6, targetRateFrom: 3.5, targetRateTo: 3.75 }, { effectiveDate: "2026-10-06", type: "EFFR", percentRate: 3.58, targetRateFrom: 3.5, targetRateTo: 3.75 }] };
 const ny = parseNyFed(NYF);
@@ -54,7 +56,7 @@ const seen = [];
 const ENERGY_ROWS = (series, n) => ({ response: { data: series.flatMap((s, k) => Array.from({ length: n }, (_, i) => ({ period: `2026-${String(8 + Math.floor(i / 28)).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`, series: s, value: 60 + k + i / 100 }))) } });
 globalThis.fetch = async (u, o = {}) => {
   u = String(u); seen.push({ u, h: o.headers || {} });
-  if (u.includes("FM/B.U2.EUR.4F.KR.")) return new Response(ECB_CSV.replace(/DFR/g, u.match(/KR\.([A-Z_]+)\.LEV/)[1]));
+  if (u.includes("FM/B.U2.EUR.4F.KR.DFR+MRR_FR+MLFR.LEV") && u.includes("detail=dataonly")) return new Response(ECB_ALL);
   if (u.startsWith("https://markets.newyorkfed.org/")) return new Response(JSON.stringify(NYF));
   if (u.startsWith("https://www.bankofengland.co.uk/")) return new Response(BOE);
   if (u.startsWith("https://data.snb.ch/")) { if (!/fromDate=\d{4}-\d{2}-\d{2}/.test(u)) return new Response("whole cube", { status: 200 }); return new Response("", { status: 503 }); }
@@ -126,6 +128,16 @@ const CONCEPT = { units: { USD: [
 ] } };
 const pf = pickFact(CONCEPT, "USD");
 ok("SEC fact: latest full fiscal year, the one before, latest single quarter (not the 9-month figure)", pf.annual.value === 416161e6 && pf.prevAnnual.value === 391035e6 && pf.quarter.value === 94036e6 && pf.quarter.end === "2025-06-28");
+ok("SEC fact: a 10-Q's 3-month and 9-month figures for the same date are not taken for share classes", pf.latestMulti === false);
+const TTMC = { units: { USD: [
+  { start: "2023-10-01", end: "2024-09-28", val: 391e9, fy: 2024, fp: "FY", form: "10-K", filed: "2024-11-01" },
+  { start: "2024-09-29", end: "2025-09-27", val: 416e9, fy: 2025, fp: "FY", form: "10-K", filed: "2025-10-31" },
+  { start: "2025-09-28", end: "2026-06-27", val: 330e9, fy: 2026, fp: "Q3", form: "10-Q", filed: "2026-07-31" },
+  { start: "2026-03-29", end: "2026-06-27", val: 100e9, fy: 2026, fp: "Q3", form: "10-Q", filed: "2026-07-31" },
+  { start: "2024-09-29", end: "2025-06-28", val: 313e9, fy: 2026, fp: "Q3", form: "10-Q", filed: "2026-07-31" },
+] } };
+const tt = pickFact(TTMC, "USD");
+ok("SEC fact: trailing twelve months = 9-month YTD + last fiscal year − the 9 months a year earlier", tt.ttm.value === 330e9 + 416e9 - 313e9 && tt.ttm.end === "2026-06-27" && tt.quarter.value === 100e9);
 ok("SEC fact: unit not reported → null", pickFact(CONCEPT, "shares") === null);
 ok("SEC fact: two values for the same period and filing (share classes) are flagged, not summed or picked", pickFact({ units: { shares: [{ end: "2025-10-17", val: 5.8e9, form: "10-K", filed: "2025-10-31" }, { end: "2025-10-17", val: 5.4e9, form: "10-K", filed: "2025-10-31" }] } }, "shares").latestMulti === true && pf.latestMulti === false);
 ok("OCC option symbol: root, expiry, call/put, strike", JSON.stringify(parseOcc("AAPL261120C00250000")) === JSON.stringify({ root: "AAPL", exp: "2026-11-20", type: "call", strike: 250 }) && parseOcc("bad") === null);
@@ -133,7 +145,7 @@ globalThis.fetch = async (u) => {
   u = String(u);
   if (u.includes("company_tickers.json")) return new Response(JSON.stringify({ 0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." } }));
   if (u.includes("/submissions/CIK0000320193.json")) return new Response(JSON.stringify(SUB));
-  if (u.includes("/companyconcept/CIK0000320193/us-gaap/Revenues.json")) return new Response("", { status: 404 });
+  if (u.includes("/companyconcept/CIK0000320193/us-gaap/Revenues.json")) return new Response(JSON.stringify({ units: { USD: [{ start: "2017-10-01", end: "2018-09-29", val: 265595e6, fy: 2018, fp: "FY", form: "10-K", filed: "2018-11-05" }] } }));
   if (u.includes("/companyconcept/CIK0000320193/us-gaap/RevenueFromContractWithCustomerExcludingAssessedTax.json")) return new Response(JSON.stringify(CONCEPT));
   return new Response("", { status: 404 });
 };
@@ -141,7 +153,7 @@ const envS = { ...env, SEC_CONTACT: "test@example.com" };
 r = await call("/api/des?symbol=AAPL", undefined, envS);
 ok("/api/des: profile from SEC submissions, list of available facts", r.status === 200 && r.j.profile.name === "Apple Inc." && r.j.facts.length === 6 && r.j.status === "LIVE");
 r = await call("/api/des/fact?symbol=AAPL&c=revenue", undefined, envS);
-ok("/api/des/fact: revenue from the first concept the company reports (Revenues absent → next concept)", r.status === 200 && r.j.annual.value === 416161e6 && r.j.concept === "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax");
+ok("/api/des/fact: revenue from the concept the company reports most recently (an old concept with 2018 data loses)", r.status === 200 && r.j.annual.value === 416161e6 && r.j.concept === "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax");
 r = await call("/api/des?symbol=ZZZZ", undefined, envS);
 ok("/api/des: not an SEC registrant → 404 N/A", r.status === 404 && r.j.status === "N/A");
 r = await call("/api/des/fact?symbol=AAPL&c=ebitda", undefined, envS);
