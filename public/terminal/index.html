@@ -605,9 +605,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(used+n<=CONFIG.creditsPerMin){this.last={t:now,n};this.log.push(this.last);return 0;}
       let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of this.log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
     eta(n){const now=Date.now(),log=this.log.filter(x=>now-x.t<61000),used=log.reduce((a,x)=>a+x.n,0);if(used+n<=CONFIG.creditsPerMin)return 0;let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
-    // what the owner just asked for (a chart, a range, a symbol to compare) takes the next free credit; background refreshes wait
-    hi:0,
-    async take(n,first){if(first)this.hi++;try{for(;;){if(!first&&this.hi>0){await new Promise(r=>setTimeout(r,400));continue;}const w=this.wait(n);if(!w)return this.last;await new Promise(r=>setTimeout(r,Math.min(w+50,first?w+50:2000)));}}finally{if(first)this.hi--;}},
+    // one queue, first come first served (a batch of quotes is never starved by single requests); what the owner
+    // just asked for (a chart, a range, a symbol to compare) goes ahead of the background refreshes
+    q:[],
+    async take(n,first){const me={n,first:!!first};if(first){const i=this.q.findIndex(x=>!x.first);if(i<0)this.q.push(me);else this.q.splice(i,0,me);}else this.q.push(me);
+      try{for(;;){if(this.q[0]===me){const w=this.wait(n);if(!w)return this.last;await new Promise(r=>setTimeout(r,w+50));}else await new Promise(r=>setTimeout(r,250));}}
+      finally{const i=this.q.indexOf(me);if(i>=0)this.q.splice(i,1);}},
     // answers the Worker served from its cache cost the provider nothing: their credits go back
     refund(tk,k){if(tk&&k>0)tk.n=Math.max(0,tk.n-k);}};
   function histMeta(h){return{status:h.status||'LIVE',fetchedAt:h.fetchedAt||h.asOf||null,staleAt:h.staleAt||null,lastBarPartial:!!h.lastBarPartial,adjust:h.adjust,count:h.count,interval:h.interval,staleReason:h.staleReason||null};}
