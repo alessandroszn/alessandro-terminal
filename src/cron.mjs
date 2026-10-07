@@ -10,7 +10,7 @@
 import { kvStore, easternDate } from "./lib.mjs";
 import { romeNow, isSlotDay, SLOT_MIN, MARKET_SYMS, PERIODS, dueEdition, writeEdition, kvJson, tdDaily, tdDailyKey, WRITE_OFFSET, WRITE_RETRY } from "./briefs.mjs";
 import { getUniverse, getCloses, alpacaConfigured, refTarget } from "./spx.mjs";
-import { getYieldCurves } from "./yields.mjs";
+import { getYieldCurves, CURVES } from "./yields.mjs";
 import { BRIEF_CURVES } from "./briefs.mjs";
 import { getWorldCalendar, getCalendar, archiveFF } from "./calendar.mjs";
 import { getPress, PRESS } from "./press.mjs";
@@ -59,7 +59,7 @@ export async function isStaged(step, plan, store, now) {
   if (step.startsWith("ref:")) { const ref = step.slice(4); return fresh(await store.get(`spx/closes/${ref}/${refTarget(ref, easternDate(new Date(now)))}`), now - 24 * 3600_000); }
   if (step === "fxdaily") return !!(await store.get(tdDailyKey(now)));
   if (step === "yields") return (await Promise.all(["yields/ea", "yields/us", "yields/us-fred"].map((k) => store.get(k)))).some((e) => fresh(e, since));
-  if (step.startsWith("bonds:")) return fresh(await store.get(`yields/${step.slice(6).toLowerCase()}`), since);
+  if (step.startsWith("bonds:")) return fresh(await store.get(CURVES[step.slice(6)].key), since);
   if (step === "calendar") return (await Promise.all(["calendar/FF", "calendar/BLS"].map((k) => store.get(k)))).some((e) => fresh(e, since));
   if (step.startsWith("press:")) { const id = step.slice(6); return (await Promise.all(PRESS[id].feeds.map(([sec]) => store.get(`press/${id}/${sec}`)))).some((e) => fresh(e, since)); }
   if (step === "fx") return (await Promise.all(MARKET_SYMS.map((s) => store.get(`quote/${encodeURIComponent(s)}`)))).every((e) => fresh(e, since));

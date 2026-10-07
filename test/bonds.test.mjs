@@ -21,6 +21,8 @@ const call = async (path, env) => { const r = await worker.fetch(new Request("ht
 const K = (c) => `BBSIS.D.I.ZAR.ZI.EUR.S1311.B.A604.${c}.R.A.A._Z._Z.A`;
 const DE = `"",${K("R02XX")},${K("R02XX")}_FLAGS,${K("R10XX")},${K("R10XX")}_FLAGS\n"","Yields … 2.0 years","",…\nDecimals,2,,2,\nlast update,2026-10-07 13:07:13,,2026-10-07 13:07:14,\n2026-09-07,2.95,,3.40,\n2026-09-30,3.00,,3.44,\n2026-10-06,3.08,,3.49,\n2026-10-07,3.06,,3.52,\n`;
 const de = parseBundesbank(DE);
+const DE_DE = DE.replace(/,/g, ";").replace(/(\d)\.(\d)/g, "$1,$2");
+ok("Bundesbank: the German-locale output (; and decimal commas) reads the same", JSON.stringify(parseBundesbank(DE_DE)) === JSON.stringify(parseBundesbank(DE)) && parseBundesbank(DE_DE)[3].points.find((p) => p.tenor === "10Y").value === 3.52, JSON.stringify(parseBundesbank(DE_DE)));
 ok("Bundesbank: wide CSV — maturities read from the series keys, flags skipped, metadata lines ignored", de.length === 4 && de[3].date === "2026-10-07" && de[3].points.find((p) => p.tenor === "10Y").value === 3.52 && de[3].points.find((p) => p.tenor === "2Y").value === 3.06 && de[3].points.find((p) => p.tenor === "5Y").value === null);
 const UK = "DATE,IUDSNPY,IUDMNPY,IUDLNPY\r\n02 Oct 2026,4.8917,5.3341,5.6879\r\n05 Oct 2026,4.9311,5.3634,\r\n";
 const uk = parseBoeYields(UK);

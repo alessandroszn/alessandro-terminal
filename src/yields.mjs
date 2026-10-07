@@ -104,7 +104,10 @@ const rowsFrom = (byDate, tenors) => Object.keys(byDate).sort().map((date) => ({
 export const DE_TENORS = [["R01XX", "1Y", 12], ["R02XX", "2Y", 24], ["R03XX", "3Y", 36], ["R05XX", "5Y", 60], ["R07XX", "7Y", 84], ["R10XX", "10Y", 120], ["R15XX", "15Y", 180], ["R20XX", "20Y", 240], ["R30XX", "30Y", 360]];
 export const DE_URL = `https://api.statistiken.bundesbank.de/rest/data/BBSIS/D.I.ZAR.ZI.EUR.S1311.B.A604.${DE_TENORS.map(([c]) => c).join("+")}.R.A.A._Z._Z.A?format=csv&lastNObservations=30`;
 export function parseBundesbank(text) {
-  const rows = parseCsv(String(text || ""));
+  // English output is comma-separated; German output (Accept-Language de) uses ";" and decimal commas
+  let t = String(text || "");
+  if (/^[^\n]*;/.test(t) && !/^[^\n]*,BBSIS/.test(t)) t = t.split(/\r?\n/).map((l) => l.split(";").map((c) => (/^-?\d+,\d+$/.test(c) ? c.replace(",", ".") : c)).map((c) => (/[",]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",")).join("\n");
+  const rows = parseCsv(t);
   if (!rows.length) return [];
   const cols = rows[0].map((h) => { const m = /\.(R\d\dXX)\.R\.A\.A\._Z\._Z\.A$/.exec(h.trim()); const d = m && DE_TENORS.find(([c]) => c === m[1]); return d ? d[1] : null; });
   const byDate = {};
@@ -195,7 +198,7 @@ async function loadUsFred(env) {
   return rows.length ? { data: rows.slice(-30) } : { err: "no_data" };
 }
 async function csvLoad(url, parse, timeoutMs = 15000, accept = "text/csv,text/plain,*/*") {
-  const f = await fetchText(url, { timeoutMs, headers: { accept } });
+  const f = await fetchText(url, { timeoutMs, headers: { accept, "accept-language": "en-GB,en;q=0.9" } });
   if (f.err) return { err: f.err };
   const rows = parse(f.text);
   return rows.length ? { data: rows.slice(-30) } : { err: "no_data" };
@@ -205,8 +208,8 @@ async function csvLoad(url, parse, timeoutMs = 15000, accept = "text/csv,text/pl
 export const CURVES = {
   US: { name: "United States — Treasury par yield curve", kind: "par yield, end of day", source: "U.S. Department of the Treasury", sourceUrl: "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve", maxAgeDays: 4, key: "yields/us" },
   EA: { name: "Euro area — AAA government bonds spot curve", kind: "spot rate (Svensson), end of day", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", maxAgeDays: 4, key: "yields/ea", load: () => loadEcb() },
-  DE: { name: "Germany — Federal securities (Bunds)", kind: "yield from the term structure (Svensson), daily", source: "Deutsche Bundesbank", sourceUrl: "https://www.bundesbank.de/en/statistics/money-and-capital-markets/interest-rates-and-yields/term-structure-of-interest-rates", maxAgeDays: 4, key: "yields/de", load: () => csvLoad(DE_URL, parseBundesbank) },
-  UK: { name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/statistics/yield-curves", maxAgeDays: 6, key: "yields/uk", load: (now) => csvLoad(ukUrl(now), parseBoeYields) },
+  DE: { name: "Germany — Federal securities (Bunds)", kind: "yield from the term structure (Svensson), daily", source: "Deutsche Bundesbank", sourceUrl: "https://www.bundesbank.de/en/statistics/money-and-capital-markets/interest-rates-and-yields/term-structure-of-interest-rates", maxAgeDays: 4, key: "yields/de2", load: () => csvLoad(DE_URL, parseBundesbank) },
+  UK: { name: "United Kingdom — gilts", kind: "nominal par yield (fitted curve), daily", source: "Bank of England", sourceUrl: "https://www.bankofengland.co.uk/statistics/yield-curves", maxAgeDays: 6, key: "yields/uk2", load: (now) => csvLoad(ukUrl(now), parseBoeYields) },
   JP: { name: "Japan — JGBs", kind: "JGB interest rate, daily", source: "Ministry of Finance Japan", sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/", maxAgeDays: 5, key: "yields/jp", load: () => csvLoad(JP_URL, parseMof) },
   CH: { name: "Switzerland — Confederation bonds", kind: "yield of the Confederation bond nearest each maturity, daily (published with a lag)", source: "Swiss National Bank", sourceUrl: "https://data.snb.ch/en/topics/ziredev/cube/rendoeid", maxAgeDays: 14, key: "yields/ch", load: (now) => csvLoad(chUrl(now), parseSnbBonds) },
   CA: { name: "Canada — benchmark bonds", kind: "benchmark bond yield, daily (LONG = long-term benchmark)", source: "Bank of Canada", sourceUrl: "https://www.bankofcanada.ca/rates/interest-rates/canadian-bonds/", maxAgeDays: 5, key: "yields/ca", load: async () => { const f = await fetchText(CA_URL, { timeoutMs: 12000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err }; let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const rows = parseBocBonds(j); return rows.length ? { data: rows.slice(-30) } : { err: "no_data" }; } },
