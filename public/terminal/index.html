@@ -588,7 +588,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     wait(n){const now=Date.now();this.log=this.log.filter(x=>now-x.t<61000);const used=this.log.reduce((a,x)=>a+x.n,0);
       if(used+n<=CONFIG.creditsPerMin){this.log.push({t:now,n});return 0;}
       let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of this.log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
-    async take(n){for(;;){const w=this.wait(n);if(!w)return;await new Promise(r=>setTimeout(r,w+50));}}};
+    eta(n){const now=Date.now(),log=this.log.filter(x=>now-x.t<61000),used=log.reduce((a,x)=>a+x.n,0);if(used+n<=CONFIG.creditsPerMin)return 0;let need=used+n-CONFIG.creditsPerMin,acc=0;for(const x of log){acc+=x.n;if(acc>=need)return 61000-(now-x.t);}return 61000;},
+    // what the owner just asked for (a chart, a range, a symbol to compare) takes the next free credit; background refreshes wait
+    hi:0,
+    async take(n,first){if(first)this.hi++;try{for(;;){if(!first&&this.hi>0){await new Promise(r=>setTimeout(r,400));continue;}const w=this.wait(n);if(!w)return;await new Promise(r=>setTimeout(r,Math.min(w+50,first?w+50:2000)));}}finally{if(first)this.hi--;}}};
   function histMeta(h){return{status:h.status||'LIVE',fetchedAt:h.fetchedAt||h.asOf||null,staleAt:h.staleAt||null,lastBarPartial:!!h.lastBarPartial,adjust:h.adjust,count:h.count,interval:h.interval,staleReason:h.staleReason||null};}
   const RETRY_MS=60000, INTRADAY_REFRESH_MS=600000;
   const DATA={lastPull:null,provider:null,_q:Promise.resolve(),_gap:0,_timer:null,
@@ -903,7 +906,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function gpSync(win,h,t,e,ce,src){const st=win.state,leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
     if(!LW){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return;}
     const d=e&&e.data,rows=d&&Array.isArray(d.points)?gpRows(d):[];
-    if(rows.length<2){lwReset(h);leg.innerHTML='';msg.textContent=e&&e.err?`${tl('Real history unavailable','Storico reale non disponibile')} (${P.errorText(e.err)})`:tl('Loading real history…','Carico lo storico reale…');return;}
+    if(rows.length<2){lwReset(h);leg.innerHTML='';msg.textContent=e&&e.err?`${tl('Real history unavailable','Storico reale non disponibile')} (${P.errorText(e.err)})`:e&&e.loading&&e.eta?tl('Waiting for a data credit — Twelve Data allows 8 a minute on this plan; this chart goes first…','In attesa di un credito dati — Twelve Data ne concede 8 al minuto con questo piano; questo grafico passa per primo…'):tl('Loading real history…','Carico lo storico reale…');return;}
     msg.textContent='';
     const intra=!isDay(rows[0].t),ohlc=rows.every(r=>fin(r.o)&&fin(r.h)&&fin(r.l)),ct=ohlc?st.ct:'line',hasVol=rows.some(r=>fin(r.v)&&r.v>0);
     const cmp=ce.map((x,i)=>({sym:x.sym,col:CMP_COL[i],e:x.e,rows:x.e&&x.e.data&&Array.isArray(x.e.data.points)?gpRows(x.e.data):[]}));
@@ -1671,7 +1674,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // daily history for analysis windows (Twelve Data via /api/history; one credit each, cached 30 min here)
   const H7={};
   function hist7(sym,range,adjust,types,o={}){const iv=o.interval||(range==='5Y'?'1day':''),k=`${sym}|${range}|${adjust}|${iv}`,e=H7[k]||(H7[k]={});if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:o.ttl||1800000)))return e;e.loading=true;
-    (async()=>{try{await Budget.take(1);const qs=new URLSearchParams({symbol:sym,range,adjust});if(iv)qs.set('interval',iv);
+    (async()=>{try{e.eta=Budget.eta(1);if(e.eta)setTimeout(()=>repaintTypes(types),0);await Budget.take(1,true);e.eta=0;const qs=new URLSearchParams({symbol:sym,range,adjust});if(iv)qs.set('interval',iv);
         const r=await fetch(`${CONFIG.proxyBase}/api/history?${qs}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
         if(!r.ok||!j||!Array.isArray(j.points)||j.points.length<2)e.err=(j&&j.error)||'http '+r.status;else{e.data=j;e.err=null;}}
       catch(x){e.err='network';}finally{e.loading=false;e.at=Date.now();repaintTypes(types);}})();
