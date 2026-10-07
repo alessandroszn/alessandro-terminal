@@ -1667,7 +1667,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!cd&&!ch.err){tbl=`<div class="empty">${tl('Loading the chain…','Caricamento della catena…')}</div>`;items['ds:opt']=S.LOADING;}
     else if(!cd||!cd.rows){tbl=naB(tl('option chain unavailable','catena non disponibile'),(cd&&cd.error)||ch.err);items['ds:opt']=S.NA;}
     else{items['ds:opt']=S.PARTIAL;const atm=cd.rows.reduce((b,r)=>Math.abs(r.strike-S0)<Math.abs(b.strike-S0)?r:b,cd.rows[0]);
-      const n=(v,d=2)=>fin(v)?v.toFixed(d):'—',iv=v=>fin(v)?(v*100).toFixed(1)+'%':'—',oi=v=>fin(v)?bigN(v):'—',E=['','','','','',''];
+      const n=(v,d=2)=>fin(v)?v.toFixed(d).replace(/^-(0\.0+)$/,'$1'):'—',iv=v=>fin(v)?(v*100).toFixed(1)+'%':'—',oi=v=>fin(v)?bigN(v):'—',E=['','','','','',''];
       const cells=(vals,itm)=>vals.map(v=>`<td class="num${itm?' itm':''}">${v}</td>`).join('');
       const callC=o=>o?[oi(o.oi),iv(o.iv),n(o.delta),n(o.last),n(o.bid),n(o.ask)]:E,putC=o=>o?[n(o.bid),n(o.ask),n(o.last),n(o.delta),iv(o.iv),oi(o.oi)]:E;
       tbl=`<div style="overflow:auto"><table class="pf opt"><thead><tr><th colspan="6" class="c">${tl('CALLS','CALL')}</th><th></th><th colspan="6" class="c">PUT</th></tr><tr><th>OI</th><th>IV</th><th>Δ</th><th>${tl('LAST','ULTIMO')}</th><th>${tl('BID*','DENARO*')}</th><th>${tl('ASK*','LETTERA*')}</th><th class="c">STRIKE</th><th>${tl('BID*','DENARO*')}</th><th>${tl('ASK*','LETTERA*')}</th><th>${tl('LAST','ULTIMO')}</th><th>Δ</th><th>IV</th><th>OI</th></tr></thead><tbody>${cd.rows.map(r=>`<tr class="${r===atm?'atm':''}">${cells(callC(r.call),r.strike<S0)}<td class="k-strike">${r.strike}</td>${cells(putC(r.put),r.strike>S0)}</tr>`).join('')}</tbody></table></div>`;
