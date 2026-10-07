@@ -94,6 +94,22 @@
     "drag title": "trascina il titolo", "double-click": "doppio clic", "venue-subset volume.": "volume del sottoinsieme di sedi.",
     "from real closes aligned by date.": "da chiusure reali allineate per data.", "move together,": "si muovono insieme,", "move apart.": "si muovono in direzioni opposte.",
     "U.S. Bureau of Labor Statistics": "U.S. Bureau of Labor Statistics", "Daily": "Giornaliero", "Evening": "Serale", "Weekly": "Settimanale", "Monthly": "Mensile",
+    "CURRENCIES": "VALUTE", "FUTURES": "FUTURES", "REDDIT SENTIMENT": "SENTIMENT REDDIT", "MY BOARDS": "LE MIE TABELLE", "SPREADS · 2s10s": "SPREAD · 2s10s",
+    "EARNINGS CALENDAR": "CALENDARIO DELLE TRIMESTRALI", "FUTURES CURVES · ENERGY": "CURVE DEI FUTURES · ENERGIA", "PRICE ALERTS": "AVVISI DI PREZZO", "NOTES": "NOTE",
+    "SYSTEM STATUS": "STATO DEL SISTEMA", "EARNINGS": "TRIMESTRALI", "ALERTS": "AVVISI",
+    "All functions by category (also the ☰ FUNCTIONS button, or press m)": "Tutte le funzioni per categoria (anche il pulsante ☰ FUNZIONI, o premi m)",
+    "Equities: S&P 500, Nasdaq-100 and Dow 30 members with weights and changes": "Azioni: componenti di S&P 500, Nasdaq-100 e Dow 30 con pesi e variazioni",
+    "Currency board and crypto board": "Quadro delle valute e quadro delle cripto",
+    "Commodities (EIA energy, gold) and energy futures curves": "Materie prime (energia EIA, oro) e curve dei futures energetici",
+    "Central bank policy rates; 2s10s spreads": "Tassi ufficiali delle banche centrali; spread 2s10s",
+    "Earnings calendar with surprise and price reaction": "Calendario delle trimestrali con sorpresa e reazione del prezzo",
+    "Company description and fundamentals from SEC filings": "Scheda della società e fondamentali dai depositi SEC",
+    "Option chain (Alpaca indicative feed)": "Catena delle opzioni (feed indicativo Alpaca)",
+    "Workspace: chart, description, options and news together": "Area di lavoro: grafico, scheda, opzioni e news insieme",
+    "Ratio of two instruments over time": "Rapporto tra due strumenti nel tempo",
+    "Backtest: buy & hold or moving-average crossover on real history": "Backtest: compra e tieni o incrocio di medie mobili su storico reale",
+    "Your boards, price alerts and notes (stored privately on the server)": "Le tue tabelle, gli avvisi di prezzo e le note (salvati in privato sul server)",
+    "System status; guided tour": "Stato del sistema; visita guidata",
 
   };
 
@@ -202,6 +218,9 @@
     ["Watchlist — add/remove symbols (saved on this device)", "Watchlist — aggiungi/rimuovi simboli (salvata su questo dispositivo)"],
     ["major exchanges open now (Twelve Data market_state)", "borse principali aperte ora (Twelve Data market_state)"], ["next high-impact event (Forex Factory)", "prossimo evento ad alto impatto (Forex Factory)"],
     ["Open now:", "Aperte ora:"], ["edition for", "edizione del"],
+    ["EIA API key not set in the Worker", "chiave API EIA non impostata nel Worker"], ["Finnhub API key not set in the Worker", "chiave API Finnhub non impostata nel Worker"],
+    ["not an SEC registrant", "non registrata alla SEC"], ["no price for the underlying", "nessun prezzo per il sottostante"], ["no listed options", "nessuna opzione quotata"],
+    ["server storage not configured", "archivio del server non configurato"], ["request from another site refused", "richiesta da un altro sito rifiutata"], ["invalid request", "richiesta non valida"],
   ];
   // dynamic patterns
   var PATTERNS = [
@@ -219,6 +238,7 @@
     [/^(\d+) (BUY|SELL) /, "$1 $2 "],
     [/^(BUY|SELL) ([A-Z0-9.:\/-]+) registrato$/, function (m, s, x) { return (s === "BUY" ? "ACQUISTO " : "VENDITA ") + x + " registrato"; }],
     [/TRANSACTIONS · (\d+)/, "OPERAZIONI · $1"],
+    [/^EQUITIES · /, "AZIONI · "], [/^OPTIONS · /, "OPZIONI · "], [/^BOARD · /, "TABELLA · "],
   ];
 
   var EXACT_MAP = new Map(Object.entries(EXACT));

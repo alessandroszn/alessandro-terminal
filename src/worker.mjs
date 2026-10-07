@@ -2,6 +2,8 @@
 //   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
+//   GET /api/cb | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
+//   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
 //   GET /api/health
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
 //                                            "SYMBOL:MIC" ids such as NOVN:XSWX address one venue)
@@ -23,6 +25,10 @@ import { verifyAccess } from "./access.mjs";
 import { handleSpx } from "./spx.mjs";
 import { handleHeadlines } from "./press.mjs";
 import { handleBriefs } from "./briefs.mjs";
+import { handleCentralBanks, handleSpread, handleEnergy } from "./macro.mjs";
+import { handleEarnings } from "./earnings.mjs";
+import { handleDes, handleOptions } from "./company.mjs";
+import { handleUserData, handleStatus } from "./userdata.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -481,6 +487,14 @@ export const app = {
     if (url.pathname.startsWith("/api/spx/")) return handleSpx(url, env, ctx, H, json);
     if (url.pathname === "/api/headlines") return handleHeadlines(url, env, ctx, H, json);
     if (url.pathname === "/api/briefs" || url.pathname.startsWith("/api/briefs/")) return handleBriefs(url, env, ctx, H, json, req);
+    if (url.pathname === "/api/cb") return handleCentralBanks(url, env, ctx, H, json);
+    if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
+    if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
+    if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
+    if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
+    if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
+    if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
+    if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };

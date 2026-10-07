@@ -49,7 +49,33 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Yields | U.S. Treasury XML (CC0), ECB Data Portal | par curve 1M–30Y; euro-area AAA spot curve; Δ bp and 2s10s DERIVED |
 | Calendar | WORLD: Forex Factory weekly export (`nfs.faireconomy.media/ff_calendar_thisweek.json`), archived weekly in KV; market reaction from 1-minute prices (Twelve Data FX, Alpaca SPY/TLT); US OFFICIAL: BLS + BEA ICS schedules | WORLD (default): this week + the last 4 days (archive); filters by impact (HIGH / HIGH + MEDIUM / ALL) and currency (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, CNY), remembered in the browser; forecast/previous as published, actual N/A (not in the export); REACTION 15M for released high-impact events (price just before vs +15 / +60 min, DERIVED; ≤ 3 new per request, 1 Twelve Data credit each, then kept); click an event for details and past releases (archive since 7 Oct 2026); countdown for the next 24 h; NEXT HIGH-IMPACT banner + status-bar countdown. US OFFICIAL: actual/previous N/A until a FRED key is configured. The briefing uses the high-impact world events. |
 | News | Top publishers' own public RSS feeds: Financial Times, Bloomberg, The Wall Street Journal, MarketWatch; official releases of the Federal Reserve (press + speeches), ECB and Bank of England; SEC EDGAR filings for the watchlist | headline, section, time, link only — never article text; tabs ALL (publishers + central banks) / FT / BLOOMBERG / WSJ / MARKETWATCH / CENTRAL BANKS / SEC FILINGS. No wire or aggregator (the GDELT feed was removed: it indexed any site). |
+| Equities (EQ) | the heat-map lists and prices (IVV / QQQ / DIA holdings; Alpaca) | S&P 500, Nasdaq-100 or Dow 30 members as a board: weight, last, 1D…1Y change, base date; sector filter, text filter, sort; breadth and equal / index-weighted change (DERIVED) |
+| Currencies (FX) | Twelve Data `/quote` (8 pairs vs USD) | last, change, open/high/low, previous, 52-week range; average USD move vs the 8 (DERIVED — not the licensed ICE DXY); crosses in FXM (the FX matrix) |
+| Crypto (CRYPTO) | Alpaca crypto (USD pairs) | last trade, 1D…1Y change (completed UTC days), traded value of the last completed day |
+| Commodities (CMDTY) | U.S. EIA Open Data v2 (`EIA_KEY`) · Twelve Data (gold) | WTI, Brent, gasoline, heating oil, diesel, jet fuel, propane, Henry Hub gas: daily spot with its price date (EIA publishes ~a week behind), changes over 1/5/21 published days (DERIVED), 3-month trend; gold live; silver, copper, agriculture **N/A** (exchange-licensed) |
+| Futures (FUT) | — | **NO DATA**: exchange-licensed (CME, ICE, Eurex); FCRV shows the EIA settlement curves instead |
+| Futures curves (FCRV) | EIA (NYMEX settlements, contracts 1–4) | WTI and natural gas: latest, a week and a month before; M4/M1 contango/backwardation (DERIVED); dated, not real-time |
+| My boards (BOARD) | your lists (Workers KV) · Twelve Data quotes | named boards of up to 12 symbols, each checked with a real quote before it is added |
+| Reddit (RDT) | — | **N/A**: the proposed source (ApeWisdom) was not approved |
+| Spreads (SPRD) | ECB Data Portal (YC, AAA spot 2Y / 10Y, ~1 year daily) · U.S. Treasury curve (latest) | euro-area 2s10s history with Δ 1W/1M/3M and range (DERIVED); U.S. 2s10s latest publication only (history needs a FRED key) |
+| Central banks (CB) | ECB Data Portal (DFR, MRO, MLF) · New York Fed markets API (EFFR + FOMC target range) · Bank of England IADB (Bank Rate) · SNB data portal (policy rate) · Bank of Canada Valet (overnight target) · Forex Factory (next decision) | each rate with its date, the level before the last change and the date of that change; BoJ, RBA, RBNZ rates **N/A** (no approved machine-readable source); next decision only when it is in the current week |
+| Earnings (ERN) | Finnhub earnings calendar (`FINNHUB_KEY`) · Alpaca daily closes | S&P 500 + Nasdaq-100 companies (our index lists), 4 days back / 12 ahead, the 60 largest by index weight or all; time (before open / after close), quarter, EPS and revenue estimate and actual, surprise (DERIVED), price reaction of the first session after the report (DERIVED) |
+| Company (DES) | SEC EDGAR (submissions, XBRL companyconcept) · Twelve Data price | profile (industry SIC, exchange, fiscal year end, address, filings); revenue, net income, diluted EPS, assets, equity (last fiscal year, the year before, latest quarter, as filed), shares from the latest cover page; market cap, P/E (last fiscal year EPS), net margin, P/B, equity/assets DERIVED; multi-class share counts → market cap N/A |
+| Options (OMON) | Alpaca options (contracts + snapshots, free **indicative** feed) | expirations, chain ±15% around the spot: OI, IV, delta, last (15-min delayed), bid/ask (**indicative**, not exchange quotes → PARTIAL); ATM IV and put/call OI (DERIVED) |
+| Workspace (WS) | — | `WS AAPL` opens chart, DES, OMON and news for a ticker, tiled |
+| Ratio (CROSS) | Twelve Data daily history (1Y / 5Y) | A / B ratio on common dates, Δ 1M…5Y, correlation of daily returns (all DERIVED) |
+| Backtest (BT) | Twelve Data daily history, split- and dividend-adjusted (1Y / 5Y) | buy & hold or SMA crossover (long / flat); signal at a close, executed at the next close; costs only as set; total return, CAGR, volatility, Sharpe (risk-free 0), max drawdown, trades, time in market, vs buy & hold (all DERIVED) |
+| Alerts (ALRT) · Notes (NOTE) | your lists (Workers KV) · Twelve Data quotes | price alerts ≥ / ≤ checked in the page on each live quote (only LIVE quotes fire; price and time recorded; toast + desktop notification if allowed; ≤ 10 symbols); notes, optionally tied to a symbol |
+| System (SYS) | `/api/status` | which sources are configured (yes/no only — never key values), Twelve Data credits (checked on request: 1 credit, reused 5 min), last scheduled run, this page's budget |
 | Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips, attached windows open as a view; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. Written automatically at its time (see Scheduled briefings). |
+
+## Function menu (T07)
+`☰ FUNCTIONS` in the taskbar or launcher, `MENU` in the command line, or the `m` key: every function by
+category with its code — MARKETS (IDX EQ FX CMDTY CRYPTO FUT BOARD WL HEAT MOV SCR RDT MKT EXCH BRIEF NEWS),
+RATES & MACRO (YLD CURVE SPRD CB CAL ERN FXM FCRV), ANALYSIS (DES OMON WS COMP PERF CROSS CORR BT),
+MY STUFF (PORT ALRT NOTE SYS), LAYOUT (SET CLOSE UNDO TILE TOUR HELP). Type to filter, Enter to open; functions
+without an approved source are marked N/A. A ticker goes with a function in either order (`DES AAPL`,
+`AAPL OMON`, `WS MSFT`, `BT NVDA`, `CROSS NVDA AAPL`). `TOUR` walks through the interface.
 
 ## Scheduled briefings (Cron Trigger)
 Editions are written at their time whether or not the terminal is open: Daily 07:30 and Evening 22:30
@@ -92,6 +118,14 @@ warrants: search the ticker); indices are not in the provider's search.
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
+- `GET /api/cb` → `{ banks: [{ id, name, ccy, page, label, rate: { date, value, previous, changedOn | unchangedSince }, target?, others?, status }] }`
+- `GET /api/sprd` → `{ series: { EA: { points: [{ date, y2, y10, bp }], source, status }, US: { status: "N/A" } } }`
+- `GET /api/energy` → `{ spot: [{ series, name, unit, date, value, chg1, chg5, chg21, history }], curves: [{ id, name, unit, dates, latest, week, month }] }` (503 `eia_not_configured` without `EIA_KEY`)
+- `GET /api/earnings?back=4&fwd=12` → `{ rows: [{ sym, name, weight, index, date, hour, quarter, epsEstimate, epsActual, revenueEstimate, revenueActual }] }` · `/api/earnings/reactions` → `{ reactions: { "SYM|date": { session, chg } } }` (503 without `FINNHUB_KEY`)
+- `GET /api/des?symbol=AAPL` → `{ profile, facts }` · `/api/des/fact?symbol=AAPL&c=revenue|netIncome|eps|assets|equity|shares` → `{ annual, prevAnnual, quarter, latest, latestMulti, concept }`
+- `GET /api/options/expirations?symbol=AAPL` · `/api/options/chain?symbol=AAPL&exp=YYYY-MM-DD` → `{ spot, rows: [{ strike, call, put }], feed }`
+- `GET|POST|DELETE /api/user/alerts` (+ `POST /api/user/alerts/hit?id=`) · `GET|POST|PUT|DELETE /api/user/notes` · `GET|PUT /api/user/board` — same-origin JSON writes only
+- `GET /api/status[?usage=1]` → `{ sources: [{ id, name, use, configured }], twelvedata, credits, scheduler }`
 - `GET /api/spx/universe[?u=NDX|DJI|SECT|CTRY|CRYPTO]` (also for `/closes` and `/live`; default S&P 500) → `{ holdingsAsOf, count, items: [{ sym, name, sector, weight }], source, fetchedAt, status }`
 - `GET /api/spx/closes?ref=recent|1W|1M|3M|6M|YTD|1Y` → `{ ref, target, todayET, todayBarFinal, closes: { SYM: [date, close] | [[date, close]…] } }`
 - `GET /api/spx/live` → `{ trades: { SYM: [price, time] }, live, medianTradeAgeSec }` (cache 60 s)
@@ -143,15 +177,20 @@ History = { symbol, range, interval, adjust, timeBasis, currency, exchange, exch
 - Yields 30 min, calendar 6 h (Forex Factory 30 min), headlines 5 min (News window checks every 5 min while open; new ones marked NEW), SEC filings 30 min, briefing 60 min (Worker cache; STALE serving on failure).
 
 ## Not available (shown as N/A / NO DATA)
-Index levels, commodities (WTI, Brent), calendar actual values and weeks after the current one, fundamentals, yields for
-countries other than the US and the euro area. Earnings, model portfolio, FX conversion and company
-descriptions were removed. `test/nomock.test.mjs` fails if mock or hard-coded market data comes back.
+Index levels, futures quotes, real-time commodity prices (EIA energy is daily and lagged; metals other than gold,
+agriculture), Reddit sentiment, calendar actual values and weeks after the current one, U.S. spread history (FRED),
+policy rates of the BoJ, RBA and RBNZ, yields for countries other than the US and the euro area. The model portfolio
+and FX conversion were removed. Fundamentals and earnings came back only from approved sources (SEC EDGAR, Finnhub).
+`test/nomock.test.mjs` fails if mock or hard-coded market data comes back.
 
 ## Optional secrets
 - `ALPACA_KEY_ID`, `ALPACA_SECRET_KEY` — Alpaca market data (free plan) for the S&P 500 heat map. Without
   them the map shows the real constituents and weights only, every change N/A.
 - `FRED_KEY` — enables actual/previous values in the calendar (not configured yet).
 - `SEC_CONTACT` — contact for the SEC fair-access User-Agent, if SEC starts refusing requests.
+- `FINNHUB_KEY` — Finnhub (free) for the earnings calendar (ERN); sent only in the `X-Finnhub-Token` header.
+- `EIA_KEY` — U.S. EIA Open Data (free) for CMDTY and FCRV; EIA accepts the key only as a URL parameter, so it
+  travels only in the Worker's request to `api.eia.gov` and is never logged or returned.
 
 ## Deploy
 Connected to Cloudflare Workers Builds: every push to `main` redeploys.
@@ -173,6 +212,7 @@ node test/i18n.test.mjs         # T06: interface translations (stable, data-safe
 node test/maps.test.mjs         # T06: Nasdaq-100 / Dow / ETF / crypto maps, xlsx reader, world exchanges, portfolio
 node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
+node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/frontend.e2e.mjs      # headless browser, mocked /api (needs playwright)
 ```

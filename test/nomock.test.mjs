@@ -18,11 +18,14 @@ ok("shipped files = the page, its provenance rules and its interface translation
 ok("translations hold words only: no prices, rates or levels", !/\b\d+\.\d+\b/.test(shipped["terminal/i18n.js"].replace(/\/\*[\s\S]*?\*\//, "")) && !/fetch\(|XMLHttpRequest/.test(shipped["terminal/i18n.js"]));
 ok("no random generator (Math.random / seeded PRNG)", !/Math\.random|0x6D2B79F5|function rng\(|function path\(/.test(all));
 ok("no simulated/mock/demo/sample/fake/seed wording", !/simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed/i.test(all), (all.match(/.{30}(simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed).{30}/i) || [])[0]);
+const fnBody = (name) => { const i = script.indexOf(`function ${name}(`); return i < 0 ? "" : script.slice(i, script.indexOf("\n  function ", i + 10)); };
 ok("no SIMULATED / MIXED status in the rules", !/SIMULATED|MIXED/.test(all));
 ok("no static market datasets (indices, yield curve, calendar, news, model portfolio, FX rates)", !/\b(INDICES|CURVE|CAL|NEWS|PORT|CCYRATE|DEFS)\s*=/.test(script));
-ok("no windows for removed data (earnings, model portfolio)", !/\b(ERN|PORT):\{tag/.test(script) && !/'EARNINGS'/.test(script));
+ok("no windows for removed data (model portfolio)", !/\bPORT:\{tag/.test(script));
+// earnings came back with an approved source (Finnhub, through the Worker): only what /api/earnings returns, NO DATA without the key
+ok("earnings window renders only /api/earnings data (Finnhub via the Worker), NO DATA without the key", fnBody("renderErn").includes("/api/earnings?") && fnBody("renderErn").includes("finnhub_not_configured") && !/\d+\.\d+/.test(fnBody("renderErn").replace(/toFixed\(\d\)/g, "")));
+ok("function-menu sections read only the Worker (/api/*), never a provider", ["renderCb:/api/cb", "renderSprd:/api/sprd", "renderCmdty:/api/energy", "renderFcrv:/api/energy", "renderDes:/api/des", "renderOmon:/api/options/", "renderSys:/api/status"].every((x) => { const [f, k] = x.split(":"); return fnBody(f).includes(k); }));
 ok("the owner's portfolio starts empty: no preloaded holdings in the page, loaded from /api/portfolio", /const PF=\{data:null/.test(script) && /'\/api\/portfolio'/.test(script) && !/\b(HOLDINGS|POSITIONS|MODEL_PF)\s*=\s*\[/.test(script));
-const fnBody = (name) => { const i = script.indexOf(`function ${name}(`); return i < 0 ? "" : script.slice(i, script.indexOf("\n  function ", i + 10)); };
 ok("indices section renders no numbers (NO DATA until a licensed source exists)", fnBody("renderIndices").length > 0 && !/>\s*-?\d+\.\d+\s*</.test(fnBody("renderIndices")) && /NO DATA/.test(fnBody("renderIndices")));
 ok("yields / calendar / news render only data fetched from /api", ["renderYields:yields", "renderCal:calendar", "renderNews:news"].every((x) => { const [f, k] = x.split(":"); return fnBody(f).includes(`EXT.${k}`) && fnBody(f).includes(`loadExt('${k}')`); }));
 ok("briefing renders only editions fetched from /api/briefs (written by the Worker from real data)", fnBody("renderBriefing").includes("BRF.items") && fnBody("brfIndex").includes("/api/briefs?period=") && fnBody("brfItem").includes("/api/briefs/item") && !/Math\.random/.test(fnBody("renderBriefing")));
@@ -50,7 +53,7 @@ ok("Worker: no mock / fake / demo / sample / placeholder / simulated values", !O
 ok("Worker: no hard-coded prices, yields or levels (decimal literals ≥ 1)", !Object.values(srcFiles).some((t) => decimalLits(t).length), Object.entries(srcFiles).map(([f, t]) => [f, decimalLits(t)]).filter(([, a]) => a.length).map(([f, a]) => f + ":" + a.join("|")).join(" "));
 ok("Worker: every new section only reads approved sources", /home\.treasury\.gov/.test(srcFiles["yields.mjs"]) && /data-api\.ecb\.europa\.eu/.test(srcFiles["yields.mjs"]) && /bls\.gov/.test(srcFiles["calendar.mjs"]) && /bea\.gov/.test(srcFiles["calendar.mjs"]) && /feeds\.content\.dowjones\.io/.test(srcFiles["press.mjs"]) && /federalreserve\.gov/.test(srcFiles["press.mjs"]) && /sec\.gov/.test(srcFiles["news.mjs"]) && /env\.AI\.run/.test(srcFiles["briefing.mjs"]) && /ishares\.com/.test(srcFiles["spx.mjs"]) && /data\.alpaca\.markets/.test(srcFiles["spx.mjs"]) && /www\.ft\.com/.test(srcFiles["press.mjs"]) && /feeds\.bloomberg\.com/.test(srcFiles["press.mjs"]));
 ok("Worker portfolio: transactions only from storage (KV), nothing hard-coded", /env\.BRIEFS\.get\(KEY\)/.test(srcFiles["portfolio.mjs"]) && !/\btxs?\s*=\s*\[\s*\{/.test(srcFiles["portfolio.mjs"]));
-ok("no direct provider calls or keys in the client", !/api\.twelvedata\.com|finnhub|apikey|token=/i.test(all));
+ok("no direct provider calls or keys in the client", !/api\.twelvedata\.com|finnhub\.io\/api|api\.eia\.gov|data\.alpaca\.markets|apikey|api_key|token=|X-Finnhub-Token/i.test(all), (all.match(/.{20}(api\.twelvedata\.com|finnhub\.io\/api|api\.eia\.gov|data\.alpaca\.markets|apikey|api_key|token=|X-Finnhub-Token).{20}/i) || [])[0]);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

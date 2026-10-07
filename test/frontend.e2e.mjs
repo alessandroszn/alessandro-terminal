@@ -85,6 +85,11 @@ const SPX_LIVE = { NVDA: 240.72, AAPL: 326.7, MSFT: 520, AMZN: 257.5, GOOGL: 340
 const CTRY_ITEMS = [{ sym: "EWI", name: "Italy — iShares MSCI Italy (EWI)", sector: "Europe", short: "ITALY", weight: null }, { sym: "EWJ", name: "Japan — iShares MSCI Japan (EWJ)", sector: "Asia-Pacific", short: "JAPAN", weight: null }];
 const spxApi = (path, u, { configured = true } = {}) => {
   const now = new Date().toISOString();
+  if (u.searchParams.get("u") === "CRYPTO") {
+    if (path === "/api/spx/universe") return { body: { universe: "CRYPTO", source: "Alpaca crypto USD pairs (fixed list)", count: 2, items: [{ sym: "BTC/USD", name: "BTC / US dollar", sector: "Crypto", short: "BTC", weight: null }, { sym: "ETH/USD", name: "ETH / US dollar", sector: "Crypto", short: "ETH", weight: null }], fetchedAt: now, status: "LIVE" } };
+    if (path === "/api/spx/live") return { body: { universe: "CRYPTO", trades: { "BTC/USD": [86000, now], "ETH/USD": [2650, now] }, live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
+    return { body: { universe: "CRYPTO", ref: "recent", todayET: ET, closes: { "BTC/USD": [[dShift(ET, -2), 84000, 9e8], [dShift(ET, -1), 85000, 1.2e9]], "ETH/USD": [[dShift(ET, -2), 2700, 4e8], [dShift(ET, -1), 2600, 5e8]] }, fetchedAt: now, status: "LIVE" } };
+  }
   if (u.searchParams.get("u") === "CTRY") {
     if (path === "/api/spx/universe") return { body: { universe: "CTRY", label: "Countries", source: "single-country ETFs listed in New York (fixed list)", weightBasis: "none", holdingsAsOf: null, count: 2, items: CTRY_ITEMS, fetchedAt: now, status: "LIVE" } };
     if (path === "/api/spx/live") return { body: { universe: "CTRY", trades: { EWI: [50.5, now], EWJ: [70, now] }, live: true, todayET: ET, fetchedAt: now, status: "LIVE" } };
@@ -138,17 +143,71 @@ const briefsApi = (u, method, state) => {
     dueWritten: period === "daily" ? !!state.written : false, briefs: list, automatic: { lastRun: new Date(Date.now() - 15 * 60_000).toISOString() } } };
 };
 
+
+// ---------- T07 function menu fixtures (shapes of /api/cb, /api/sprd, /api/energy, /api/earnings, /api/des, /api/options, /api/user, /api/status) ----------
+const T7_NOW = () => new Date().toISOString();
+const CB_FIX = () => ({ banks: [
+  { id: "ECB", name: "European Central Bank", ccy: "EUR", page: "https://www.ecb.europa.eu/x", rate: { date: "2026-10-06", value: 2, previous: 2.25, changedOn: "2026-06-11" }, label: "Deposit facility rate", others: { "Main refinancing operations": { date: "2026-10-06", value: 2.15, previous: 2.4, changedOn: "2026-06-11" } }, status: "LIVE", fetchedAt: T7_NOW() },
+  { id: "FED", name: "Federal Reserve", ccy: "USD", page: "https://www.newyorkfed.org/x", rate: { date: "2026-10-06", value: 3.58 }, label: "Effective federal funds rate", target: { from: 3.5, to: 3.75, previous: { from: 3.75, to: 4 }, changedOn: "2026-09-18" }, status: "LIVE", fetchedAt: T7_NOW() },
+  { id: "BOE", name: "Bank of England", ccy: "GBP", page: "https://www.bankofengland.co.uk/x", rate: { date: "2026-10-06", value: 3.75, previous: 4, changedOn: "2026-08-07" }, label: "Bank Rate", status: "LIVE", fetchedAt: T7_NOW() },
+  { id: "SNB", name: "Swiss National Bank", ccy: "CHF", page: "https://data.snb.ch/x", status: "N/A", error: "provider_error" },
+  { id: "BOC", name: "Bank of Canada", ccy: "CAD", page: "https://www.bankofcanada.ca/x", rate: { date: "2026-10-06", value: 2.5, previous: null, changedOn: null, unchangedSince: "2023-10-06" }, label: "Target for the overnight rate", status: "LIVE", fetchedAt: T7_NOW() },
+], note: "x", status: "LIVE" });
+const SPRD_FIX = () => { const pts = []; for (let i = 0; i < 260; i++) { const d = dShift(today, i - 260); pts.push({ date: d, y2: 1.9, y10: 2.5 + i / 1000, bp: Math.round((0.6 + i / 1000) * 1000) / 10 }); }
+  return { series: { EA: { name: "Euro area", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", points: pts, status: "LIVE", fetchedAt: T7_NOW() }, US: { status: "N/A", error: "needs a FRED API key" } }, basis: "x" }; };
+const hist = (base, n) => Array.from({ length: n }, (_, i) => [dShift(today, i - n - 6), +(base + i / 10).toFixed(2)]);
+const ENERGY_FIX = () => ({ spot: [
+  { series: "RWTC", name: "WTI crude (Cushing)", unit: "$/bbl", date: dShift(today, -7), value: 62.31, chg1: 0.4, chg5: -1.2, chg21: 2.5, history: hist(60, 80) },
+  { series: "RBRTE", name: "Brent crude (Europe)", unit: "$/bbl", status: "N/A" },
+  { series: "RNGWHHD", name: "Natural gas (Henry Hub)", unit: "$/MMBtu", date: dShift(today, -7), value: 2.871, chg1: -0.5, chg5: 1.1, chg21: -3.2, history: hist(2.5, 80) },
+], curves: [
+  { id: "crude", name: "WTI crude futures (NYMEX)", unit: "$/bbl", dates: { latest: dShift(today, -7), week: dShift(today, -14), month: dShift(today, -37) }, latest: [62.3, 62.0, 61.8, 61.6].map((v, i) => ({ contract: i + 1, value: v })), week: [63, 62.8, 62.5, 62.3].map((v, i) => ({ contract: i + 1, value: v })), month: [60, 60.2, 60.3, 60.4].map((v, i) => ({ contract: i + 1, value: v })), status: "LIVE" },
+  { id: "gas", name: "Natural gas futures (NYMEX)", unit: "$/MMBtu", status: "N/A", error: "no_data" },
+], source: "EIA", sourceUrl: "https://www.eia.gov/opendata/", status: "LIVE" });
+const ERN_FIX = () => ({ from: dShift(today, -4), to: dShift(today, 12), today, count: 3, rows: [
+  { sym: "JPM", name: "JPMORGAN CHASE & CO", weight: 1.5, index: ["S&P 500"], date: dShift(today, -1), hour: "before open", quarter: "Q3 2026", epsEstimate: 4.9, epsActual: 5.39, revenueEstimate: 4.6e10, revenueActual: 4.7e10 },
+  { sym: "NFLX", name: "NETFLIX INC", weight: 0.9, index: ["S&P 500", "Nasdaq-100"], date: dShift(today, 2), hour: "after close", quarter: "Q3 2026", epsEstimate: 6.9, epsActual: null, revenueEstimate: 1.1e10, revenueActual: null },
+  { sym: "TINYCO", name: "SMALL CO", weight: 0.01, index: ["S&P 500"], date: dShift(today, 3), hour: null, quarter: "Q3 2026", epsEstimate: 0.1, epsActual: null, revenueEstimate: null, revenueActual: null },
+], status: "LIVE", fetchedAt: T7_NOW() });
+const DES_PROFILE = { name: "Apple Inc.", cik: 320193, tickers: ["AAPL"], exchanges: ["Nasdaq"], sic: "3571", industry: "Electronic Computers", category: "Large accelerated filer", stateOfIncorporation: "CA", fiscalYearEnd: "0927", address: "ONE APPLE PARK WAY, CUPERTINO, CA, 95014", phone: "(408) 996-1010", website: null, formerNames: [], filings: [{ form: "10-K", date: "2025-10-31", url: "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm" }] };
+const FACT = (label, unit, annual, prev, q, extra = {}) => ({ label, unit, annual: annual != null ? { value: annual, end: "2025-09-27", form: "10-K", filed: "2025-10-31" } : null, prevAnnual: prev != null ? { value: prev, end: "2024-09-28", form: "10-K", filed: "2024-11-01" } : null, quarter: q != null ? { value: q, end: "2025-06-28", form: "10-Q", filed: "2025-08-01" } : null, latest: { value: annual ?? q, end: "2025-10-17", form: "10-K", filed: "2025-10-31" }, concept: "us-gaap:x", status: "LIVE", ...extra });
+const DES_FACTS = { revenue: FACT("Revenue", "USD", 416161e6, 391035e6, 94036e6), netIncome: FACT("Net income", "USD", 112010e6, 93736e6, 23434e6), eps: FACT("EPS (diluted)", "USD/shares", 6.25, 6.08, 1.57), assets: FACT("Total assets", "USD", 359241e6, 364980e6, null), equity: FACT("Shareholders' equity", "USD", 73733e6, 56950e6, null), shares: FACT("Shares outstanding", "shares", null, null, null, { latest: { value: 14.8e9, end: "2025-10-17", form: "10-K", filed: "2025-10-31" } }) };
+const OPT_EXP = () => ({ symbol: "AAPL", spot: { price: 251.2, time: T7_NOW() }, expirations: [{ exp: dShift(today, 9), contractsNearSpot: 40 }, { exp: dShift(today, 37), contractsNearSpot: 36 }], status: "LIVE" });
+const OPT_CHAIN = (exp) => ({ symbol: "AAPL", exp, spot: { price: 251.2, time: T7_NOW() }, rows: [240, 250, 260].map((k) => ({ strike: k, call: { bid: +(14 - (k - 240) / 2).toFixed(2), ask: +(14.3 - (k - 240) / 2).toFixed(2), last: +(14.1 - (k - 240) / 2).toFixed(2), iv: 0.27, delta: +(0.7 - (k - 240) / 50).toFixed(2), oi: 1200 }, put: { bid: +(3 + (k - 240) / 2).toFixed(2), ask: +(3.2 + (k - 240) / 2).toFixed(2), last: null, iv: 0.29, delta: +(-0.3 - (k - 240) / 50).toFixed(2), oi: 800 } })), feed: "Alpaca indicative options feed (free; derived from OPRA, delayed) — not the consolidated quote", fetchedAt: T7_NOW(), status: "LIVE" });
+const STATUS_FIX = () => ({ sources: [{ id: "twelvedata", name: "Twelve Data", use: "quotes", configured: true }, { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: false }, { id: "eia", name: "U.S. EIA", use: "energy", configured: true }], twelvedata: { minute: { used: 3, limit: 8 }, day: { used: 120, limit: 800 }, plan: "basic", fetchedAt: T7_NOW(), status: "LIVE" }, scheduler: { lastRun: { at: T7_NOW(), periods: ["daily"] }, schedule: "Cron Triggers" }, serverTime: T7_NOW() });
+const t07Api = (u, method, body, st) => {
+  const p = u.pathname; st.calls.push(method + " " + p + u.search);
+  if (p === "/api/cb") return { body: CB_FIX() };
+  if (p === "/api/sprd") return { body: SPRD_FIX() };
+  if (p === "/api/energy") return st.noEia ? { status: 503, body: { error: "eia_not_configured", status: "N/A" } } : { body: ENERGY_FIX() };
+  if (p === "/api/earnings") return { body: ERN_FIX() };
+  if (p === "/api/earnings/reactions") return { body: { reactions: { [`JPM|${dShift(today, -1)}`]: { session: dShift(today, -1), chg: 2.31 } }, status: "DERIVED" } };
+  if (p === "/api/des") return u.searchParams.get("symbol") === "AAPL" || u.searchParams.get("symbol") === "MSFT" ? { body: { symbol: u.searchParams.get("symbol"), profile: DES_PROFILE, facts: Object.entries(DES_FACTS).map(([id, f]) => ({ id, label: f.label })), source: "SEC EDGAR", sourceUrl: "https://www.sec.gov/edgar/browse/?CIK=320193", fetchedAt: T7_NOW(), status: "LIVE" } } : { status: 404, body: { error: "not_sec_registrant", status: "N/A" } };
+  if (p === "/api/des/fact") { const c = u.searchParams.get("c"); return { body: { symbol: "AAPL", fact: c, ...DES_FACTS[c] } }; }
+  if (p === "/api/options/expirations") return { body: OPT_EXP() };
+  if (p === "/api/options/chain") return { body: OPT_CHAIN(u.searchParams.get("exp")) };
+  if (p === "/api/status") return { body: STATUS_FIX() };
+  const kind = p.split("/")[3];
+  if (method === "GET") return { body: kind === "board" ? { boards: st.boards } : { [kind]: st[kind] } };
+  if (kind === "board") { st.boards = body.boards.map((b, i) => ({ id: b.id || "board-" + i + "-xyz", name: b.name, syms: b.syms })); return { body: { boards: st.boards } }; }
+  if (kind === "alerts" && p.endsWith("/hit")) { const a = st.alerts.find((x) => x.id === u.searchParams.get("id")); st.hits.push(body); if (a && !a.hit) a.hit = { at: T7_NOW(), price: body.price }; return { body: { alerts: st.alerts } }; }
+  if (method === "DELETE") { st[kind] = st[kind].filter((x) => x.id !== u.searchParams.get("id")); return { body: { [kind]: st[kind] } }; }
+  if (kind === "alerts") { const a = { id: "al" + st.alerts.length, sym: body.sym, op: body.op, price: body.price, note: body.note, created: T7_NOW(), hit: null }; st.alerts.push(a); return { status: 201, body: { added: a.id, alerts: st.alerts } }; }
+  if (kind === "notes") { const n = { id: "n" + st.notes.length, text: body.text, sym: body.sym || null, created: T7_NOW(), updated: null }; st.notes.unshift(n); return { status: 201, body: { added: n.id, notes: st.notes } }; }
+  return { status: 404, body: { error: "not found" } };
+};
+
 // ---------- harness ----------
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" + "-1194/chrome-linux/chrome" }).catch(() => chromium.launch());
 // (the briefing legitimately names its AI model, so "model" alone is allowed; a "model portfolio" is not)
 // (the owner's own PORTFOLIO is allowed: it starts empty and holds only what is entered on the site)
-const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b|\bDES\b/i;
+const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b/i;
 
 async function openTerminal(api, html = htmlFast, init = null) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] };
+  const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] }, t7 = { calls: [], alerts: [], notes: [], boards: [], hits: [], noEia: !!(api.noEia) };
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -168,13 +227,15 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
+    if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
   });
   if (init) await page.addInitScript(init);
   await page.goto(ORIGIN + "/terminal/");
-  return { page, requests, errors, quoteBatches, spxCalls, brfState, pfState };
+  return { page, requests, errors, quoteBatches, spxCalls, brfState, pfState, t7 };
 }
+const shotWin = async (page, prefix, name) => { if (!SHOTS) return; await page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); if (w) { w.querySelector(".w-max").click(); } }, prefix); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}/${name}.png` }); await page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); if (w) w.querySelector(".w-max").click(); }, prefix); };
 const winOf = (page, prefix) => page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.innerText || "", pillTitle: w.querySelector(".w-pv .pv")?.getAttribute("title") || "" } : null; }, prefix);
 const cmd = async (page, c) => { await page.fill("#cmd", c); await page.press("#cmd", "Enter"); await page.waitForTimeout(500); return page.evaluate(() => document.querySelector("#cmd").value !== ""); };
 const wlFill = async (page, sym) => { await page.fill(".wl-in", sym); await page.press(".wl-in", "Enter"); await page.waitForTimeout(700); };
@@ -320,7 +381,7 @@ const OK_API = {
   const body = await page.evaluate(() => document.body.innerText);
   ok("[A] no simulated / mock / sample / model wording anywhere", !FORBIDDEN.test(body), (body.match(new RegExp(".{0,30}(" + FORBIDDEN.source + ").{0,30}", "i")) || [])[0]);
   ok("[A] no NaN / undefined rendered", !/NaN|undefined/.test(body));
-  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,PORTFOLIO,MARKETS,EXCHANGES,HEAT MAPS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
+  ok("[A] launcher has search + the 7 sections", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNCTIONS,SECURITY,SEARCH,WATCHLIST,PORTFOLIO,MARKETS,EXCHANGES,HEAT MAPS,INDICES,YIELDS,CALENDAR,NEWS,BRIEFING"));
   ok("[A] browser calls only this site's /api (no provider hosts, no keys)", !requests.some((u) => /twelvedata\.com|treasury\.gov|ecb\.europa|bls\.gov|bea\.gov|gdeltproject|sec\.gov|apikey=|token=/i.test(u)));
   ok("[A] no JavaScript errors", errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(800); await page.screenshot({ path: SHOTS + "/e2e-t05.png" }); }
@@ -474,7 +535,7 @@ const OK_API = {
   const { page, errors, requests, brfState } = await openTerminal(OK_API, htmlFast, () => { try { localStorage.setItem("at-lang", "it"); } catch (e) {} });
   await page.waitForFunction(() => /LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.waitForTimeout(800);
-  ok("[G] Italian: launcher, page language and toggle", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("TITOLO,CERCA,WATCHLIST,PORTAFOGLIO,MERCATI,BORSE,HEAT MAP,INDICI,RENDIMENTI,CALENDARIO,NEWS,BRIEFING") && (await page.evaluate(() => document.documentElement.lang)) === "it" && (await page.$eval('#cmdbar [data-lang="it"]', (b) => b.getAttribute("aria-pressed"))) === "true", await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")));
+  ok("[G] Italian: launcher, page language and toggle", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNZIONI,TITOLO,CERCA,WATCHLIST,PORTAFOGLIO,MERCATI,BORSE,HEAT MAP,INDICI,RENDIMENTI,CALENDARIO,NEWS,BRIEFING") && (await page.evaluate(() => document.documentElement.lang)) === "it" && (await page.$eval('#cmdbar [data-lang="it"]', (b) => b.getAttribute("aria-pressed"))) === "true", await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(",")));
   await cmd(page, "CAL"); await page.waitForTimeout(400);
   let cal = await winOf(page, "CALENDARIO ECONOMICO");
   ok("[G] Italian: calendar labels translated, event names as published, Italian dates", !!cal && /ORA \(LOCALE\)\s+VALUTA\s+EVENTO\s+IMPATTO\s+EFFETTIVO\s+PREVISTO\s+PRECED\./.test(cal.text) && /USD\s+CPI m\/m\s+ALTO/.test(cal.text) && /PROSSIMO ALTO IMPATTO/.test(cal.text) && /German Ifo|GDP m\/m/.test(cal.text) && /\b(LUN|MAR|MER|GIO|VEN|SAB|DOM)\b/.test(cal.text), cal && cal.text.slice(0, 600));
@@ -499,9 +560,149 @@ const OK_API = {
   const t0 = Date.now(); const regions = await page.evaluate(() => [...document.querySelectorAll(".ex-t tr.grp td")].map((td) => td.textContent).join(" | "));
   ok("[G] Italian: all windows open, page responsive, region names translated once", Date.now() - t0 < 2000 && /ASIA-PACIFICO · 0\/1 APERTE/.test(regions) && !/PACIFICOO/.test(regions) && /EUROPA E AFRICA · 1\/1 APERTE/.test(regions), regions);
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(600);
-  ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,PORTFOLIO") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
+  ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("☰ FUNCTIONS,SECURITY,SEARCH,WATCHLIST,PORTFOLIO") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
   const body = await page.evaluate(() => document.body.innerText);
   ok("[G] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+
+// =============== H. function menu and its functions (Nico-style menu; every value real-shaped or N/A) ===============
+{
+  const { page, errors, requests, t7 } = await openTerminal(OK_API);
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
+  const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "IDX,FUT,RDT", JSON.stringify(menu));
+  await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
+  ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
+  await page.press("#fnmenu .fm-in", "Enter"); await page.waitForTimeout(900);
+  let om = await winOf(page, "OPTIONS · ");
+  ok("[H] menu: Enter opens the function and closes the menu", !!om && !(await page.evaluate(() => document.querySelector("#fnmenu").classList.contains("on"))));
+  // OMON
+  ok("[H] OMON: expirations, calls / strike / puts, underlying, ATM IV and put/call OI DERIVED", /UNDERLYING\s+\$251\.20/.test(om.text) && /OI\s+IV\s+Δ\s+LAST\s+BID\*\s+ASK\*\s+STRIKE\s+BID\*\s+ASK\*\s+LAST\s+Δ\s+IV\s+OI/.test(om.text) && /1\.2K\s+27\.0%\s+0\.50\s+9\.10\s+9\.00\s+9\.30\s+250\s+8\.00\s+8\.20\s+—\s+-0\.50\s+29\.0%\s+800/.test(om.text) && /ATM IV\s*DRV\s+28\.0%/.test(om.text) && /PUT \/ CALL OI\s*DRV\s+0\.67/.test(om.text), om.text.slice(0, 900));
+  ok("[H] OMON: indicative feed marked PARTIAL, with the reason", /PART\s+Alpaca free options feed \(indicative\)/.test(om.text) && /indicative, not the exchanges' actual quotes/.test(om.text), om.text.slice(-500));
+  await shotWin(page, "OPTIONS · ", "t07-omon");
+  ok("[H] OMON: the strike nearest the spot is framed", (await page.$$eval("table.opt tr.atm .k-strike", (t) => t.map((x) => x.textContent).join())) === "250");
+  // DES via the command line, both orders
+  await cmd(page, "DES AAPL"); await page.waitForTimeout(1200);
+  let des = await winOf(page, "DES · AAPL");
+  ok("[H] DES: SEC profile (industry, fiscal year end, address) and filings", /Apple Inc\./.test(des.text) && /Electronic Computers/.test(des.text) && /27 September/.test(des.text) && /CUPERTINO/.test(des.text) && /10-K/.test(des.text), des.text.slice(0, 500));
+  ok("[H] DES: fundamentals as filed — revenue, YoY DERIVED, latest quarter", /Revenue\s+\$416\.16B[\s\S]{0,40}\$391\.04B\s+\+6\.4%\s+\$94\.04B/.test(des.text), (des.text.match(/Revenue[^\n]*\n?[^\n]*/) || [])[0]);
+  ok("[H] DES: market cap = live price × cover-page shares; P/E on last fiscal year EPS (DERIVED)", /MARKET CAP\s*DRV\s+\$3\.70T/.test(des.text) && /P\/E\s*DRV\s+40\.0×/.test(des.text) && /NET MARGIN\s*DRV\s+26\.9%/.test(des.text), des.text.slice(des.text.indexOf("VALUATION"), des.text.indexOf("VALUATION") + 400));
+  await shotWin(page, "DES · AAPL", "t07-des");
+  await cmd(page, "ZZQ DES"); await page.waitForTimeout(700);
+  des = await winOf(page, "DES · ZZQ");
+  ok("[H] DES: a non-SEC symbol is N/A with the reason (no profile invented)", /N\/A — not an SEC registrant/.test(des.text) && des.pill === "N/A", des.text.slice(0, 300));
+  // CB
+  await cmd(page, "CB"); await page.waitForTimeout(800);
+  const cb = await winOf(page, "CENTRAL BANKS");
+  ok("[H] CB: published policy rates; the level before the last change with its date; Fed target range and its last move; failed / missing sources N/A", /European Central Bank\s+EUR\s+Deposit facility rate\s+2\.00%\s+2\.25%\s+\(-25 bp\)\s+changed 11 Jun 2026/.test(cb.text) && /FOMC target range\s+3\.58%\s+3\.50–3\.75%\s+daily\s+3\.75–4\.00% changed 18 Sept? 2026/.test(cb.text) && /Bank Rate\s+3\.75%\s+4\.00%\s+\(-25 bp\)\s+changed 07 Aug 2026/.test(cb.text) && /2\.50%\s+no change since 06 Oct 2023/.test(cb.text) && /Swiss National Bank\s+CHF\s+N\/A/.test(cb.text) && /Bank of Japan\s+JPY\s+N\/A/.test(cb.text), cb.text.slice(0, 900));
+  await shotWin(page, "CENTRAL BANKS", "t07-cb");
+  // SPRD
+  await cmd(page, "SPRD"); await page.waitForTimeout(800);
+  await shotWin(page, "SPREADS", "t07-sprd");
+  const sp = await winOf(page, "SPREADS");
+  ok("[H] SPRD: euro-area 2s10s from the ECB history, changes DERIVED; U.S. latest from the Treasury curve", /SPREAD\s+85\.9 bp/.test(sp.text) && /Δ 1W\s+\+0\.\d bp/.test(sp.text) && /UNITED STATES · 10Y − 2Y\s+\d+\.\d bp/.test(sp.text) && /FRED API key/.test(sp.text) && (await page.$$eval(".sp-cv", (c) => c.length)) === 1, sp.text.slice(0, 700));
+  // CMDTY + FCRV
+  await cmd(page, "CMDTY"); await page.waitForTimeout(900);
+  const cm = await winOf(page, "COMMODITIES");
+  ok("[H] CMDTY: EIA spot prices with their date, 1D/1W/1M DERIVED; gold live; no-value rows and agriculture N/A", /WTI crude \(Cushing\)\s+62\.31\s+\$\/bbl\s+\+0\.40%\s+-1\.20%\s+\+2\.50%/.test(cm.text) && /Brent crude \(Europe\)\s+N\/A/.test(cm.text) && /Gold \(spot, vs USD\)\s+4,165\.24/.test(cm.text) && /Wheat\s+N\/A/.test(cm.text), cm.text.slice(0, 900));
+  await shotWin(page, "COMMODITIES", "t07-cmdty");
+  await page.click(".go-fcrv"); await page.waitForTimeout(700);
+  await shotWin(page, "FUTURES CURVES", "t07-fcrv");
+  const fc = await winOf(page, "FUTURES CURVES");
+  ok("[H] FCRV: contracts 1–4 now, a week and a month before; backwardation DERIVED; an unavailable curve N/A", /M1\s+M2\s+M3\s+M4\s+M4 \/ M1/.test(fc.text) && /62\.30\s+62\.00\s+61\.80\s+61\.60\s+-1\.12%/.test(fc.text) && /Backwardation \(M4 < M1, -1\.12%\)/.test(fc.text) && /NATURAL GAS FUTURES \(NYMEX\)\s*N\/A/.test(fc.text), fc.text.slice(0, 700));
+  // ERN
+  await cmd(page, "ERN"); await page.waitForTimeout(1000);
+  const er = await winOf(page, "EARNINGS CALENDAR");
+  ok("[H] ERN: reports by day, estimates and actuals, surprise and reaction DERIVED", /JPM\s+JPMORGAN CHASE & CO\s+SPX\s+Q3 2026\s+4\.90\s+5\.39\s+\+10\.0%\s+\$46\.00B\s+\$47\.00B\s+\+2\.2%\s+\+2\.31%/.test(er.text) && /NFLX\s+NETFLIX INC\s+SPX NDX/.test(er.text), er.text.slice(0, 900));
+  await shotWin(page, "EARNINGS CALENDAR", "t07-ern");
+  // EQ
+  await cmd(page, "EQ"); await page.waitForTimeout(1000);
+  let eq = await winOf(page, "EQUITIES · S&P 500");
+  ok("[H] EQ: index members with weight, last, change, base date; breadth and weighted change DERIVED", /NVDA\s+NVIDIA\s+Information Technology\s+8\.60%\s+\$240\.72\s+\+2\.00%/.test(eq.text) && /index-weighted/.test(eq.text), eq.text.slice(0, 700));
+  await page.fill('[data-k="eqq"]', "nvid"); await page.waitForTimeout(600);
+  eq = await winOf(page, "EQUITIES · S&P 500");
+  ok("[H] EQ: the filter keeps focus while typing and narrows the list", /^1 shown/m.test(eq.text.split("\n").find((l) => /shown/.test(l)) || "") && (await page.evaluate(() => document.activeElement && document.activeElement.getAttribute("data-k"))) === "eqq", eq.text.slice(0, 300));
+  // FX + CRYPTO + FUT + RDT
+  await cmd(page, "FX"); await page.waitForTimeout(1500);
+  const fx = await winOf(page, "CURRENCIES");
+  ok("[H] FX: the 8 pairs vs USD from live quotes; USD average DERIVED (not the licensed DXY)", Object.values({ a: "EUR/USD", b: "USD/JPY", c: "USD/CNY" }).every((p) => fx.text.includes(p)) && /not the ICE dollar index|DXY/.test(await page.evaluate(() => document.querySelector(".win:last-child") && document.body.innerHTML.includes("DXY") ? "DXY" : "")), fx.text.slice(0, 400));
+  await cmd(page, "CRYPTO"); await page.waitForTimeout(900);
+  const cr = await winOf(page, "CRYPTO");
+  ok("[H] CRYPTO: pairs by traded value with live price and 1D change", /BTC\/USD\s+86,000\s+\+1\.18%\s+\$1\.20B/.test(cr.text) && cr.text.indexOf("BTC/USD") < cr.text.indexOf("ETH/USD"), cr.text.slice(0, 400));
+  await cmd(page, "FUT"); await page.waitForTimeout(300);
+  const fu = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent === "FUTURES"); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.textContent.trim() } : null; });
+  ok("[H] FUT: NO DATA with the reason; every price N/A; points to FCRV", /NO DATA — futures prices are licensed/.test(fu.text) && !/\d+\.\d\d/.test(fu.text.split("DATA")[2] || "") && fu.pill === "N/A");
+  await cmd(page, "RDT"); await page.waitForTimeout(300);
+  ok("[H] RDT: N/A — source not approved, nothing estimated", /N\/A — Reddit sentiment needs a third-party source \(ApeWisdom\), which was not approved/.test((await winOf(page, "REDDIT SENTIMENT")).text));
+  // BOARD
+  await cmd(page, "BOARD"); await page.waitForTimeout(500);
+  await page.fill('[data-k="bnew"]', "Chips"); await page.click(".b-new"); await page.waitForTimeout(500);
+  await page.fill('[data-k="badd"]', "nvda"); await page.click(".b-add"); await page.waitForTimeout(700);
+  await page.fill('[data-k="badd"]', "ZZZZ"); await page.click(".b-add"); await page.waitForTimeout(700);
+  const bd = await winOf(page, "BOARD · Chips");
+  ok("[H] BOARD: create a board, add a symbol checked with a real quote, refuse an unknown one; stored on the server", !!bd && /NVDA\s+NVDA Inc\s+\$190\.50/.test(bd.text) && /ZZZZ not added: unknown symbol/.test(bd.text) && t7.boards.length === 1 && t7.boards[0].syms.join() === "NVDA", bd && bd.text.slice(0, 400));
+  // ALRT
+  await cmd(page, "ALRT"); await page.waitForTimeout(500);
+  await page.fill('.al-f input[name="sym"]', "nvda"); await page.fill('.al-f input[name="price"]', "100"); await page.fill('.al-f input[name="note"]', "test level");
+  await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(1200);
+  const al = await winOf(page, "PRICE ALERTS"), toastTxt = await page.evaluate(() => document.querySelector("#toasts")?.innerText || "");
+  ok("[H] ALRT: an alert is saved, fires on a LIVE quote, records the price it saw, shows a toast", t7.alerts.length === 1 && t7.hits.length === 1 && t7.hits[0].price === 190.5 && /FIRED/.test(al.text) && /@ 190\.5/.test(al.text) && /ALERT NVDA ≥ 100 — last \$190\.50/.test(toastTxt), al.text.slice(0, 400) + " | " + toastTxt);
+  // NOTE
+  await cmd(page, "NOTE"); await page.waitForTimeout(400);
+  await page.fill('.nt-f textarea', "Watch the ECB on Thursday"); await page.fill('.nt-f input[name="sym"]', "EUR/USD"); await page.click('.nt-f button[type="submit"]'); await page.waitForTimeout(600);
+  ok("[H] NOTE: a note is saved on the server and listed with its symbol", t7.notes.length === 1 && /EUR\/USD · [\s\S]*Watch the ECB on Thursday/.test((await winOf(page, "NOTES")).text));
+  // CROSS + BT
+  await cmd(page, "CROSS NVDA AAPL"); await page.waitForTimeout(1500);
+  const xr = await winOf(page, "CROSS · NVDA / AAPL");
+  ok("[H] CROSS: ratio of two real histories on common dates, correlation of daily returns (DERIVED)", /NVDA \/ AAPL\s+1\.0000/.test(xr.text) && /CORRELATION\s+1\.00/.test(xr.text) && /252 obs/.test(xr.text), xr.text.slice(0, 400));
+  await cmd(page, "BT NVDA"); await page.waitForTimeout(1800);
+  const bt = await winOf(page, "BACKTEST · NVDA"), cs = daily.map((p) => p.c), bh = (cs[cs.length - 1] / cs[199] - 1) * 100;
+  ok("[H] BT: SMA 50/200 vs buy & hold on real closes (dividend-adjusted request), from the first signal; results DERIVED", new RegExp(`Total return\\s+[+-]?[\\d.]+%\\s+\\${bh >= 0 ? "+" : "-"}${Math.abs(bh).toFixed(1)}%`).test(bt.text) && /Max drawdown/.test(bt.text) && /Sharpe \(risk-free 0\)/.test(bt.text) && requests.some((r) => /\/api\/history\?symbol=NVDA&range=5Y&adjust=all&interval=1day/.test(r)), bt.text.slice(0, 600) + " bh=" + bh.toFixed(2));
+  await shotWin(page, "BACKTEST · NVDA", "t07-bt");
+  await shotWin(page, "PRICE ALERTS", "t07-alrt");
+  // SYS
+  await cmd(page, "SYS"); await page.waitForTimeout(600);
+  const sy = await winOf(page, "SYSTEM STATUS");
+  ok("[H] SYS: sources configured yes/no (no key values), Twelve Data credits, scheduler", /Finnhub\s+earnings calendar \(ERN\)\s+NO/.test(sy.text) && /THIS MINUTE \(ACCOUNT\)\s+3 \/ 8/.test(sy.text) && /TODAY \(ACCOUNT\)\s+120 \/ 800/.test(sy.text) && /last scheduled run/.test(sy.text), sy.text.slice(0, 600));
+  await page.click(".sys-u"); await page.waitForTimeout(600);
+  ok("[H] SYS: CHECK CREDITS asks the Worker for the usage (1 credit, on request only)", t7.calls.filter((c) => c === "GET /api/status?usage=1").length === 1 && t7.calls.filter((c) => c.startsWith("GET /api/status")).length === 2);
+  // WS
+  await page.evaluate(() => document.querySelector("#tabs .sys-btn:nth-child(3)").click()); await page.waitForTimeout(300); // CLOSE all
+  await cmd(page, "WS MSFT"); await page.waitForTimeout(1500);
+  ok("[H] WS: a ticker workspace — chart, description, options and news", (await page.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent).sort().join())) === "DES,GP,N,OMON" && !!(await winOf(page, "DES · MSFT")) && !!(await winOf(page, "OPTIONS · MSFT")));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-ws.png" });
+  // TOUR
+  await cmd(page, "TOUR"); await page.waitForTimeout(300);
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-tour.png" });
+  const t1 = await page.evaluate(() => ({ h: document.querySelector(".tour-card h4")?.textContent, hl: document.querySelector(".tour-hl")?.id }));
+  await page.click(".tour-card .t-next"); await page.waitForTimeout(200);
+  const t2 = await page.evaluate(() => ({ h: document.querySelector(".tour-card h4")?.textContent, hl: document.querySelector(".tour-hl")?.id }));
+  await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+  ok("[H] TOUR: steps highlight the parts of the screen; Escape ends it", t1.h === "1/8 · COMMAND LINE" && t1.hl === "cmd" && t2.h === "2/8 · FUNCTIONS MENU" && t2.hl === "fnMenuBtn" && !(await page.evaluate(() => document.querySelector("#tour")?.classList.contains("on"))), JSON.stringify([t1, t2]));
+  // Italian
+  await page.click('#cmdbar [data-lang="it"]'); await page.waitForTimeout(500);
+  await page.keyboard.press("m"); await page.waitForTimeout(300);
+  const mi = await page.evaluate(() => [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|") + " " + document.querySelector('.fm-i[data-fn="OMON"]')?.innerText);
+  await page.keyboard.press("Escape");
+  await cmd(page, "CB"); await page.waitForTimeout(400);
+  ok("[H] Italian: menu and new windows in Italian, codes and data unchanged", /^MERCATI\|TASSI E MACRO\|ANALISI\|PERSONALE\|LAYOUT OMON\s+Monitor delle opzioni/.test(mi) && !!(await winOf(page, "BANCHE CENTRALI")) && /BANCA CENTRALE\s+TASSO\s+LIVELLO/.test((await winOf(page, "BANCHE CENTRALI")).text), mi);
+  await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(400);
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[H] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | ") + (body.match(/.{0,40}(NaN|undefined).{0,40}/) || [""])[0]);
+  await page.close();
+}
+{
+  // EIA key not set: energy rows and curves say so; nothing in their place
+  const { page, errors } = await openTerminal({ ...OK_API, noEia: true });
+  await cmd(page, "CMDTY"); await page.waitForTimeout(800);
+  const cm = await winOf(page, "COMMODITIES");
+  await cmd(page, "FCRV"); await page.waitForTimeout(600);
+  const fc = await winOf(page, "FUTURES CURVES");
+  ok("[H] no EIA key → NO DATA banners naming the secret, no energy numbers", /NO DATA — Energy prices \(U\.S\. EIA\): the API key is not set in the Worker \(EIA_KEY/.test(cm.text) && !/\$\/bbl/.test(cm.text) && /NO DATA/.test(fc.text) && fc.pill === "N/A" && errors.length === 0, cm.text.slice(0, 400));
   await page.close();
 }
 

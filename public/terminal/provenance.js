@@ -109,7 +109,16 @@
     provider_error: "provider error / empty response",
     no_data: "no data for this range",
     network: "could not reach /api",
-    expired: "last real value is older than 24 h"
+    expired: "last real value is older than 24 h",
+    eia_not_configured: "EIA API key not set in the Worker",
+    finnhub_not_configured: "Finnhub API key not set in the Worker",
+    not_sec_registrant: "not an SEC registrant",
+    no_underlying_price: "no price for the underlying",
+    no_listed_options: "no listed options",
+    storage_not_configured: "server storage not configured",
+    forbidden_origin: "request from another site refused",
+    bad_request: "invalid request",
+    not_found: "not found"
   };
   function errorText(code) { return ERRORS[code] || code || "unavailable"; }
 

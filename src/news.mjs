@@ -8,6 +8,14 @@ export const SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json";
 export const SEC_SUBMISSIONS_URL = (cik10) => `https://data.sec.gov/submissions/CIK${cik10}.json`;
 export const SEC_FORMS = new Set(["8-K", "10-Q", "10-K", "20-F", "6-K", "DEF 14A", "S-1", "S-3", "SC 13D", "SC 13G"]);
 
+export const secHeadersFor = (env) => ({ accept: "application/json", ...(env.SEC_CONTACT ? { "user-agent": `AlessandroTerminal ${env.SEC_CONTACT}` } : {}) });
+// ticker → CIK (SEC company_tickers.json), shared by news filings and the company description
+export function getSecMap(origin, env, ctx) {
+  return cachedSource({
+    origin, key: "news/sec-tickers", ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
+    load: async () => { const p = parseJson(await fetchText(SEC_TICKERS_URL, { headers: secHeadersFor(env), timeoutMs: 10000 })); if (p.err) return p; const m = secCikMap(p.j); return Object.keys(m).length ? { data: m } : { err: "no_data" }; },
+  });
+}
 export function secCikMap(tickersJson) {
   const map = {};
   for (const v of Object.values(tickersJson || {})) if (v && v.ticker && v.cik_str != null) map[String(v.ticker).toUpperCase()] = { cik: Number(v.cik_str), name: v.title };
