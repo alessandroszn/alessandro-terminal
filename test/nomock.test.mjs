@@ -2,6 +2,7 @@
 //   node test/nomock.test.mjs
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -14,7 +15,12 @@ const all = Object.values(shipped).join("\n");
 const html = shipped["terminal/index.html"];
 const script = (html.match(/<script>\n([\s\S]*?)<\/script>/) || [])[1] || "";
 
-ok("shipped files = the page, its provenance rules and its interface translations only", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/provenance.js", Object.keys(shipped).join());
+ok("shipped files = the page, its provenance rules, its interface translations and the self-hosted chart library with its license", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/provenance.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
+// the chart library draws only what the page gives it: unmodified TradingView Lightweight Charts 5.2.1 (Apache-2.0), no network access
+const lwc = shipped["terminal/vendor/lightweight-charts.js"];
+ok("chart library = TradingView Lightweight Charts v5.2.1 as published (Apache-2.0), byte for byte", /TradingView Lightweight Charts™ v5\.2\.1/.test(lwc.slice(0, 200)) && createHash("sha256").update(lwc).digest("hex") === "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf");
+ok("chart library makes no network requests (no fetch / XHR / WebSocket / beacon)", !/fetch\(|XMLHttpRequest|WebSocket|sendBeacon|importScripts/.test(lwc));
+ok("the page credits TradingView as the chart library's creator (license attribution)", /TradingView Lightweight Charts™/.test(html) && /https:\/\/www\.tradingview\.com\//.test(html));
 ok("translations hold words only: no prices, rates or levels", !/\b\d+\.\d+\b/.test(shipped["terminal/i18n.js"].replace(/\/\*[\s\S]*?\*\//, "")) && !/fetch\(|XMLHttpRequest/.test(shipped["terminal/i18n.js"]));
 ok("no random generator (Math.random / seeded PRNG)", !/Math\.random|0x6D2B79F5|function rng\(|function path\(/.test(all));
 ok("no simulated/mock/demo/sample/fake/seed wording", !/simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed/i.test(all), (all.match(/.{30}(simulat|\bmock|\bdemo\b|\bsample\b|\bfake\b|\bseed).{30}/i) || [])[0]);

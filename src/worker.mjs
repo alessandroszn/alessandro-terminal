@@ -329,9 +329,11 @@ async function handleQuote(url, env, ctx, H) {
 // Daily points carry the EXCHANGE-LOCAL trading date ("YYYY-MM-DD"): Twelve Data ignores
 // `timezone` for daily+ intervals. Intraday points are requested in UTC ("...Z").
 // Historical/EOD data is consolidated; an in-progress session's bar is a venue-subset aggregate.
-export const HISTORY_RANGES = ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"];
-const RANGE_MONTHS = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "5Y": 60 };
-const DEFAULT_INTERVAL = { "1D": "5min", "1W": "1day", "1M": "1day", "3M": "1day", "6M": "1day", "1Y": "1day", "5Y": "1week" };
+// 5D = the last five sessions in 15-minute bars; 10Y in weekly bars; MAX = the whole history the provider has, monthly bars
+export const HISTORY_RANGES = ["1D", "5D", "1W", "1M", "3M", "6M", "1Y", "5Y", "10Y", "MAX"];
+const RANGE_MONTHS = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "5Y": 60, "10Y": 120 };
+const DEFAULT_INTERVAL = { "1D": "5min", "5D": "15min", "1W": "1day", "1M": "1day", "3M": "1day", "6M": "1day", "1Y": "1day", "5Y": "1week", "10Y": "1week", "MAX": "1month" };
+const MAX_START = "1970-01-01";
 const INTRADAY = new Set(["5min", "15min", "1h"]);
 const BARS_PER_SESSION = { "5min": 78, "15min": 26, "1h": 7 };
 const ADJUST = new Set(["splits", "all", "none"]);
@@ -349,9 +351,11 @@ export function buildHistoryQuery(params, now = new Date()) {
   if (interval === "1d") interval = "1day";      // accept the common short form
   if (interval === "1w" || interval === "1wk") interval = "1week";
   const intraday = INTRADAY.has(interval);
-  if (!intraday && !["1day", "1week"].includes(interval)) throw new BadRequest("interval must be one of 5min,15min,1h,1day,1week");
-  if (intraday && !["1D", "1W"].includes(range)) throw new BadRequest("intraday intervals are only allowed for range 1D or 1W");
-  if (!intraday && range === "1D") throw new BadRequest("range 1D requires an intraday interval");
+  if (interval === "1mo" || interval === "1M") interval = "1month";
+  if (!intraday && !["1day", "1week", "1month"].includes(interval)) throw new BadRequest("interval must be one of 5min,15min,1h,1day,1week,1month");
+  if (intraday && !["1D", "5D", "1W"].includes(range)) throw new BadRequest("intraday intervals are only allowed for range 1D, 5D or 1W");
+  if (!intraday && (range === "1D" || range === "5D")) throw new BadRequest(`range ${range} requires an intraday interval`);
+  if (interval === "1month" && !["5Y", "10Y", "MAX"].includes(range)) throw new BadRequest("monthly bars are only allowed for 5Y, 10Y or MAX");
   const adjust = String(params.adjust || "splits");
   if (!ADJUST.has(adjust)) throw new BadRequest("adjust must be one of splits,all,none");
 
@@ -359,15 +363,15 @@ export function buildHistoryQuery(params, now = new Date()) {
   const q = { symbol: tdSymbol, ...(mic ? { mic_code: mic } : {}), interval, order: "asc", adjust };
   if (intraday) {
     q.timezone = "UTC";
-    q.outputsize = String(BARS_PER_SESSION[interval] * (range === "1W" ? 5 : 1));
+    q.outputsize = String(BARS_PER_SESSION[interval] * (range === "1D" ? 1 : 5));
   } else {
     const start = new Date(now);
     if (range === "1W") start.setUTCDate(start.getUTCDate() - 7);
-    else start.setUTCMonth(start.getUTCMonth() - RANGE_MONTHS[range]);
-    q.start_date = isoDate(start);
+    else if (range !== "MAX") start.setUTCMonth(start.getUTCMonth() - RANGE_MONTHS[range]);
+    q.start_date = range === "MAX" ? MAX_START : isoDate(start);
     q.outputsize = "5000";
   }
-  const ttl = intraday ? 120 : interval === "1week" ? 3600 : 900;
+  const ttl = intraday ? 120 : interval === "1day" ? 900 : 3600;
   return { id: symbol, q, range, interval, adjust, intraday, ttl };
 }
 
@@ -395,7 +399,14 @@ export function normalizeHistory(td, { intraday }) {
 // display staleness of a history response: intraday bars age quickly; completed daily/weekly
 // bars do not change, only the newest one does (see lastBarPartial)
 export function historyStaleAfterMs(intraday, interval) {
-  return intraday ? 15 * 60_000 : interval === "1week" ? 7 * 24 * 3600_000 : 24 * 3600_000;
+  return intraday ? 15 * 60_000 : interval === "1week" ? 7 * 24 * 3600_000 : interval === "1month" ? 31 * 24 * 3600_000 : 24 * 3600_000;
+}
+// is the newest bar still being formed? (a daily bar for today, the current week's or month's bar)
+export function lastBarInProgress(lastT, interval, today) {
+  if (!lastT || !today) return false;
+  if (interval === "1week") return Date.parse(today) - Date.parse(lastT) < 7 * 86400_000 && lastT <= today;
+  if (interval === "1month") return lastT.slice(0, 7) === today.slice(0, 7);
+  return lastT === today;
 }
 
 // today's date at the exchange (for flagging an in-progress, venue-subset last bar)
@@ -428,7 +439,7 @@ async function handleHistory(url, env, ctx, H) {
       fetchedAt: new Date(fetchedAt).toISOString(),
       staleAt: new Date(fetchedAt + historyStaleAfterMs(intraday, interval)).toISOString(),
       // completed sessions are consolidated; a bar for today (session in progress) is a venue-subset aggregate
-      lastBarPartial: !intraday && !!last && last.t === exchangeToday(n.exchangeTimezone),
+      lastBarPartial: !intraday && !!last && lastBarInProgress(last.t, interval, exchangeToday(n.exchangeTimezone)),
       ...(stale ? { staleReason } : {}),
       // kept for backward compatibility with T03 clients
       asOf: new Date(fetchedAt).toISOString(), provider: SOURCE,

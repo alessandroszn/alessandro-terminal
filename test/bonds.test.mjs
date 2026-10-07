@@ -5,6 +5,7 @@ import { app as worker } from "../src/worker.mjs";
 import { parseBundesbank, parseBoeYields, parseMof, parseSnbBonds, parseBocBonds, parseFred, getYieldCurves, ukUrl, fredUrl, US_FRED } from "../src/yields.mjs";
 import { changes, countryRow, bundSpreads } from "../src/bonds.mjs";
 import { summarizeCot, cotQuery, COT_CONTRACTS } from "../src/cot.mjs";
+import { pairSpread } from "../src/macro.mjs";
 import { UNIVERSES, ASSET_ETFS } from "../src/spx.mjs";
 
 let pass = 0, fail = 0;
@@ -99,6 +100,23 @@ ok("/api/cot: contracts with the latest report, source and basis", r.status === 
 
 // ---------- ETFs ----------
 ok("ETF universe: asset classes incl. Treasuries, credit, commodities, crypto; no weights invented", UNIVERSES.ETF && ASSET_ETFS.some((x) => x.sym === "TLT" && x.sector === "Treasuries") && ASSET_ETFS.some((x) => x.sym === "HYG" && x.sector === "Credit and aggregate") && ASSET_ETFS.some((x) => x.sym === "GLD") && ASSET_ETFS.some((x) => x.sym === "IBIT") && ASSET_ETFS.every((x) => x.weight === null) && new Set(ASSET_ETFS.map((x) => x.sym)).size === ASSET_ETFS.length);
+
+// ---------- U.S. 2s10s history (FRED H.15) in /api/sprd ----------
+ok("U.S. 2s10s: only dates where both the 2Y and the 10Y were published, in bp", JSON.stringify(pairSpread([["2026-10-05", 3.5], ["2026-10-06", 3.52]], [["2026-10-02", 4.1], ["2026-10-06", 4.13]])) === JSON.stringify([{ date: "2026-10-06", y2: 3.52, y10: 4.13, bp: 61 }]));
+{
+  const obs = (base) => ({ observations: Array.from({ length: 30 }, (_, i) => ({ date: new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10), value: i === 5 ? "." : String(base + i / 100) })) });
+  const prev = globalThis.fetch; let fc = [];
+  globalThis.fetch = async (u) => { u = String(u); fc.push(u); if (u.startsWith("https://api.stlouisfed.org/")) { const p = new URL(u).searchParams; return p.get("api_key") === KEYF ? new Response(JSON.stringify(obs(p.get("series_id") === "DGS10" ? 4 : 3.5))) : new Response("{}", { status: 400 }); } return new Response("", { status: 404 }); };
+  store = new Map();
+  let s = await call("/api/sprd", envF);
+  const U = s.j && s.j.series.US;
+  ok("/api/sprd with FRED_KEY: U.S. history from H.15 (2Y and 10Y of the same day), a missing day skipped; EA unreachable → N/A, still 200", s.status === 200 && U.status === "LIVE" && U.points.length === 29 && U.points[0].bp === 50 && U.source === "FRED · Federal Reserve H.15" && s.j.series.EA.status === "N/A", JSON.stringify(s.j).slice(0, 300));
+  ok("/api/sprd: the FRED key only in the requests to FRED, never in the response; 270 observations asked", fc.some((u) => u.includes(KEYF) && /limit=270/.test(u)) && !s.text.includes(KEYF));
+  store = new Map();
+  s = await call("/api/sprd", env);
+  ok("/api/sprd without FRED_KEY: U.S. N/A naming the missing secret", s.j.series.US.status === "N/A" && s.j.series.US.error === "fred_not_configured");
+  globalThis.fetch = prev;
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

@@ -1,5 +1,5 @@
 // T03 tests: pure functions + the Worker handler with a mocked provider and cache.
-import { app as worker,  buildHistoryQuery, normalizeHistory, mapProviderError, BadRequest } from "../src/worker.mjs";
+import { app as worker,  buildHistoryQuery, normalizeHistory, mapProviderError, BadRequest, lastBarInProgress } from "../src/worker.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => {
@@ -24,6 +24,20 @@ ok("1D -> timezone UTC", b1d.q.timezone === "UTC");
 ok("1D -> 78 bars", b1d.q.outputsize === "78");
 ok("1W -> 7 calendar days back", buildHistoryQuery({ symbol: "AAPL", range: "1W" }, NOW).q.start_date === "2026-09-29");
 ok("5Y -> 1week", buildHistoryQuery({ symbol: "AAPL", range: "5Y" }, NOW).interval === "1week");
+const b5d = buildHistoryQuery({ symbol: "AAPL", range: "5D" }, NOW);
+ok("5D -> 15min intraday, five sessions (130 bars), UTC", b5d.interval === "15min" && b5d.intraday && b5d.q.outputsize === "130" && b5d.q.timezone === "UTC" && b5d.ttl === 120);
+ok("5D with 5min -> 390 bars", buildHistoryQuery({ symbol: "AAPL", range: "5D", interval: "5min" }, NOW).q.outputsize === "390");
+ok("5D daily -> BadRequest", throws(() => buildHistoryQuery({ symbol: "AAPL", range: "5D", interval: "1day" }, NOW)));
+const b10 = buildHistoryQuery({ symbol: "AAPL", range: "10Y" }, NOW);
+ok("10Y -> weekly bars from 10 years back, ttl 1h", b10.interval === "1week" && b10.q.start_date === "2016-10-06" && b10.ttl === 3600, JSON.stringify(b10.q));
+const bmax = buildHistoryQuery({ symbol: "AAPL", range: "MAX" }, NOW);
+ok("MAX -> monthly bars over the whole history the provider has", bmax.interval === "1month" && bmax.q.start_date === "1970-01-01" && bmax.q.outputsize === "5000");
+ok("5Y daily allowed (backtest, price chart)", buildHistoryQuery({ symbol: "AAPL", range: "5Y", interval: "1day" }, NOW).q.interval === "1day");
+ok("monthly on 6M -> BadRequest", throws(() => buildHistoryQuery({ symbol: "AAPL", range: "6M", interval: "1month" }, NOW)));
+ok("bar in progress: today's daily bar, this week's weekly bar, this month's monthly bar",
+  lastBarInProgress("2026-10-06", "1day", "2026-10-06") && !lastBarInProgress("2026-10-05", "1day", "2026-10-06") &&
+  lastBarInProgress("2026-10-05", "1week", "2026-10-07") && !lastBarInProgress("2026-09-28", "1week", "2026-10-07") &&
+  lastBarInProgress("2026-10-01", "1month", "2026-10-07") && !lastBarInProgress("2026-09-01", "1month", "2026-10-07"));
 ok("adjust=all accepted", buildHistoryQuery({ symbol: "AAPL", adjust: "all" }, NOW).q.adjust === "all");
 ok("FX symbol accepted", buildHistoryQuery({ symbol: "EUR/USD", range: "1M" }, NOW).q.symbol === "EUR/USD");
 ok("missing symbol -> BadRequest", throws(() => buildHistoryQuery({}, NOW)));

@@ -1,11 +1,13 @@
 // RATES & MACRO (T07) — official publications only.
 //   GET /api/cb          policy rates: ECB (Data Portal, FM), Fed (New York Fed markets API: EFFR + target range),
 //                        Bank of England (Bank Rate, IADB), Swiss National Bank (SNB data portal), Bank of Canada (Valet)
-//   GET /api/sprd        euro-area 2s10s history (ECB AAA spot curve, daily, 1 year) — the US needs a FRED key (N/A)
+//   GET /api/sprd        2s10s history, daily, about a year: euro area (ECB AAA spot curve) and United States
+//                        (FRED, Federal Reserve H.15 constant-maturity 2Y and 10Y; needs FRED_KEY, else N/A)
 //   GET /api/energy      EIA (U.S. Energy Information Administration): daily spot prices (crude, products, natural gas)
 //                        and NYMEX futures contracts 1–4 (crude, natural gas) — the futures curve. Needs EIA_KEY.
 // Every value is the institution's published figure with its date; nothing is filled in between publications.
 import { fetchText, cachedSource, parseCsv, iso } from "./lib.mjs";
+import { fredSeries } from "./yields.mjs";
 
 // a published value or nothing: an empty cell is missing, never zero
 export const numv = (v) => (v == null || (typeof v === "string" && v.trim() === "") ? NaN : Number(v));
@@ -89,8 +91,20 @@ export async function handleSpread(url, env, ctx, H, json) {
   const r = await cachedSource({ origin: url.origin, key: "sprd/EA2", ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
     load: async () => { const f = await fetchText(ECB_SPRD_URL, { timeoutMs: 25000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const s = parseSpread(f.text); return s.length > 20 ? { data: s } : { err: "no_data" }; } });
   const out = { series: { EA: r.data ? { name: "Euro area — AAA government bonds, 10Y minus 2Y (spot)", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", points: r.data, status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) } : { status: "N/A", error: r.err },
-    US: { status: "N/A", error: "needs a FRED API key (the U.S. Treasury XML times out from the server)" } }, basis: "daily spot rates from the ECB; spread = 10Y − 2Y in basis points (DERIVED)" };
-  const res = json(out, H, r.data ? 200 : 502); res.headers.set("cache-control", "no-store"); return res;
+    US: await usSpread(url, env, ctx) }, basis: "daily rates as published (ECB spot; Federal Reserve H.15 constant maturity via FRED); spread = 10Y − 2Y in basis points, only on dates both maturities were published (DERIVED)" };
+  const res = json(out, H, r.data || out.series.US.points ? 200 : 502); res.headers.set("cache-control", "no-store"); return res;
+}
+
+// U.S. 2s10s from the H.15 constant-maturity yields on FRED: the 2Y and 10Y of the same day, nothing filled in
+export function pairSpread(two, ten) { const m = new Map(two || []); return (ten || []).filter(([d]) => m.has(d)).map(([d, y10]) => ({ date: d, y2: m.get(d), y10, bp: Math.round((y10 - m.get(d)) * 1000) / 10 })); }
+async function usSpread(url, env, ctx) {
+  if (!env.FRED_KEY) return { status: "N/A", error: "fred_not_configured" };
+  const [a, b] = await Promise.all(["DGS2", "DGS10"].map((id) => cachedSource({ origin: url.origin, key: `fred/${id}/270`, ttlMs: 3 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 10 * 60_000, load: () => fredSeries(env, id, 270) })));
+  if (!a.data || !b.data) return { status: "N/A", error: a.err || b.err || "no_data" };
+  const pts = pairSpread(a.data, b.data);
+  if (pts.length < 20) return { status: "N/A", error: "no_data" };
+  return { name: "United States — Treasury constant maturity, 10Y minus 2Y", source: "FRED · Federal Reserve H.15", sourceUrl: "https://fred.stlouisfed.org/series/T10Y2Y", points: pts,
+    status: a.cache === "STALE" || b.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(Math.min(a.fetchedAt, b.fetchedAt)) };
 }
 
 // ---------- energy (EIA) ----------

@@ -13,6 +13,7 @@ const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.
 const htmlFast = html0.replace("creditsPerMin:8,", "creditsPerMin:60,");
 const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.meta.url), "utf8");
 const i18nJs = readFileSync(new URL("../public/terminal/i18n.js", import.meta.url), "utf8");
+const lwcJs = readFileSync(new URL("../public/terminal/vendor/lightweight-charts.js", import.meta.url), "utf8");
 const ORIGIN = "https://alessandrozanichelli.com";
 const SHOTS = process.env.SHOTS_DIR || null;
 const WL = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "JPM"];
@@ -240,6 +241,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     const send = (r) => route.fulfill({ status: r.status || 200, contentType: "application/json", body: JSON.stringify(r.body) });
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
+    if (u.origin === ORIGIN && u.pathname === "/terminal/vendor/lightweight-charts.js") return route.fulfill({ contentType: "application/javascript", body: lwcJs });
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
@@ -283,6 +285,24 @@ const OK_API = {
   await page.waitForTimeout(1500);
   ok("[A] quote requests are chunked to ≤ 7 symbols", quoteBatches.length >= 2 && quoteBatches.every((b) => b.syms.length <= 7), quoteBatches.map((b) => b.syms.length).join());
   ok("[A] default layout: security, watchlist, markets, yields", (await page.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent).join())) === "GP,WL,MKT,YLD");
+  // GP: interactive chart (Lightweight Charts, self-hosted) on the real bars of /api/history; ranges 1M…5Y share one daily request
+  await page.waitForTimeout(800);
+  const gp0 = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); return { canv: w.querySelectorAll(".gp-box .lw-host canvas").length, leg: w.querySelector(".lw-leg")?.innerText || "", lib: typeof window.LightweightCharts?.createChart, ranges: [...w.querySelectorAll("[data-tf]")].map((b) => b.dataset.tf).join() }; });
+  ok("[A] GP: interactive candle chart drawn by the self-hosted library, legend with open / high / low / close of the bar", gp0.lib === "function" && gp0.canv >= 2 && /O\s+[\d,.]+\s+H\s+[\d,.]+\s+L\s+[\d,.]+\s+C\s+[\d,.]+/.test(gp0.leg) && gp0.ranges === "1D,5D,1M,3M,6M,YTD,1Y,3Y,5Y,10Y,MAX", JSON.stringify(gp0));
+  ok("[A] GP: one 5-year daily request (split-adjusted) serves 1M…5Y", requests.some((u) => /\/api\/history\?symbol=NVDA&range=5Y&adjust=splits&interval=1day/.test(u)));
+  const nHist = requests.filter((u) => u.includes("/api/history?symbol=NVDA")).length;
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); w.querySelector('[data-tf="1Y"]').click(); });
+  await page.waitForTimeout(400);
+  ok("[A] GP: switching 6M → 1Y only moves the view, no new request", requests.filter((u) => u.includes("/api/history?symbol=NVDA")).length === nHist);
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); w.querySelector('[data-ind="ma50"]').click(); });
+  await page.waitForTimeout(400);
+  const gp1 = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); return { leg: w.querySelector(".lw-leg").innerText, src: w.querySelector(".src-line").innerText }; });
+  ok("[A] GP: SMA 50 computed here from the real closes, labelled DRV", /SMA 50\s+[\d,.]+/.test(gp1.leg) && /DRV/.test(gp1.leg) && /indicators computed from these bars/.test(gp1.src), JSON.stringify(gp1));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); w.querySelector('[data-tf="5D"]').click(); });
+  await page.waitForTimeout(600);
+  ok("[A] GP: 5D asks for 15-minute bars of the last five sessions", requests.some((u) => /\/api\/history\?symbol=NVDA&range=5D&adjust=splits&interval=15min/.test(u)));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "GP"); w.querySelector('[data-ind="ma50"]').click(); w.querySelector('[data-tf="6M"]').click(); });
+  await page.waitForTimeout(300);
   // watchlist: real rows, editable
   ok("[A] watchlist = 6 default instruments with name, price, change, time, status", (await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())) === WL.join() && /AAPL\s+LIVE\s*AAPL Inc/.test((await winOf(page, "WATCHLIST")).text));
   await wlFill(page, "tsla");
@@ -356,7 +376,7 @@ const OK_API = {
   ok("[A] briefing: tickers from DATA become chips; others stay plain; links kept", (await page.$$eval(".brief-sym", (b) => b.map((x) => x.textContent).join())) === "NVDA,EUR/USD" && /XYZ/.test(br.text) && (await page.$$eval(".brf-art a", (a) => a.some((x) => x.href === "https://www.ft.com/content/test-1"))));
   ok("[A] briefing: number check and sources shown", /Number check: all 3 figures match the source data/.test(br.text) && /SOURCES[\s\S]*European Central Bank/.test(br.text));
   await page.click('.brief-sym[data-sym="NVDA"]'); await page.waitForTimeout(500);
-  ok("[A] briefing: a chip opens the instrument at the edition's range (daily → 1W)", await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("NVDA")); return !!w && w.querySelector('.tf[aria-pressed="true"]').textContent === "1W"; }));
+  ok("[A] briefing: a chip opens the instrument at the edition's range (daily → 5D, older editions' 1W read as 5D)", await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("NVDA")); return !!w && w.querySelector('.tf[aria-pressed="true"]').textContent === "5D"; }));
   const strips = await page.$$eval(".brf-see", (d) => d.map((x) => ({ after: x.previousElementSibling && x.previousElementSibling.tagName, head: (() => { let e = x.previousElementSibling; while (e && e.tagName !== "H3") e = e.previousElementSibling; return e ? e.textContent : null; })(), text: x.innerText })));
   ok("[A] briefing: under each section, the windows that show it, with the reason from the same figures", strips.length === 3 && strips[0].head === "Equities" && /S&P 500 heat map · 1D\s*Constituents \+0\.41%/.test(strips[0].text) && /NVDA · biggest gain/.test(strips[0].text) && strips[1].head === "Rates and currencies" && strips[2].head === "Today" && /CPI m\/m/.test(strips[2].text), JSON.stringify(strips));
   if (SHOTS) { await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("BRIEFING")); w.querySelector(".w-max").click(); }); await page.waitForTimeout(400); await page.screenshot({ path: SHOTS + "/brief-strips.png" }); await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("BRIEFING")); w.querySelector(".w-max").click(); }); }

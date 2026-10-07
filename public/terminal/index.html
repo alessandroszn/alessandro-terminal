@@ -90,6 +90,28 @@
   .tf{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:4px 9px;font:inherit;font-size:11px;cursor:pointer}
   .tf[aria-pressed="true"]{color:#000;background:var(--amber);border-color:var(--amber);font-weight:600}
   .chart-box{position:relative;width:100%;height:210px;min-width:0}
+  /* interactive charts (Lightweight Charts): host fills its box; legend and messages float over the canvas */
+  .lw-host{position:absolute;inset:0;overflow:hidden}
+  .lw-leg{position:absolute;left:8px;top:6px;z-index:3;pointer-events:none;font-size:10.5px;line-height:1.55;color:var(--muted);max-width:calc(100% - 80px);text-shadow:0 0 4px var(--panel),0 0 2px var(--panel)}
+  .lw-leg b{color:var(--fg);font-weight:600}.lw-leg .v{color:var(--fg)}.lw-leg .up{color:var(--up)}.lw-leg .down{color:var(--down)}
+  .lw-leg .sw{display:inline-block;width:9px;height:2px;border-radius:1px;vertical-align:middle;margin:0 4px 0 0}
+  .lw-leg .note{color:var(--amber)}
+  .lw-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;pointer-events:none;color:var(--dim);font-size:12px;text-align:center;padding:0 16px}
+  .lw-msg:empty{display:none}
+  .gp-body{display:flex;flex-direction:column;min-height:100%}
+  .gp-bar{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin:10px 0 6px}
+  .gp-bar .tfbar{margin:0}
+  .gp-bar .tf{padding:3px 7px;font-size:10.5px}
+  .gp-box{flex:1 1 auto;height:auto;min-height:250px;border:1px solid var(--line);border-radius:4px}
+  .gp-cmp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px}
+  .gp-cmp .leg-item{gap:4px}
+  .gp-x{background:none;border:0;color:var(--dim);cursor:pointer;padding:0 2px;font-size:10px}
+  .gp-x:hover{color:var(--down)}
+  .gp-in{background:var(--panel-2);border:1px solid var(--line);color:var(--fg);border-radius:3px;padding:3px 7px;font:inherit;font-size:10.5px;width:118px}
+  .gp-in:focus{outline:none;border-color:var(--amber)}
+  .win.ismax .chart-box.sp-cv,.win.ismax .chart-box.x-cv,.win.ismax .chart-box.bt-cv,.win.ismax .chart-box.cmp-chart{height:58vh!important}
+  .help-credit{margin-top:12px;font-size:10px;color:var(--dim)}
+  .help-credit a{color:var(--muted)}
   canvas{display:block;width:100%;height:100%}
   .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:14px}
   .stat{background:var(--panel);padding:8px 10px;min-width:0}
@@ -443,7 +465,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>NVDA GP</code><span>Ticker + function in one line</span></div>
     <div class="help-row"><code>Novartis</code><span>Anything else searches the provider's symbol master (name or ticker, all exchanges)</span></div>
     <div class="help-grp">FUNCTIONS</div>
-    <div class="help-row"><code>GP</code><span>Price graph &amp; security overview</span></div>
+    <div class="help-row"><code>GP</code><span>Price chart &amp; security overview: candles, line or area; 1D…MAX; volume, SMA, Bollinger, RSI; log scale; compare up to 3 symbols in %; your notes on the chart</span></div>
+    <div class="help-row"><code>wheel · drag</code><span>On a chart: zoom with the wheel, pan by dragging, double-click to reset; the legend follows the cursor</span></div>
     <div class="help-row"><code>SRCH</code><span>Symbol search: find any listed instrument, open it, add it to the watchlist</span></div>
     <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
     <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
@@ -483,6 +506,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>STALE</code><span>Real but old: the last refresh failed</span></div>
     <div class="help-row"><code>DRV</code><span>Computed by the terminal from real data</span></div>
     <div class="help-row"><code>N/A</code><span>No real source: nothing is estimated or invented</span></div>
+    <div class="help-credit">Charts drawn with <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a> — Copyright (c) 2026 TradingView, Inc. — Apache License 2.0. The library only draws: every value comes from the sources above.</div>
     <button class="help-close" id="helpClose">GOT IT</button>
   </div>
 </div>
@@ -490,6 +514,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 
+<script src="/terminal/vendor/lightweight-charts.js"></script>
 <script src="/terminal/provenance.js"></script>
 <script src="/terminal/i18n.js"></script>
 <script>
@@ -499,7 +524,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
   const C={};
-  function readColors(){const cs=getComputedStyle(document.documentElement);['fg','muted','dim','amber','up','down','grid','line','panel'].forEach(k=>C[k]=cs.getPropertyValue('--'+k).trim());}
+  function readColors(){const cs=getComputedStyle(document.documentElement);['fg','muted','dim','amber','up','down','grid','line','panel','line-2','panel-2'].forEach(k=>C[k]=cs.getPropertyValue('--'+k).trim());}
 
   /* ---------- instruments: ONLY those served by the live provider ----------
      Policy: only real data in the UI. Every market value comes from /api/* (the Worker, which
@@ -718,18 +743,6 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- canvas ---------- */
   function fitCanvas(cv){const dpr=Math.min(window.devicePixelRatio||1,2);const w=cv.clientWidth,h=cv.clientHeight;cv.width=Math.max(1,Math.round(w*dpr));cv.height=Math.max(1,Math.round(h*dpr));const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx,w,h};}
   function hexA(hex,a){hex=hex.replace('#','');if(hex.length===3)hex=hex.split('').map(c=>c+c).join('');const n=parseInt(hex,16);return`rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
-  function drawArea(cv,data,t){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
-    const padL=52,padR=12,padT=12,padB=20,iw=w-padL-padR,ih=h-padT-padB;
-    let mn=Math.min(...data),mx=Math.max(...data);const span=(mx-mn)||1;mn-=span*0.08;mx+=span*0.08;
-    const X=i=>padL+iw*(i/(data.length-1)),Y=v=>padT+ih*(1-(v-mn)/(mx-mn)),fmtAx=axisFmt(t,mn,mx);
-    ctx.font="10px "+getComputedStyle(cv).fontFamily;ctx.textBaseline="middle";ctx.lineWidth=1;
-    for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(fmtAx(v),padL-7,y);}
-    const up=data[data.length-1]>=data[0],col=up?C.up:C.down;
-    const grad=ctx.createLinearGradient(0,padT,0,padT+ih);grad.addColorStop(0,hexA(col,0.26));grad.addColorStop(1,hexA(col,0));
-    ctx.beginPath();ctx.moveTo(X(0),Y(data[0]));for(let i=1;i<data.length;i++)ctx.lineTo(X(i),Y(data[i]));ctx.lineTo(X(data.length-1),padT+ih);ctx.lineTo(X(0),padT+ih);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
-    ctx.beginPath();ctx.moveTo(X(0),Y(data[0]));for(let i=1;i<data.length;i++)ctx.lineTo(X(i),Y(data[i]));ctx.strokeStyle=col;ctx.lineWidth=1.6;ctx.lineJoin="round";ctx.stroke();
-    const ex=X(data.length-1),ey=Y(data[data.length-1]);ctx.fillStyle=col;ctx.beginPath();ctx.arc(ex,ey,3,0,7);ctx.fill();
-    ctx.strokeStyle=hexA(col,0.4);ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(padL,ey);ctx.lineTo(ex,ey);ctx.stroke();ctx.setLineDash([]);}
   function sparkSVG(data,col){const w=46,h=18,mn=Math.min(...data),mx=Math.max(...data),sp=(mx-mn)||1;const pts=data.map((v,i)=>`${(i/(data.length-1)*w).toFixed(1)},${(h-((v-mn)/sp)*(h-2)-1).toFixed(1)}`).join(' ');return`<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/></svg>`;}
   function cutDate(tf){const d=new Date();if(tf==="1W")d.setUTCDate(d.getUTCDate()-7);else d.setUTCMonth(d.getUTCMonth()-({"1M":1,"3M":3,"6M":6,"1Y":12}[tf]||6));return d.toISOString().slice(0,10);}
   // real points only (null = not loaded yet)
@@ -740,38 +753,246 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const cut=cutDate(tf),out=[];for(let i=0;i<t.daily.length;i++){if(t.dailyDates[i]>=cut)out.push(t.daily[i]);}
     return out.length>=2?out:t.daily.slice(-2);}
   function drawMsg(cv,text){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);ctx.fillStyle=C.dim;ctx.font="12px "+getComputedStyle(cv).fontFamily;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(text,w/2,h/2);}
-  function drawChart(cv,t,tf){const d=tfData(t,tf);if(d&&d.length>=2)return drawArea(cv,d,t);
-    const err=tf==="1D"?t._intraErr:t._histErr;drawMsg(cv,err?`Real history unavailable (${P.errorText(err)})`:'Loading real history…');}
-  function chartCaption(t,tf){const intr=tf==='1D',st=histStatus(t,intr);
-    const m=intr?t._intraMeta:t._histMeta,err=intr?t._intraErr:t._histErr;
-    if(!m)return`${chip(st)} ${err?'real history unavailable — '+esc(P.errorText(err)):'requesting real history…'}`;
-    return`${chip(st,'history: '+st)} ${intr?'5-min bars, latest session':'daily closes, split-adjusted'} · ${m.count} obs · fetched ${fmtTime(m.fetchedAt)}${!intr&&m.lastBarPartial?' · last bar = today\'s session (may still change)':''}${st===S.STALE&&m.staleReason?' · refresh failed: '+esc(P.errorText(m.staleReason)):''}`;}
   function stat(l,v,s,title){return`<div class="stat" title="${esc(title||'')}"><div class="l">${l}${chip(s,title)}</div><div class="v num">${v}</div></div>`;}
   function heatColor(chg){if(!fin(chg))return'rgba(115,123,136,.10)';const x=Math.max(-1,Math.min(1,chg/3));return x>=0?`rgba(46,194,138,${0.12+x*0.42})`:`rgba(240,85,91,${0.12+(-x)*0.42})`;}
   function bindFocusRows(root){$$('[data-sym]',root).forEach(el=>{const go=()=>openOrFocus('GP',{ticker:el.dataset.sym,tf:'6M'});el.onclick=go;el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});}
 
+  /* ---------- interactive charts: TradingView Lightweight Charts™ v5.2.1 (Apache-2.0), self-hosted at /terminal/vendor ----------
+     The library only draws. Every bar and value comes from /api/* like the rest of the page; indicators are computed
+     here from those real bars (DERIVED). A chart lives in a host element kept across repaints of its window, so zoom,
+     scroll and the crosshair survive the refreshes of quotes and data. */
+  const LW=window.LightweightCharts||null;
+  const deepSet=(a,b)=>{for(const k in b){const v=b[k];a[k]=v&&typeof v==='object'&&!Array.isArray(v)&&a[k]&&typeof a[k]==='object'?deepSet(a[k],v):v;}return a;};
+  function lwHost(win,key){const m=win._lw||(win._lw={});(win._lwUsed||(win._lwUsed=new Set())).add(key);let h=m[key];
+    if(!h){const el=document.createElement('div');el.className='lw-host';el.innerHTML='<div class="lw-leg"></div><div class="lw-msg"></div>';h=m[key]={key,el,chart:null,sig:'',dsig:'',s:{}};}return h;}
+  function lwDrop(win){const m=win&&win._lw;if(m)Object.values(m).forEach(lwReset);if(win){win._lw=null;win._lwUsed=null;}}
+  // after a repaint, charts the window no longer shows are released
+  function lwSweep(win){const m=win._lw,used=win._lwUsed||new Set();if(m)Object.keys(m).forEach(k=>{if(!used.has(k)){lwReset(m[k]);delete m[k];}});win._lwUsed=new Set();}
+  function lwFit(h,tries=0){if(!h.chart)return;const ts=h.chart.timeScale();if(!ts.width()&&tries<40){clearTimeout(h.zt);h.zt=setTimeout(()=>lwFit(h,tries+1),50);return;}ts.fitContent();}
+  // real series on one interactive time axis (SPRD, CROSS, BT, COMP): dated points in, nothing interpolated
+  function lwLines(win,box,key,series,opt={}){const h=lwHost(win,key);if(box)box.appendChild(h.el);const leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
+    if(!LW){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return h;}
+    const ok=series.map(x=>({...x,pts:(x.pts||[]).filter(p=>p&&p.time&&fin(p.value))})).filter(x=>x.pts.length);
+    if(!ok.length){lwReset(h);leg.innerHTML='';msg.textContent=opt.empty||'N/A';return h;}
+    msg.textContent='';
+    const sig=[key,ok.map(x=>x.name+x.col+(x.base!=null?'b':'')).join(),opt.mode||0,C.amber,C.up,C.down,I18N.locale()].join('|'),dsig=ok.map(x=>x.pts.length+':'+x.pts[0].time+':'+x.pts[x.pts.length-1].time+':'+x.pts[x.pts.length-1].value).join('|');
+    if(h.sig!==sig){lwReset(h);const ch=h.chart=LW.createChart(h.el,lwOpts({timeScale:{lockVisibleTimeRangeOnResize:true},rightPriceScale:{scaleMargins:{top:0.14,bottom:0.1}}}));h.sig=sig;
+      ok.forEach((x,i)=>{h.s[i]=x.base!=null?ch.addSeries(LW.BaselineSeries,{baseValue:{type:'price',price:x.base},topLineColor:C.up,bottomLineColor:C.down,topFillColor1:hexA(C.up,0.22),topFillColor2:hexA(C.up,0.02),bottomFillColor1:hexA(C.down,0.02),bottomFillColor2:hexA(C.down,0.22),lineWidth:2,priceFormat:opt.pf,priceLineVisible:false})
+        :ch.addSeries(LW.LineSeries,{color:x.col,lineWidth:x.w||2,lineStyle:x.dash?2:0,priceFormat:opt.pf,priceLineVisible:false});});
+      if(opt.mode)ch.priceScale('right').applyOptions({mode:opt.mode});
+      if(opt.ref!=null)h.s[0].createPriceLine({price:opt.ref,color:C.dim,lineWidth:1,lineStyle:2,axisLabelVisible:false,title:''});
+      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;lwLinesLegend(h,h.lastP);});ch.subscribeDblClick(()=>ch.timeScale().fitContent());}
+    if(h.dsig!==dsig){h.dsig=dsig;h.lines=ok;h.fmt=opt.fmt||(v=>v.toFixed(2));ok.forEach((x,i)=>h.s[i].setData(x.pts.map(p=>({time:p.time,value:p.value}))));lwFit(h);}
+    h.lines=ok;lwLinesLegend(h,h.lastP||null);return h;}
+  function lwLinesLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.lines)return;const f=h.fmt;let when='';
+    const parts=h.lines.map((x,i)=>{let v;if(p){const d=p.seriesData.get(h.s[i]);v=d?d.value:null;when=tKey(p.time);}else{const l=x.pts[x.pts.length-1];v=l.value;if(!when||tKey(l.time)>when)when=tKey(l.time);}
+      return`<i class="sw" style="background:${x.base!=null?(fin(v)&&v<x.base?C.down:C.up):x.col}"></i>${esc(x.name)} <span class="v">${fin(v)?f(v):'—'}</span>`;});
+    leg.innerHTML=(when?`<span>${esc(isDay(when)?fmtDay(when):when)}</span> &nbsp;`:'')+parts.join(' &nbsp;');}
+  // a yield curve on a true maturity axis (months): the latest publication and the one before it
+  const tenorLabel=m=>m<12?Math.round(m)+'M':(m%12?(m/12).toFixed(1):m/12)+'Y';
+  function lwCurve(win,box,key,c){const h=lwHost(win,key);if(box)box.appendChild(h.el);const leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
+    if(!LW||!LW.createYieldCurveChart){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return h;}
+    const pts=c.points.filter(p=>fin(p.months)&&fin(p.value)).sort((a,b)=>a.months-b.months);if(pts.length<2){lwReset(h);leg.innerHTML='';msg.textContent='N/A';return h;}
+    msg.textContent='';const prev=pts.filter(p=>fin(p.changeBp)).map(p=>({time:p.months,value:+(p.value-p.changeBp/100).toFixed(4)}));
+    const sig=[key,C.amber,I18N.locale(),pts[pts.length-1].months].join('|'),dsig=c.timestamp+':'+pts.map(p=>p.value).join();
+    if(h.sig!==sig){lwReset(h);const ch=h.chart=LW.createYieldCurveChart(h.el,lwOpts({yieldCurve:{baseResolution:1,minimumTimeRange:Math.max(12,pts[pts.length-1].months),startTimeRange:0,formatTime:tenorLabel},layout:{attributionLogo:false},timeScale:{rightOffset:1,lockVisibleTimeRangeOnResize:true},leftPriceScale:{visible:false},rightPriceScale:{visible:true,scaleMargins:{top:0.2,bottom:0.1}},localization:{priceFormatter:v=>v.toFixed(2)+'%'},handleScroll:false,handleScale:false}));h.sig=sig;
+      h.s.prev=ch.addSeries(LW.LineSeries,{color:C.dim,lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,pointMarkersVisible:false,priceFormat:{type:'price',precision:2,minMove:0.01}});
+      h.s.cur=ch.addSeries(LW.LineSeries,{color:C.amber,lineWidth:2,priceLineVisible:false,pointMarkersVisible:true,pointMarkersRadius:2.5,priceFormat:{type:'price',precision:2,minMove:0.01}});
+      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;lwCurveLegend(h,h.lastP);});}
+    if(h.dsig!==dsig){h.dsig=dsig;h.curve=c;h.pts=pts;h.s.cur.setData(pts.map(p=>({time:p.months,value:p.value})));h.s.prev.setData(prev);lwFit(h);}
+    lwCurveLegend(h,h.lastP||null);return h;}
+  function lwCurveLegend(h,p){const leg=h.el.querySelector('.lw-leg');if(!leg||!h.pts)return;const c=h.curve;let pt=null;
+    if(p){const m=typeof p.time==='number'?p.time:null;pt=h.pts.find(x=>x.months===m)||null;}
+    leg.innerHTML=pt?`<b>${esc(pt.tenor)}</b> <span class="v">${pt.value.toFixed(3)}%</span>${fin(pt.changeBp)?` <span class="${cls(pt.changeBp)}">${pt.changeBp>=0?'+':''}${pt.changeBp.toFixed(1)} bp</span>`:''}${pt.note?` <span>${esc(pt.note)}</span>`:''}`
+      :`<i class="sw" style="background:${C.amber}"></i>${esc(c.timestamp)}${c.previousDate?` &nbsp;<i class="sw" style="background:${C.dim}"></i>${esc(c.previousDate)}`:''}`;}
+  function lwReset(h){if(h.chart){try{h.chart.remove();}catch(e){}}h.chart=null;h.sig='';h.dsig='';h.s={};h.rows=null;h.lines=null;}
+  function lwFont(){return getComputedStyle(document.body).fontFamily;}
+  function lwOpts(extra){return deepSet({autoSize:true,
+      layout:{background:{type:'solid',color:C.panel},textColor:C.muted,fontFamily:lwFont(),fontSize:10,attributionLogo:true,
+        panes:{separatorColor:C.line,separatorHoverColor:hexA(C.amber,0.25),enableResize:true}},
+      grid:{vertLines:{color:C.grid},horzLines:{color:C.grid}},
+      rightPriceScale:{borderColor:C.line,scaleMargins:{top:0.12,bottom:0.08}},
+      timeScale:{borderColor:C.line,rightOffset:4,minBarSpacing:0.3},
+      crosshair:{mode:0,vertLine:{color:C.dim,labelBackgroundColor:C['line-2']||C.line},horzLine:{color:C.dim,labelBackgroundColor:C['line-2']||C.line}},
+      localization:{locale:I18N.locale()}},extra||{});}
+  // intraday bars arrive in UTC; they are drawn on the exchange's own clock (the chart's time axis has no time zones)
+  const TZF={};
+  function tzOffMin(tz,ms){try{const f=TZF[tz]||(TZF[tz]=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric'}));const p={};f.formatToParts(new Date(ms)).forEach(x=>{p[x.type]=x.value;});return Math.round((Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-Math.floor(ms/60000)*60000)/60000);}catch(e){return 0;}}
+  const isDay=t=>/^\d{4}-\d{2}-\d{2}$/.test(String(t));
+  function lwTime(t,tz){if(isDay(t))return t;const ms=Date.parse(t);return Math.floor(ms/1000)+tzOffMin(tz||'UTC',ms)*60;}
+  const tKey=x=>typeof x==='number'?String(x):typeof x==='string'?x:x&&x.year?`${x.year}-${String(x.month).padStart(2,'0')}-${String(x.day).padStart(2,'0')}`:'';
+  function pxDec(t,v){if(t&&t.sym.includes('/'))return v<10?5:v<1000?3:2;return Math.abs(v)<1?4:2;}
+  const pxFmt=(v,d)=>fin(v)?v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+  // indicators on real closes (DERIVED): simple moving average, Bollinger bands (20 bars, 2 standard deviations), Wilder's RSI
+  function smaArr(v,n){const o=new Array(v.length).fill(null);let s=0;for(let i=0;i<v.length;i++){s+=v[i];if(i>=n)s-=v[i-n];if(i>=n-1)o[i]=s/n;}return o;}
+  function bollArr(v,n,k){const m=smaArr(v,n),up=new Array(v.length).fill(null),lo=up.slice();for(let i=n-1;i<v.length;i++){let q=0;for(let j=i-n+1;j<=i;j++)q+=(v[j]-m[i])**2;const sd=Math.sqrt(q/n);up[i]=m[i]+k*sd;lo[i]=m[i]-k*sd;}return{up,lo};}
+  function rsiArr(v,n){const o=new Array(v.length).fill(null);if(v.length<=n)return o;let g=0,l=0;for(let i=1;i<=n;i++){const d=v[i]-v[i-1];if(d>0)g+=d;else l-=d;}g/=n;l/=n;o[n]=l===0?100:100-100/(1+g/l);
+    for(let i=n+1;i<v.length;i++){const d=v[i]-v[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l===0?100:100-100/(1+g/l);}return o;}
+
+  // ---- GP price chart ----
+  const GP_TF=["1D","5D","1M","3M","6M","YTD","1Y","3Y","5Y","10Y","MAX"];
+  const GP_IND=[['vol','VOL'],['ma20','SMA 20'],['ma50','SMA 50'],['ma200','SMA 200'],['bb','BOLL 20·2'],['rsi','RSI 14']];
+  const GP_MA={ma20:[20,'#22d3ee'],ma50:[50,'#c084fc'],ma200:[200,'#e5e7eb']};
+  const CMP_COL=['#60a5fa','#f472b6','#a3e635'];
+  const gpTf=tf=>GP_TF.includes(tf)?tf:tf==='1W'?'5D':'6M';
+  // where the bars come from: intraday requests for 1D and 5D; ONE daily request (5 years) serves 1M…5Y — those
+  // buttons only move the view, so they cost nothing; 10Y in weekly bars; MAX in monthly bars
+  function gpSrc(tf){return tf==='1D'?{range:'1D',iv:'5min',intra:true,ttl:120000,about:['5-minute bars, latest session','barre da 5 minuti, ultima seduta']}:
+    tf==='5D'?{range:'5D',iv:'15min',intra:true,ttl:120000,about:['15-minute bars, last 5 sessions','barre da 15 minuti, ultime 5 sedute']}:
+    tf==='10Y'?{range:'10Y',iv:'1week',ttl:3600000,about:['weekly bars, 10 years, split-adjusted','barre settimanali, 10 anni, rettificate per gli split']}:
+    tf==='MAX'?{range:'MAX',iv:'1month',ttl:3600000,about:['monthly bars, all the history the provider has, split-adjusted','barre mensili, tutto lo storico del fornitore, rettificate per gli split']}:
+    {range:'5Y',iv:'1day',ttl:1800000,zoom:true,about:['daily bars, 5 years, split-adjusted','barre giornaliere, 5 anni, rettificate per gli split']};}
+  function gpFrom(tf,last){if(tf==='YTD')return last.slice(0,4)+'-01-01';const m={"1M":1,"3M":3,"6M":6,"1Y":12,"3Y":36}[tf];if(!m)return null;const d=new Date(last+'T12:00:00Z');d.setUTCMonth(d.getUTCMonth()-m);return d.toISOString().slice(0,10);}
+  const histSt=e=>P.historyStatus(e&&e.data?histMeta(e.data):null,{error:e&&e.err});
+  function gpRows(d){const tz=d.exchangeTimezone||'UTC',seen=new Set();return d.points.filter(p=>fin(p.c)).map(p=>({time:lwTime(p.t,tz),t:p.t,o:p.o,h:p.h,l:p.l,c:p.c,v:p.v})).filter(r=>{const k=tKey(r.time);if(seen.has(k))return false;seen.add(k);return true;});}
+  const toBar=r=>({time:r.time,open:r.o,high:r.h,low:r.l,close:r.c});
+  const toVal=r=>({time:r.time,value:r.c});
+  // the newest bar follows the live quote: a bar still forming takes the latest price; a session the daily history
+  // does not have yet is drawn from the quote's own open / high / low / last (real, venue subset → PARTIAL)
+  function gpLiveBar(t,d,rows,src){if(src.intra||!rows.length||!t.q||instStatus(t)!==S.LIVE||!fin(t.px))return null;const last=rows[rows.length-1],px=t.px;
+    if(d.lastBarPartial)return{...last,c:px,h:Math.max(fin(last.h)?last.h:px,px),l:Math.min(fin(last.l)?last.l:px,px),live:'merge'};
+    if(src.iv!=='1day')return null;let qd='';try{qd=new Date(t.q.timestamp).toLocaleDateString('en-CA',{timeZone:d.exchangeTimezone||'UTC'});}catch(e){}
+    if(!isDay(qd)||qd<=last.t||!fin(t.open))return null;
+    return{time:qd,t:qd,o:t.open,h:Math.max(fin(t.dayHigh)?t.dayHigh:px,px,t.open),l:Math.min(fin(t.dayLow)?t.dayLow:px,px,t.open),c:px,v:null,live:'new'};}
+  function gpWhen(r,h){if(!isDay(r.t)){try{return new Date(r.t).toLocaleString(I18N.locale(),{timeZone:h.tz||'UTC',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});}catch(e){return r.t;}}
+    if(h.iv==='1month')return new Date(r.t+'T12:00:00Z').toLocaleDateString(I18N.locale(),{month:'short',year:'numeric',timeZone:'UTC'});
+    return(h.iv==='1week'?tl('week of ','settimana del '):'')+fmtDay(r.t);}
+  // your notes on this symbol, on the bar of the day they were written
+  function gpMarkers(h,t){h.notes=new Map();if(!h.mk||!h.rows)return;const rows=h.rows,intra=!isDay(rows[0].t);
+    (NT.list||[]).filter(n=>n.sym&&String(n.sym).toUpperCase()===t.sym&&n.created&&n.text).forEach(n=>{const at=Date.parse(n.created);if(!fin(at))return;let r=null;
+      if(intra){for(const x of rows){if(Date.parse(x.t)<=at)r=x;else break;}}
+      else{const day=new Date(at).toLocaleDateString('en-CA',{timeZone:h.tz||'UTC'});for(const x of rows){if(x.t<=day)r=x;else break;}}
+      if(!r||(intra&&at-Date.parse(rows[rows.length-1].t)>86400000))return;const k=tKey(r.time);h.notes.set(k,(h.notes.get(k)?h.notes.get(k)+' · ':'')+n.text);});
+    try{h.mk.setMarkers([...h.notes.keys()].sort((a,b)=>h.idx.get(a)-h.idx.get(b)).map(k=>({time:rows[h.idx.get(k)].time,position:'aboveBar',color:C.amber,shape:'circle',text:'✎'})));}catch(e){}}
+  // the studies follow the live bar too: recomputed with its price, so lines and legend end on the same bar as the candles
+  function gpLiveInd(h,lb){h.liveInd={};if(!h.ind)return;const cl=h.rows.map(r=>r.c);if(lb.live==='new')cl.push(lb.c);else cl[cl.length-1]=lb.c;const put=(k,v)=>{h.liveInd[k]=v;if(fin(v)&&h.s[k])try{h.s[k].update({time:lb.time,value:v});}catch(e){}};
+    Object.keys(GP_MA).forEach(k=>{if(h.s[k]){const n=GP_MA[k][0];put(k,cl.length>=n?smaArr(cl.slice(-n),n)[n-1]:null);}});
+    if(h.s.bbU){const b=cl.length>=20?bollArr(cl.slice(-20),20,2):null;put('bbU',b?b.up[19]:null);put('bbL',b?b.lo[19]:null);}
+    if(h.s.rsi){const a=rsiArr(cl,14);put('rsi',a[a.length-1]);}}
+  function gpZoom(win,h,tries=0){if(!h.chart||!h.rows)return;const ts=h.chart.timeScale();
+    if(!ts.width()&&tries<40){clearTimeout(h.zt);h.zt=setTimeout(()=>gpZoom(win,h,tries+1),50);return;}
+    const st=win.state,rows=h.rows,last=h.live&&h.live.live==='new'?h.live.t:rows[rows.length-1].t;h.tf=st.tf;
+    const from=gpSrc(st.tf).zoom?gpFrom(st.tf,last):null;
+    if(from&&from>rows[0].t){try{ts.setVisibleRange({from,to:last});}catch(e){ts.fitContent();}}else ts.fitContent();
+    try{h.chart.priceScale('right').applyOptions({autoScale:true});}catch(e){}}
+  function gpLegend(win,h,p){const leg=h.el.querySelector('.lw-leg'),t=BY[win.state.ticker];if(!leg||!h.rows||!t)return;
+    const rows=h.rows;let i=rows.length-1,r=rows[i];
+    if(p&&p.time!==undefined){const k=tKey(p.time);if(h.live&&tKey(h.live.time)===k){r=h.live;i=h.live.live==='new'?rows.length:rows.length-1;}else if(h.idx.has(k)){i=h.idx.get(k);r=rows[i];}}
+    else if(h.live){r=h.live;i=h.live.live==='new'?rows.length:rows.length-1;}
+    const prev=i>0?rows[i-1].c:null,dec=pxDec(t,r.c),f=v=>pxFmt(v,dec),ch=fin(prev)?r.c-prev:null,chp=fin(prev)&&prev?ch/prev*100:null;
+    let html=`<b>${esc(t.sym)}</b> <span>${esc(gpWhen(r,h))}</span>`+(fin(r.o)?` O <span class="v">${f(r.o)}</span> H <span class="v">${f(r.h)}</span> L <span class="v">${f(r.l)}</span>`:'')+` C <span class="v">${f(r.c)}</span>`+
+      (fin(ch)?` <span class="${cls(ch)}">${ch>=0?'+':''}${f(ch)} (${pctN(chp)})</span>`:'')+(h.s.vol&&fin(r.v)?` ${tl('Vol','Vol')} <span class="v">${fmtVol(r.v)}</span>`:'')+(r.live?` <span class="note">${tl('· live quote','· quotazione live')}</span>`:'');
+    const j=r.live?null:i,iv=[],li=r.live&&h.liveInd?h.liveInd:{},at=(k)=>j!=null?h.ind[k][j]:li[k];
+    if(h.ind){Object.keys(GP_MA).forEach(k=>{if(h.ind[k]){const v=at(k);iv.push(`<i class="sw" style="background:${GP_MA[k][1]}"></i>SMA ${GP_MA[k][0]} <span class="v">${fin(v)?f(v):'—'}</span>`);}});
+      if(h.ind.bbU){const u=at('bbU'),l=at('bbL');iv.push(`<i class="sw" style="background:${C.muted}"></i>BOLL <span class="v">${fin(u)?f(u):'—'} / ${fin(l)?f(l):'—'}</span>`);}
+      if(h.ind.rsi){const v=at('rsi');iv.push(`<i class="sw" style="background:#c084fc"></i>RSI 14 <span class="v">${fin(v)?v.toFixed(1):'—'}</span>`);}}
+    if(iv.length)html+='<br>'+iv.join(' &nbsp;')+' '+chip(S.DERIVED,'computed here from the real bars');
+    if(h.cmp&&h.cmp.length){const lr=h.chart.timeScale().getVisibleLogicalRange(),from=lr?Math.max(0,Math.ceil(lr.from)):0,MD=(LW.MismatchDirection&&LW.MismatchDirection.NearestRight)||1;
+      const pc=(s,val)=>{let b=null;try{b=s.dataByIndex(from,MD);}catch(e){}const v0=b?(b.value!=null?b.value:b.close):null;return fin(v0)&&v0&&fin(val)?(val/v0-1)*100:null;};
+      const at=p&&p.time!==undefined,mainV=r.c;
+      html+='<br>'+[`<i class="sw" style="background:${h.ct==='candle'?C.fg:C.amber}"></i>${esc(t.sym)} <span class="${cls(pc(h.s.main,mainV))}">${pctN(pc(h.s.main,mainV))}</span>`]
+        .concat(h.cmp.map(c=>{const s=h.s['c:'+c.sym];if(!c.rows.length)return`<i class="sw" style="background:${c.col}"></i>${esc(c.sym)} <span class="down">${c.e.err?'N/A · '+esc(P.errorText(c.e.err)):tl('loading…','carico…')}</span>`;
+          const dd=at&&s?p.seriesData.get(s):null,val=dd?dd.value:at?null:c.rows[c.rows.length-1].c,v=pc(s,val);return`<i class="sw" style="background:${c.col}"></i>${esc(c.sym)} <span class="${cls(v)}">${pctN(v)}</span>`;})).join(' &nbsp;')+` <span>${tl('from the first bar in view','dalla prima barra visibile')}</span>`;}
+    const nt=h.notes&&h.notes.get(tKey(r.time));if(nt)html+=`<br><span class="note">✎ ${esc(nt.length>110?nt.slice(0,110)+'…':nt)}</span>`;
+    leg.innerHTML=html;}
+  function gpSync(win,h,t,e,ce,src){const st=win.state,leg=h.el.querySelector('.lw-leg'),msg=h.el.querySelector('.lw-msg');
+    if(!LW){lwReset(h);leg.innerHTML='';msg.textContent=tl('Chart library not loaded','Libreria dei grafici non caricata');return;}
+    const d=e&&e.data,rows=d&&Array.isArray(d.points)?gpRows(d):[];
+    if(rows.length<2){lwReset(h);leg.innerHTML='';msg.textContent=e&&e.err?`${tl('Real history unavailable','Storico reale non disponibile')} (${P.errorText(e.err)})`:tl('Loading real history…','Carico lo storico reale…');return;}
+    msg.textContent='';
+    const intra=!isDay(rows[0].t),ohlc=rows.every(r=>fin(r.o)&&fin(r.h)&&fin(r.l)),ct=ohlc?st.ct:'line',hasVol=rows.some(r=>fin(r.v)&&r.v>0);
+    const cmp=ce.map((x,i)=>({sym:x.sym,col:CMP_COL[i],e:x.e,rows:x.e&&x.e.data&&Array.isArray(x.e.data.points)?gpRows(x.e.data):[]}));
+    const sig=[t.sym,src.range,src.iv,ct,JSON.stringify(st.ind),!!st.log,cmp.map(c=>c.sym+(c.rows.length?'':'-')).join(),C.amber,C.up,C.down,I18N.locale()].join('|');
+    const dsig=[d.fetchedAt,rows.length,...cmp.map(c=>c.e&&c.e.data?c.e.data.fetchedAt:'')].join('|');
+    let keep=null;if(h.chart&&h.sig!==sig&&h.dkey===src.range+src.iv){try{keep=h.chart.timeScale().getVisibleLogicalRange();}catch(x){}}
+    if(h.sig!==sig){lwReset(h);
+      const ch=h.chart=LW.createChart(h.el,lwOpts({timeScale:{timeVisible:intra,secondsVisible:false,lockVisibleTimeRangeOnResize:true},rightPriceScale:{scaleMargins:{top:0.1,bottom:st.ind.vol&&hasVol?0.24:0.08}}}));h.sig=sig;h.dkey=src.range+src.iv;h.tf=null;h.ct=ct;h.tz=d.exchangeTimezone||'UTC';h.iv=src.iv;
+      const dec=pxDec(t,rows[rows.length-1].c),pf={type:'price',precision:dec,minMove:Math.pow(10,-dec)};
+      h.s.main=ct==='candle'?ch.addSeries(LW.CandlestickSeries,{upColor:C.up,downColor:C.down,borderVisible:false,wickUpColor:C.up,wickDownColor:C.down,priceFormat:pf})
+        :ct==='area'?ch.addSeries(LW.AreaSeries,{lineColor:C.amber,topColor:hexA(C.amber,0.25),bottomColor:hexA(C.amber,0.02),lineWidth:2,priceFormat:pf})
+        :ch.addSeries(LW.LineSeries,{color:C.amber,lineWidth:2,priceFormat:pf});
+      if(st.ind.vol&&hasVol){h.s.vol=ch.addSeries(LW.HistogramSeries,{priceScaleId:'vol',priceFormat:{type:'volume'},lastValueVisible:false,priceLineVisible:false});ch.priceScale('vol').applyOptions({scaleMargins:{top:0.8,bottom:0}});}
+      Object.keys(GP_MA).forEach(k=>{if(st.ind[k])h.s[k]=ch.addSeries(LW.LineSeries,{color:GP_MA[k][1],lineWidth:1,priceFormat:pf,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});});
+      if(st.ind.bb)['bbU','bbL'].forEach(k=>{h.s[k]=ch.addSeries(LW.LineSeries,{color:C.muted,lineWidth:1,lineStyle:2,priceFormat:pf,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});});
+      cmp.forEach(c=>{if(c.rows.length)h.s['c:'+c.sym]=ch.addSeries(LW.LineSeries,{color:c.col,lineWidth:2,priceFormat:pf,priceLineVisible:false});});
+      if(st.ind.rsi){h.s.rsi=ch.addSeries(LW.LineSeries,{color:'#c084fc',lineWidth:1,priceFormat:{type:'price',precision:1,minMove:0.1},priceLineVisible:false},1);
+        [70,30].forEach(v=>h.s.rsi.createPriceLine({price:v,color:C.dim,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''}));try{const ps=ch.panes();ps[0].setStretchFactor(3);ps[1].setStretchFactor(1);}catch(x){}}
+      ch.priceScale('right').applyOptions({mode:cmp.some(c=>c.rows.length)?LW.PriceScaleMode.Percentage:st.log?LW.PriceScaleMode.Logarithmic:LW.PriceScaleMode.Normal});
+      try{LW.createTextWatermark(ch.panes()[0],{horzAlign:'center',vertAlign:'center',lines:[{text:t.sym,color:hexA(C.fg,0.05),fontSize:40,fontFamily:lwFont()}]});}catch(x){}
+      h.mk=LW.createSeriesMarkers(h.s.main,[]);
+      ch.subscribeCrosshairMove(p=>{h.lastP=p&&p.time!==undefined?p:null;gpLegend(win,h,h.lastP);});
+      // compare percentages are measured from the first bar in view: the legend follows zoom and scroll
+      ch.timeScale().subscribeVisibleLogicalRangeChange(()=>{if(h.cmp&&h.cmp.length)gpLegend(win,h,h.lastP||null);});
+      ch.subscribeDblClick(()=>gpZoom(win,h));}
+    if(h.dsig!==dsig){h.dsig=dsig;h.rows=rows;h.idx=new Map(rows.map((r,i)=>[tKey(r.time),i]));h.live=null;h.livePx=null;
+      h.s.main.setData(h.ct==='candle'?rows.map(toBar):rows.map(toVal));
+      if(h.s.vol)h.s.vol.setData(rows.map((r,i)=>fin(r.v)?{time:r.time,value:r.v,color:hexA((fin(r.o)?r.c>=r.o:i===0||r.c>=rows[i-1].c)?C.up:C.down,0.35)}:null).filter(Boolean));
+      const cl=rows.map(r=>r.c),ser=a=>rows.map((r,i)=>a[i]==null?null:{time:r.time,value:a[i]}).filter(Boolean);h.ind={};
+      Object.keys(GP_MA).forEach(k=>{if(h.s[k]){h.ind[k]=smaArr(cl,GP_MA[k][0]);h.s[k].setData(ser(h.ind[k]));}});
+      if(h.s.bbU){const b=bollArr(cl,20,2);h.ind.bbU=b.up;h.ind.bbL=b.lo;h.s.bbU.setData(ser(b.up));h.s.bbL.setData(ser(b.lo));}
+      if(h.s.rsi){h.ind.rsi=rsiArr(cl,14);h.s.rsi.setData(ser(h.ind.rsi));}
+      h.cmp=cmp;cmp.forEach(c=>{const s=h.s['c:'+c.sym];if(s)s.setData(c.rows.map(toVal));});
+      h.nsig=null;
+      if(keep){try{h.chart.timeScale().setVisibleLogicalRange(keep);}catch(x){}h.tf=st.tf;}}
+    const nsig=(NT.list||[]).filter(n=>n.sym&&String(n.sym).toUpperCase()===t.sym).map(n=>n.id+(n.updated||'')).join();if(h.nsig!==nsig){h.nsig=nsig;gpMarkers(h,t);}
+    const lb=gpLiveBar(t,d,h.rows,src);
+    if(lb&&(h.livePx!==t.px||!h.live)){h.livePx=t.px;h.live=lb;try{h.s.main.update(h.ct==='candle'?toBar(lb):toVal(lb));gpLiveInd(h,lb);}catch(x){h.live=null;}}
+    if(h.tf!==st.tf)gpZoom(win,h);
+    gpLegend(win,h,null);}
+  function gpCaption(e,src,st){const d=e&&e.data,hs=histSt(e);
+    if(!d)return`${chip(hs)} ${e&&e.err?tl('real history unavailable — ','storico reale non disponibile — ')+esc(P.errorText(e.err)):tl('requesting real history…','richiedo lo storico reale…')}`;
+    const bits=[`${chip(hs,'history: '+hs)} Twelve Data · ${tl(...src.about)} · ${d.count} ${tl('bars','barre')} · ${tl('fetched','scaricato alle')} ${fmtTime(d.fetchedAt)}`];
+    if(src.intra)bits.push(tl('times in exchange time','orari della borsa')+(d.exchangeTimezone?' ('+esc(d.exchangeTimezone)+')':''));
+    if(d.lastBarPartial)bits.push(tl('last bar still forming','ultima barra ancora in formazione'));
+    if(st.ind.vol)bits.push(src.intra?tl('intraday volume may cover only part of the venues','il volume intraday può coprire solo parte delle sedi'):tl('volume consolidated; today only part of the venues','volume consolidato; oggi solo parte delle sedi'));
+    if(['ma20','ma50','ma200','bb','rsi'].some(k=>st.ind[k]))bits.push(`${chip(S.DERIVED,'computed here from the real bars')} ${tl('indicators computed from these bars','indicatori calcolati da queste barre')}`);
+    if(st.cmp.length)bits.push(tl('compare: % change from the first bar in view','confronto: variazione % dalla prima barra visibile'));
+    if(hs===S.STALE&&d.staleReason)bits.push(tl('refresh failed: ','aggiornamento fallito: ')+esc(P.errorText(d.staleReason)));
+    bits.push(tl('wheel: zoom · drag: pan · double-click: reset','rotellina: zoom · trascina: sposta · doppio clic: reimposta'));
+    return bits.join(' · ');}
+
   /* ---------- content renderers (each paints into a window body and declares its provenance) ---------- */
-  function renderSecurity(body,win){const t=BY[win.state.ticker],tfv=win.state.tf,ist=instStatus(t),intr=tfv==='1D';
-    const chgAbs=fin(t.px)&&fin(t.prev)?t.px-t.prev:null,fs=k=>fStatus(t,k);
+  function renderSecurity(body,win){const st=win.state,t=BY[st.ticker],ist=instStatus(t);st.tf=gpTf(st.tf);st.ct=st.ct||'candle';st.ind=st.ind||{vol:true};st.cmp=(st.cmp||[]).filter(s=>s&&s!==t.sym).slice(0,3);
+    const chgAbs=fin(t.px)&&fin(t.prev)?t.px-t.prev:null,fs=k=>fStatus(t,k),src=gpSrc(st.tf);
     const failBanner=!t.q&&t.qErr==='plan_required'?`<div class="banner warn"><b>N/A</b> — quote and history unavailable: ${esc(planText(t))}. No substitute value is shown.</div>`:
       !t.q&&t.qErr?`<div class="banner warn"><b>N/A</b> — quote unavailable: ${esc(P.errorText(t.qErr))}. No substitute value is shown.</div>`:
       ist===S.STALE?`<div class="banner warn"><b>STALE</b> — last real quote from ${fmtDT(t.q.timestamp)}${t.q.staleReason?'; refresh failed: '+esc(P.errorText(t.q.staleReason)):''}.</div>`:'';
-    body.innerHTML=`
+    // a listing outside the data plan costs no credit: no history request at all
+    const blocked=!!(t._planBlocked||(!t.q&&t.qErr==='plan_required'))||!isLiveSym(t.sym);
+    const e=blocked?{err:'plan_required'}:hist7(t.sym,src.range,'splits',['GP'],{interval:src.iv,ttl:src.ttl});
+    const ce=blocked?[]:st.cmp.map(s=>({sym:s,e:hist7(s,src.range,'splits',['GP'],{interval:src.iv,ttl:src.ttl})}));
+    if(!NT.list&&!NT.loading&&!NT.err)noteLoad();
+    body.innerHTML=`<div class="gp-body">
       <div class="sec-top">
         <div class="sec-id"><div class="sym">${t.sym} ${chip(ist,instTitle(t),true)}</div><div class="nm">${esc(t.name||'—')}</div><div class="ex">${esc(t.ex||'—')}${t.mic?' · '+esc(t.mic):''}${t.country?' · '+esc(t.country):''}${t.cur?' · '+esc(t.cur):''}${t.itype?' · '+esc(t.itype):''} · <span title="static GICS sector classification">${SECT[t.sect]||'—'}</span></div></div>
         <div class="sec-px"><div class="last num" title="${esc(instTitle(t))}">${pxText(t)}</div><div class="chg num ${cls(t.chg)}">${sign(chgAbs)} (${pct(t.chg)})</div></div>
       </div>${failBanner}
-      <div class="tfbar">${["1D","1W","1M","3M","6M","1Y"].map(x=>`<button class="tf" data-tf="${x}" aria-pressed="${x===tfv}">${x}</button>`).join('')}</div>
-      <div class="chart-box"><canvas aria-label="${t.sym} price chart"></canvas></div>
-      <div class="src-line">${chartCaption(t,tfv)}</div>
+      <div class="gp-bar">
+        <div class="tfbar" role="group" aria-label="${tl('Period','Periodo')}">${GP_TF.map(x=>`<button class="tf" data-tf="${x}" aria-pressed="${x===st.tf}">${x}</button>`).join('')}</div>
+        <div class="tfbar" role="group" aria-label="${tl('Chart type','Tipo di grafico')}">${[['candle',tl('CANDLES','CANDELE')],['line',tl('LINE','LINEA')],['area','AREA']].map(([k,l])=>`<button class="tf" data-ct="${k}" aria-pressed="${k===st.ct}">${l}</button>`).join('')}</div>
+        <div class="tfbar" role="group" aria-label="${tl('Studies','Studi')}">${GP_IND.map(([k,l])=>`<button class="tf" data-ind="${k}" aria-pressed="${!!st.ind[k]}">${l}</button>`).join('')}<button class="tf" data-log aria-pressed="${!!st.log}" title="${tl('logarithmic price scale','scala dei prezzi logaritmica')}">LOG</button><button class="tf" data-note title="${tl('write a note on this symbol: it appears on the chart','scrivi una nota su questo simbolo: compare sul grafico')}">✎ ${tl('NOTE','NOTA')}</button></div>
+        <div class="gp-cmp">${st.cmp.map((s,i)=>`<span class="leg-item"><i style="background:${CMP_COL[i]}"></i>${esc(s)}<button class="gp-x" data-uncmp="${esc(s)}" title="${tl('remove','togli')} ${esc(s)}" aria-label="${tl('remove','togli')} ${esc(s)}">✕</button></span>`).join('')}${st.cmp.length<3&&!blocked?`<input class="gp-in" data-k="gp-cmp" placeholder="${tl('+ compare symbol','+ confronta simbolo')}" maxlength="24" spellcheck="false" autocomplete="off" aria-label="${tl('Compare with another symbol','Confronta con un altro simbolo')}">`:''}</div>
+      </div>
+      <div class="chart-box gp-box" aria-label="${esc(t.sym)} price chart"></div>
+      <div class="src-line">${blocked?`${chip(S.NA)} ${tl('no history: the listing is outside the data plan','nessuno storico: quotazione fuori dal piano dati')}`:gpCaption(e,src,st)}</div>
       <div class="stat-grid">
         ${stat(tl("OPEN","APERTURA"),pxText(t,t.open),fs('open'),fnote(t,'open',OHL_NOTE))}${stat("PREV CLOSE",pxText(t,t.prev),fs('prevClose'))}${stat("DAY HIGH",pxText(t,t.dayHigh),fs('high'),fnote(t,'high',OHL_NOTE))}${stat("DAY LOW",pxText(t,t.dayLow),fs('low'),fnote(t,'low',OHL_NOTE))}
         ${stat("VOLUME",fmtVol(t.vol),fs('volume'),fnote(t,'volume',VOL_NOTE))}${stat("52W RANGE",fin(t.lo52)&&fin(t.hi52)?pxText(t,t.lo52)+" – "+pxText(t,t.hi52):'—',fs('fiftyTwoWeekLow'))}${stat("MKT CAP",'<span class="na">N/A</span>',S.NA,NA_FUND)}${stat("P/E",'<span class="na">N/A</span>',S.NA,NA_FUND)}
-      </div>`;
-    setProv(win,{[t.sym]:ist,['chart:'+t.sym]:histStatus(t,intr)});
-    $$('.tfbar .tf',body).forEach(b=>b.onclick=()=>{win.state.tf=b.dataset.tf;paintWin(win);});
-    requestAnimationFrame(()=>drawChart(body.querySelector('canvas'),t,win.state.tf));
-    DATA.ensureSeries(t.sym);if(win.state.tf==='1D')DATA.ensureIntraday(t.sym);}
+      </div></div>`;
+    const items={[t.sym]:ist,['chart:'+t.sym]:blocked?S.NA:histSt(e)};ce.forEach(c=>{items['chart:'+c.sym]=histSt(c.e);});
+    if(['ma20','ma50','ma200','bb','rsi'].some(k=>st.ind[k]))items['ind:'+t.sym]=S.DERIVED;setProv(win,items);
+    $$('[data-tf]',body).forEach(b=>b.onclick=()=>{st.tf=b.dataset.tf;paintWin(win);});
+    $$('[data-ct]',body).forEach(b=>b.onclick=()=>{st.ct=b.dataset.ct;paintWin(win);});
+    $$('[data-ind]',body).forEach(b=>b.onclick=()=>{const k=b.dataset.ind;st.ind={...st.ind,[k]:!st.ind[k]};paintWin(win);});
+    const lg=body.querySelector('[data-log]');lg.onclick=()=>{st.log=!st.log;paintWin(win);};
+    body.querySelector('[data-note]').onclick=()=>{NT.form={sym:t.sym,text:''};openOrFocus('NOTE',defaultState('NOTE'));repaintTypes(['NOTE','GP']);};
+    $$('[data-uncmp]',body).forEach(b=>b.onclick=()=>{st.cmp=st.cmp.filter(s=>s!==b.dataset.uncmp);paintWin(win);});
+    const inp=body.querySelector('.gp-in');if(inp){inp.value=st.cmpQ||'';inp.oninput=()=>{st.cmpQ=inp.value;};
+      inp.onkeydown=ev=>{if(ev.key!=='Enter')return;ev.preventDefault();const s=inp.value.trim().toUpperCase();st.cmpQ='';
+        if(/^[A-Z0-9][A-Z0-9.:\/^-]{0,23}$/.test(s)&&s!==t.sym&&!st.cmp.includes(s)&&st.cmp.length<3)st.cmp.push(s);paintWin(win);};}
+    const h=lwHost(win,'gp');body.querySelector('.gp-box').appendChild(h.el);
+    if(blocked){lwReset(h);h.el.querySelector('.lw-leg').innerHTML='';h.el.querySelector('.lw-msg').textContent=tl('N/A — no history for this listing on the current data plan','N/D — nessuno storico per questa quotazione con il piano dati attuale');return;}
+    gpSync(win,h,t,e,ce,src);}
 
   function renderWatchlistWin(body,win){body.style.padding="0";const items={};
     const rows=UNI.map(t=>{const st=instStatus(t);items[t.sym]=st;
@@ -806,18 +1027,6 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <table class="pf"><thead><tr><th class="l">INDEX</th><th>LEVEL</th><th>CHG%</th><th>OPEN / HIGH / LOW</th><th>52W</th><th>TIME</th><th>DATA</th></tr></thead><tbody>${INDEX_ROWS.map(n=>`<tr><td class="l">${n}</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="num na">N/A</td><td class="na">—</td><td>${chip(S.NA,'no licensed source')}</td></tr>`).join('')}</tbody></table>`;}
 
   // ---- YIELDS: official curves (U.S. Treasury, ECB) — no interpolated or estimated points ----
-  function drawYieldCurve(cv,c){if(!cv||!cv.clientWidth)return;const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
-    const pts=c.points,padL=44,padR=10,padT=10,padB=18,iw=w-padL-padR,ih=h-padT-padB,prev=p=>fin(p.value)&&fin(p.changeBp)?p.value-p.changeBp/100:null;
-    const vals=[];pts.forEach(p=>{if(fin(p.value))vals.push(p.value);const pv=prev(p);if(fin(pv))vals.push(pv);});
-    if(!vals.length)return drawMsg(cv,'N/A');let mn=Math.min(...vals),mx=Math.max(...vals);const sp=(mx-mn)||0.5;mn-=sp*0.12;mx+=sp*0.12;
-    const X=i=>padL+iw*(pts.length===1?0.5:i/(pts.length-1)),Y=v=>padT+ih*(1-(v-mn)/(mx-mn));
-    ctx.font="10px "+getComputedStyle(cv).fontFamily;ctx.textBaseline="middle";
-    for(let g=0;g<=3;g++){const v=mn+(mx-mn)*g/3,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(v.toFixed(2)+"%",padL-5,y);}
-    ctx.textAlign="center";ctx.textBaseline="top";pts.forEach((p,i)=>{ctx.fillStyle=C.dim;ctx.fillText(p.tenor,X(i),h-padB+4);});
-    // segments only between adjacent published points: a missing maturity breaks the line
-    const line=(get,col,dash)=>{ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(dash);let on=false;ctx.beginPath();pts.forEach((p,i)=>{const v=get(p);if(!fin(v)){on=false;return;}const x=X(i),y=Y(v);on?ctx.lineTo(x,y):ctx.moveTo(x,y);on=true;});ctx.stroke();ctx.setLineDash([]);};
-    line(prev,C.dim,[3,3]);line(p=>p.value,C.amber,[]);
-    pts.forEach((p,i)=>{if(!fin(p.value))return;ctx.fillStyle=C.amber;ctx.beginPath();ctx.arc(X(i),Y(p.value),2.4,0,7);ctx.fill();});}
   const YLD_IDS=['US','EA','DE','UK','JP','CH','CA'],YLD_TITLE={US:'UNITED STATES · U.S. TREASURY',EA:'EURO AREA · ECB',DE:'GERMANY · BUNDESBANK',UK:'UNITED KINGDOM · BANK OF ENGLAND',JP:'JAPAN · MINISTRY OF FINANCE',CH:'SWITZERLAND · SNB',CA:'CANADA · BANK OF CANADA'};
   function renderYields(body,win){const e=EXT.yields;loadExt('yields');const st=win.state;st.c=st.c||'ALL';
     if(!e.data&&!e.err){setProv(win,{'ds:YLD':S.LOADING});body.innerHTML='<div class="empty">Loading official yield curves…</div>';return;}
@@ -830,7 +1039,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       const spread=two&&ten&&fin(two.value)&&fin(ten.value)?((ten.value-two.value)*100).toFixed(1):null;items['yld:'+id]=st;
       html+=`<div class="yc"><div class="yc-h">${esc(c.name.toUpperCase())} ${chip(st,c.kind)}</div>
         <div class="src-line">${esc(c.kind)} · data date ${c.timestamp}${c.previousDate?' · Δ vs '+c.previousDate:''} · fetched ${fmtTime(c.fetchedAt)} · source <a href="${esc(c.sourceUrl)}" target="_blank" rel="noopener">${esc(c.source)}</a>${c.staleReason?' · '+esc(P.errorText(c.staleReason)):''}</div>
-        <div class="chart-box" style="height:150px"><canvas class="yc-cv" data-curve="${id}" aria-label="${id} yield curve"></canvas></div>
+        <div class="chart-box yc-box" style="height:170px" data-curve="${id}" aria-label="${id} yield curve"></div>
         <div class="corr-wrap"><table class="pf"><thead><tr><th class="l">TENOR</th>${c.points.map(p=>`<th>${p.tenor}</th>`).join('')}</tr></thead><tbody>
           <tr><td class="l">YIELD %</td>${c.points.map(p=>`<td class="num"${p.note?` title="${esc(p.note)}"`:''}>${fin(p.value)?p.value.toFixed(2):'<span class="na">N/A</span>'}</td>`).join('')}</tr>
           <tr><td class="l">Δ BP ${chip(S.DERIVED,'difference between the two latest official publications')}</td>${c.points.map(p=>`<td class="num ${cls(p.changeBp)}">${fin(p.changeBp)?(p.changeBp>=0?'+':'')+p.changeBp.toFixed(1):'—'}</td>`).join('')}</tr></tbody></table></div>
@@ -838,7 +1047,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     html+=`<div class="des">Not connected: ${esc((d.notConnected||[]).join(', '))} — N/A until an approved official source is added. Maturities a source does not publish stay N/A; nothing is interpolated.</div>`;
     body.innerHTML=html;setProv(win,items);
     $$('[data-yc]',body).forEach(b=>b.onclick=()=>{st.c=b.dataset.yc;paintWin(win);});const yb=body.querySelector('.y-bond');if(yb)yb.onclick=()=>openOrFocus('BOND',{});
-    requestAnimationFrame(()=>$$('.yc-cv',body).forEach(cv=>{const c=d.curves&&d.curves[cv.dataset.curve];if(c)drawYieldCurve(cv,c);}));}
+    $$('.yc-box',body).forEach(bx=>{const c=d.curves&&d.curves[bx.dataset.curve];if(c)lwCurve(win,bx,'yc:'+bx.dataset.curve,c);});}
 
   function extSources(d){return (d.sources||[]).map(x=>`${chip(x.status,x.staleReason?P.errorText(x.staleReason):x.status)} <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a> · fetched ${fmtTime(x.fetchedAt)}`).concat(Object.entries(d.errors||{}).map(([k,v])=>`${chip(S.NA)} ${k}: ${esc(P.errorText(v.error))}${v.note?' — '+esc(v.note):''}`)).join(' · ');}
   function extItems(d,prefix){const items={};(d.sources||[]).forEach(x=>items[prefix+x.id]=x.status);Object.keys(d.errors||{}).forEach(k=>items[prefix+k]=S.NA);return items;}
@@ -1181,23 +1390,21 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function cmpSeries(st){return st.sel.filter(sym=>BY[sym]).map((sym,i)=>{const t=BY[sym],col=CMPCOL[i%CMPCOL.length],d=tfData(t,st.tf),status=histStatus(t,false);
       if(!d||d.length<2)return{sym,data:null,col,status};
       let nd;if(st.mode==='rebase')nd=d.map(v=>v/d[0]*100);else if(st.mode==='pct')nd=d.map(v=>(v/d[0]-1)*100);else nd=d.slice();return{sym,data:nd,col,status};});}
-  function drawCompareChart(body,st){const cv=body.querySelector('.cmp-chart');if(!cv||!cv.clientWidth)return;const all=cmpSeries(st),series=all.filter(s=>s.data);const {ctx,w,h}=fitCanvas(cv);ctx.clearRect(0,0,w,h);
-    const padL=56,padR=14,padT=12,padB=20,iw=w-padL-padR,ih=h-padT-padB;ctx.font="10px "+getComputedStyle(cv).fontFamily;
-    if(!series.length){ctx.fillStyle=C.dim;ctx.font="12px "+getComputedStyle(cv).fontFamily;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(all.length?"Loading real history…":"Select instruments below",w/2,h/2);return;}
-    let mn=Infinity,mx=-Infinity;series.forEach(s=>s.data.forEach(v=>{if(v<mn)mn=v;if(v>mx)mx=v;}));const sp=(mx-mn)||1;mn-=sp*0.06;mx+=sp*0.06;
-    const Y=v=>padT+ih*(1-(v-mn)/(mx-mn));
-    const fmt=st.mode==='pct'?(v=>(v>=0?'+':'')+v.toFixed(0)+'%'):st.mode==='raw'?axisFmt(null,mn,mx):(v=>v.toFixed(0));
-    ctx.textBaseline="middle";for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,y=Y(v);ctx.strokeStyle=C.grid;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillStyle=C.dim;ctx.textAlign="right";ctx.fillText(fmt(v),padL-7,y);}
-    if(st.mode==='pct'){const y0=Y(0);if(y0>padT&&y0<padT+ih){ctx.strokeStyle=C.line;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(padL,y0);ctx.lineTo(w-padR,y0);ctx.stroke();ctx.setLineDash([]);}}
-    series.forEach(s=>{const n=s.data.length,X=i=>padL+iw*(i/(n-1));ctx.beginPath();s.data.forEach((v,i)=>{const x=X(i),y=Y(v);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.strokeStyle=s.col;ctx.lineWidth=1.5;ctx.lineJoin="round";ctx.stroke();const lx=X(n-1),ly=Y(s.data[n-1]);ctx.fillStyle=s.col;ctx.beginPath();ctx.arc(lx,ly,2.6,0,7);ctx.fill();});}
+  // the selected instruments on one interactive chart: rebased to 100, % change from the first day, or raw prices (real daily closes)
+  function drawCompareChart(body,st,win){const box=body.querySelector('.cmp-chart');if(!box||!win)return;
+    const lines=st.sel.filter(sym=>BY[sym]).map((sym,i)=>{const t=BY[sym],col=CMPCOL[i%CMPCOL.length];if(!t._real||!t.dailyDates)return{name:sym,col,pts:[]};
+      const cut=cutDate(st.tf),raw=[];for(let k=0;k<t.daily.length;k++)if(t.dailyDates[k]>=cut&&fin(t.daily[k]))raw.push({time:t.dailyDates[k],value:t.daily[k]});
+      const b0=raw.length?raw[0].value:null;return{name:sym,col,pts:raw.length<2?[]:raw.map(p=>({time:p.time,value:st.mode==='rebase'?p.value/b0*100:st.mode==='pct'?(p.value/b0-1)*100:p.value}))};});
+    lwLines(win,box,'cmp:'+st.tf+':'+st.mode,lines,{empty:st.sel.length?tl('Loading real history…','Carico lo storico reale…'):tl('Select instruments below','Scegli gli strumenti qui sotto'),
+      fmt:st.mode==='pct'?(v=>(v>=0?'+':'')+v.toFixed(2)+'%'):st.mode==='raw'?(v=>v.toLocaleString('en-US',{maximumFractionDigits:2})):(v=>v.toFixed(1)),ref:st.mode==='pct'?0:st.mode==='rebase'?100:null,pf:{type:'price',precision:2,minMove:0.01}});}
   function renderCompareLegend(body,st){const el=body.querySelector('.cmp-legend');if(!el)return;const series=cmpSeries(st);
     el.innerHTML=series.map(s=>{const last=s.data?s.data[s.data.length-1]:null,val=last==null?'—':st.mode==='pct'?pct(last):st.mode==='raw'?pxText(BY[s.sym],last):last.toFixed(1),c=st.mode==='pct'?cls(last):'';return`<span class="leg-item"><i style="background:${s.col}"></i>${s.sym} ${chip(s.status,'real daily closes')} <b class="${c}">${val}</b></span>`;}).join('')||'<span class="scr-count">No instruments selected</span>';}
   function compareProv(win){const st=win.state,items={};cmpSeries(st).forEach(s=>{items[s.sym]=instStatus(BY[s.sym]);items['chart:'+s.sym]=s.status;});setProv(win,items);}
   function renderCompare(body,win){const st=win.state,tfs=["1M","3M","6M","1Y"],modes=[["rebase","REBASE 100"],["pct","% CHANGE"],["raw","RAW"]];
     st.sel=st.sel.filter(s=>BY[s]);
-    const redraw=()=>{drawCompareChart(body,st);renderCompareLegend(body,st);compareProv(win);renderWinProv(win);updateGlobal();};
+    const redraw=()=>paintWin(win);
     body.innerHTML=`<div class="cmp-controls"><div class="tfbar">${tfs.map(x=>`<button class="tf" data-ctf="${x}" aria-pressed="${x===st.tf}">${x}</button>`).join('')}</div><div class="tfbar">${modes.map(m=>`<button class="tf" data-cmode="${m[0]}" aria-pressed="${m[0]===st.mode}">${m[1]}</button>`).join('')}</div></div>
-      <div class="chart-box" style="height:230px"><canvas class="cmp-chart" aria-label="Comparison chart"></canvas></div>
+      <div class="chart-box cmp-chart" style="height:260px" aria-label="Comparison chart"></div>
       <div class="cmp-legend"></div>
       <div class="chips-label">INSTRUMENTS · click to toggle · real daily closes</div>
       <div class="chips">${[...new Set(UNI.map(t=>t.sym).concat(st.sel))].map(sym=>`<button class="chip" data-csym="${sym}" aria-pressed="${st.sel.includes(sym)}">${sym}</button>`).join('')}</div>`;
@@ -1205,7 +1412,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('[data-cmode]',body).forEach(b=>b.onclick=()=>{st.mode=b.dataset.cmode;$$('[data-cmode]',body).forEach(x=>x.setAttribute('aria-pressed',x===b));redraw();});
     $$('[data-csym]',body).forEach(b=>b.onclick=()=>{const s=b.dataset.csym,i=st.sel.indexOf(s);if(i>=0)st.sel.splice(i,1);else st.sel.push(s);b.setAttribute('aria-pressed',st.sel.includes(s));DATA.ensureSeries(s);redraw();});
     compareProv(win);
-    requestAnimationFrame(()=>{drawCompareChart(body,st);renderCompareLegend(body,st);});
+    renderCompareLegend(body,st);drawCompareChart(body,st,win);
     st.sel.forEach(s=>DATA.ensureSeries(s));}
 
   // returns on the dates both real histories share (last 90 sessions)
@@ -1443,8 +1650,6 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function bigN(v){if(!fin(v))return'—';const a=Math.abs(v);return a>=1e9?(v/1e9).toFixed(2)+'B':a>=1e6?(v/1e6).toFixed(1)+'M':a>=1e3?(v/1e3).toFixed(1)+'K':String(v);}
   function fmtDay(d){const t=new Date(String(d||'').slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}):'—';}
   function fmtWd(d){const t=new Date(String(d||'').slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{weekday:'short',day:'2-digit',month:'short',timeZone:'UTC'}):'—';}
-  // axis date labels: day and month within about a year, month and year beyond
-  const axisDates=ds=>{const span=ds.length>1?(Date.parse(ds[ds.length-1])-Date.parse(ds[0]))/86400000:0;return ds.map(t=>span>400?fmtDay(t).replace(/^\d+ /,''):fmtDay(t).replace(/ \d{4}$/,''));};
   const pctN=(v,d=2)=>fin(v)?(v>=0?'+':'')+v.toFixed(d)+'%':'—';
   const naS=t=>`<span class="na"${t?` title="${esc(t)}"`:''}>N/A</span>`;
   // several real series on one axis (x = position): a missing value breaks the line, nothing is interpolated
@@ -1460,8 +1665,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(s.dots)s.vals.forEach((v,i)=>{if(fin(v)){ctx.fillStyle=s.col;ctx.beginPath();ctx.arc(X(i),Y(v),2.6,0,7);ctx.fill();}});});}
   // daily history for analysis windows (Twelve Data via /api/history; one credit each, cached 30 min here)
   const H7={};
-  function hist7(sym,range,adjust,types){const k=`${sym}|${range}|${adjust}`,e=H7[k]||(H7[k]={});if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:1800000)))return e;e.loading=true;
-    (async()=>{try{await Budget.take(1);const qs=new URLSearchParams({symbol:sym,range,adjust});if(range==='5Y')qs.set('interval','1day');
+  function hist7(sym,range,adjust,types,o={}){const iv=o.interval||(range==='5Y'?'1day':''),k=`${sym}|${range}|${adjust}|${iv}`,e=H7[k]||(H7[k]={});if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:o.ttl||1800000)))return e;e.loading=true;
+    (async()=>{try{await Budget.take(1);const qs=new URLSearchParams({symbol:sym,range,adjust});if(iv)qs.set('interval',iv);
         const r=await fetch(`${CONFIG.proxyBase}/api/history?${qs}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(x){}
         if(!r.ok||!j||!Array.isArray(j.points)||j.points.length<2)e.err=(j&&j.error)||'http '+r.status;else{e.data=j;e.err=null;}}
       catch(x){e.err='network';}finally{e.loading=false;e.at=Date.now();repaintTypes(types);}})();
@@ -1598,23 +1803,29 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---------- SPRD: euro-area 2s10s history (ECB) + latest U.S. 2s10s (Treasury, from YLD) ----------
   function renderSprd(body,win){const st=win.state;st.range=st.range||'1Y';const e=get7('/api/sprd',3600000,['SPRD']);win._load=()=>get7('/api/sprd',3600000,['SPRD']);loadExt('yields');
-    const d=e.data,ea=d&&d.series&&d.series.EA,items={};let html=`<div class="tfbar">${tb7('rng',[['1M','1M'],['3M','3M'],['6M','6M'],['1Y','1Y']],st.range)}</div>`;
-    if(!d&&!e.err){setProv(win,{'ds:SPRD':S.LOADING});body.innerHTML=html+`<div class="empty">${tl('Loading the ECB curve history…','Caricamento dello storico BCE…')}</div>`;return;}
-    if(!ea||!ea.points){items['ds:sprd-ea']=S.NA;html+=naB(tl('euro-area spread history unavailable','storico dello spread dell\'area euro non disponibile'),(ea&&ea.error)||e.err||'no_data');}
-    else{const all=ea.points,cut=cutDate(st.range),pts=all.filter(p=>p.date>=cut),last=all[all.length-1],ago=n=>{const c=cutDate(n);const p=all.filter(x=>x.date<=c).pop();return p&&fin(p.bp)?last.bp-p.bp:null;};
-      const est=ea.status==='STALE'?S.STALE:S.LIVE;items['ds:sprd-ea']=est;items['ds:sprd-calc']=S.DERIVED;const lo=Math.min(...pts.map(p=>p.bp)),hi=Math.max(...pts.map(p=>p.bp));
-      const k=(l,v,c,n)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${n?`<i>${n}</i>`:''}</div>`,bp=v=>fin(v)?(v>=0?'+':'')+v.toFixed(1)+' bp':'—';
-      html+=`<div class="yc-h">${tl('EURO AREA · AAA GOVERNMENT BONDS · 10Y − 2Y (SPOT)','AREA EURO · TITOLI DI STATO AAA · 10A − 2A (SPOT)')} ${chip(est,'ECB')}</div>
-        <div class="pf-kpis">${k(tl('SPREAD','SPREAD'),last.bp.toFixed(1)+' bp','',fmtDay(last.date))}${k('2Y',last.y2.toFixed(3)+'%','','ECB')}${k('10Y',last.y10.toFixed(3)+'%','','ECB')}${k('Δ 1W',bp(ago('1W')),cls(ago('1W')))}${k('Δ 1M',bp(ago('1M')),cls(ago('1M')))}${k('Δ 3M',bp(ago('3M')),cls(ago('3M')))}${k(tl('RANGE','INTERVALLO')+' '+st.range,lo.toFixed(1)+' – '+hi.toFixed(1)+' bp')}</div>
-        <div class="chart-box" style="height:220px"><canvas class="sp-cv" aria-label="2s10s"></canvas></div>
-        <div class="src-line">${chip(est)} ${tl('daily spot rates','tassi spot giornalieri')}, <a href="${esc(ea.sourceUrl)}" target="_blank" rel="noopener">${esc(ea.source)}</a> · ${pts.length} ${tl('obs','oss.')} · ${tl('fetched','aggiornato')} ${fmtTime(ea.fetchedAt)} · ${tl('spread and changes DERIVED','spread e variazioni DERIVED')}</div>`;
-      win._draw=()=>{const cv=body.querySelector('.sp-cv');drawLines(cv,[{vals:pts.map(p=>p.bp),col:C.amber}],{labels:pts.map(p=>fmtDay(p.date).replace(/ \d{4}$/,'')),fmt:v=>v.toFixed(0),ref:0});};requestAnimationFrame(win._draw);}
-    const us=EXT.yields.data&&EXT.yields.data.curves&&EXT.yields.data.curves.US;let usRow;
-    if(us){const two=us.points.find(p=>p.tenor==='2Y'),ten=us.points.find(p=>p.tenor==='10Y'),v=two&&ten&&fin(two.value)&&fin(ten.value)?(ten.value-two.value)*100:null,dv=v!=null&&fin(two.changeBp)&&fin(ten.changeBp)?ten.changeBp-two.changeBp:null;
-      items['ds:sprd-us']=v==null?S.NA:S.DERIVED;usRow=`<b>${v==null?'N/A':v.toFixed(1)+' bp'}</b> ${dv!=null?`<span class="${cls(dv)}">(${dv>=0?'+':''}${dv.toFixed(1)} bp ${tl('vs previous publication','rispetto alla pubblicazione precedente')})</span>`:''} · ${tl('U.S. Treasury par yield curve','curva par del Tesoro USA')}, ${tl('data date','data dei dati')} ${esc(us.timestamp)} ${chip(v==null?S.NA:S.DERIVED)}`;}
-    else{items['ds:sprd-us']=EXT.yields.data||EXT.yields.err?S.NA:S.LOADING;usRow=EXT.yields.data||EXT.yields.err?`${naS()} — ${tl('Treasury curve unavailable','curva del Tesoro non disponibile')}`:tl('loading…','caricamento…');}
-    html+=`<div class="yc-h" style="margin-top:12px">${tl('UNITED STATES · 10Y − 2Y','STATI UNITI · 10A − 2A')}</div><div class="src-line">${usRow}</div><div class="des">${tl('A U.S. history needs a FRED API key (not connected): only the latest Treasury publication is shown. Other spreads (credit, sovereign vs Bund) have no approved source: N/A.','Uno storico USA richiede una chiave FRED (non collegata): si mostra solo l\'ultima pubblicazione del Tesoro. Altri spread (credito, sovrani contro Bund) non hanno una fonte approvata: N/A.')}</div>`;
-    body.innerHTML=html;setProv(win,items,'Spreads: ECB and U.S. Treasury curves; spreads computed here');$$('[data-rng]',body).forEach(b=>b.onclick=()=>{st.range=b.dataset.rng;paintWin(win);});}
+    const d=e.data,items={};let html=`<div class="tfbar">${tb7('rng',[['1M','1M'],['3M','3M'],['6M','6M'],['1Y','1Y']],st.range)}</div>`;
+    if(!d&&!e.err){setProv(win,{'ds:SPRD':S.LOADING});body.innerHTML=html+`<div class="empty">${tl('Loading the 2s10s histories…','Caricamento degli storici 2s10s…')}</div>`;return;}
+    const k=(l,v,c,n)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${n?`<i>${n}</i>`:''}</div>`,bp=v=>fin(v)?(v>=0?'+':'')+v.toFixed(1)+' bp':'—',cut=cutDate(st.range),lines=[],srcs=[];
+    // one block per published history: level, the two maturities, changes and range — all from the same days
+    const block=(id,x,title,short,col,rates)=>{if(!x||!Array.isArray(x.points)||!x.points.length){items['ds:sprd-'+id]=S.NA;return'';}
+      const all=x.points,pts=all.filter(p=>p.date>=cut),last=all[all.length-1],ago=n=>{const c=cutDate(n);const p=all.filter(q=>q.date<=c).pop();return p&&fin(p.bp)?last.bp-p.bp:null;};
+      const est=x.status==='STALE'?S.STALE:S.LIVE;items['ds:sprd-'+id]=est;items['ds:sprd-calc']=S.DERIVED;const lo=Math.min(...pts.map(p=>p.bp)),hi=Math.max(...pts.map(p=>p.bp));
+      lines.push({name:short,col,pts:pts.map(p=>({time:p.date,value:p.bp}))});srcs.push(`${chip(est)} ${short}: ${rates}, <a href="${esc(x.sourceUrl)}" target="_blank" rel="noopener">${esc(x.source)}</a> · ${pts.length} ${tl('obs','oss.')} · ${tl('fetched','aggiornato')} ${fmtTime(x.fetchedAt)}`);
+      return`<div class="yc-h"><i class="sw" style="display:inline-block;width:10px;height:3px;background:${col};vertical-align:middle;margin-right:6px"></i>${title} ${chip(est,x.source)}</div>
+        <div class="pf-kpis">${k(tl('SPREAD','SPREAD'),last.bp.toFixed(1)+' bp','',fmtDay(last.date))}${k('2Y',last.y2.toFixed(3)+'%','',esc(x.source))}${k('10Y',last.y10.toFixed(3)+'%','',esc(x.source))}${k('Δ 1W',bp(ago('1W')),cls(ago('1W')))}${k('Δ 1M',bp(ago('1M')),cls(ago('1M')))}${k('Δ 3M',bp(ago('3M')),cls(ago('3M')))}${k(tl('RANGE','INTERVALLO')+' '+st.range,lo.toFixed(1)+' – '+hi.toFixed(1)+' bp')}</div>`;};
+    const ea=d&&d.series&&d.series.EA,usx=d&&d.series&&d.series.US;
+    html+=block('ea',ea,tl('EURO AREA · AAA GOVERNMENT BONDS · 10Y − 2Y (SPOT)','AREA EURO · TITOLI DI STATO AAA · 10A − 2A (SPOT)'),tl('Euro area','Area euro'),C.amber,tl('daily spot rates','tassi spot giornalieri'));
+    html+=block('us',usx,tl('UNITED STATES · TREASURIES · 10Y − 2Y (CONSTANT MATURITY)','STATI UNITI · TREASURY · 10A − 2A (SCADENZA COSTANTE)'),tl('United States','Stati Uniti'),'#60a5fa',tl('daily constant-maturity yields','rendimenti giornalieri a scadenza costante'));
+    if(lines.length)html+=`<div class="chart-box sp-cv" style="height:260px" aria-label="2s10s"></div><div class="src-line">${srcs.join(' · ')} · ${tl('spreads and changes DERIVED, only on days both maturities were published','spread e variazioni DERIVED, solo nei giorni in cui sono state pubblicate entrambe le scadenze')}</div>`;
+    if(!ea||!ea.points)html+=naB(tl('euro-area spread history unavailable','storico dello spread dell\'area euro non disponibile'),(ea&&ea.error)||e.err||'no_data');
+    if(!usx||!usx.points){const us=EXT.yields.data&&EXT.yields.data.curves&&EXT.yields.data.curves.US;let usRow;
+      if(us){const two=us.points.find(p=>p.tenor==='2Y'),ten=us.points.find(p=>p.tenor==='10Y'),v=two&&ten&&fin(two.value)&&fin(ten.value)?(ten.value-two.value)*100:null,dv=v!=null&&fin(two.changeBp)&&fin(ten.changeBp)?ten.changeBp-two.changeBp:null;
+        items['ds:sprd-us']=v==null?S.NA:S.DERIVED;usRow=`<b>${v==null?'N/A':v.toFixed(1)+' bp'}</b> ${dv!=null?`<span class="${cls(dv)}">(${dv>=0?'+':''}${dv.toFixed(1)} bp ${tl('vs previous publication','rispetto alla pubblicazione precedente')})</span>`:''} · ${esc(us.source)}, ${tl('data date','data dei dati')} ${esc(us.timestamp)} ${chip(v==null?S.NA:S.DERIVED)}`;}
+      else{items['ds:sprd-us']=EXT.yields.data||EXT.yields.err?S.NA:S.LOADING;usRow=EXT.yields.data||EXT.yields.err?`${naS()} — ${tl('U.S. curve unavailable','curva USA non disponibile')}`:tl('loading…','caricamento…');}
+      const why=usx&&usx.error;html+=`<div class="yc-h" style="margin-top:12px">${tl('UNITED STATES · 10Y − 2Y','STATI UNITI · 10A − 2A')}</div><div class="src-line">${usRow}</div><div class="des">${why==='fred_not_configured'||/FRED/.test(why||'')?tl('A U.S. history needs a FRED API key (FRED_KEY, not set): only the latest publication is shown.','Uno storico USA richiede una chiave FRED (FRED_KEY, non impostata): si mostra solo l\'ultima pubblicazione.'):tl('U.S. history unavailable','Storico USA non disponibile')+(why?' ('+esc(P.errorText(why))+')':'')+'.'}</div>`;}
+    html+=`<div class="des">${tl('Credit spreads and 10-year spreads against the Bund are in BOND.','Gli spread di credito e gli spread a 10 anni contro il Bund sono in BOND.')}</div>`;
+    body.innerHTML=html;setProv(win,items,'Spreads: ECB and Federal Reserve H.15 (FRED); spreads computed here');$$('[data-rng]',body).forEach(b=>b.onclick=()=>{st.range=b.dataset.rng;paintWin(win);});
+    const spb=body.querySelector('.sp-cv');if(spb)lwLines(win,spb,'sp:'+st.range+':'+lines.length,lines.length===1?[{...lines[0],base:0}]:lines,{fmt:v=>(v>=0?'+':'')+v.toFixed(1)+' bp',ref:lines.length>1?0:null,pf:{type:'price',precision:1,minMove:0.1}});}
 
   // ---------- CB: policy rates as published by each central bank; next decision from the calendar ----------
   const CB_EV={USD:/federal funds rate/i,EUR:/main refinancing rate|deposit facility rate/i,GBP:/official bank rate/i,CHF:/snb policy rate/i,CAD:/overnight rate/i,JPY:/boj policy rate/i,AUD:/cash rate/i,NZD:/official cash rate/i};
@@ -1738,10 +1949,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const ra=[],rb=[];for(let i=1;i<al.length;i++){ra.push(al[i].a/al[i-1].a-1);rb.push(al[i].b/al[i-1].b-1);}const rho=pearson7(ra,rb),ta=(al[al.length-1].a/al[0].a-1)*100,tbv=(al[al.length-1].b/al[0].b-1)*100;
     const k=(l,v,c,n)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${n?`<i>${n}</i>`:''}</div>`;
     body.innerHTML=form+`<div class="pf-kpis">${k(`${esc(st.a)} / ${esc(st.b)}`,last.toPrecision(5),'',fmtDay(al[al.length-1].t))}${['1M','3M','6M','1Y'].concat(st.range==='5Y'?['5Y']:[]).map(n=>{const v=n==='5Y'?(last/ratio[0]-1)*100:chg(n);return k('Δ '+n,pctN(v),cls(v));}).join('')}${k(tl('CORRELATION','CORRELAZIONE'),rho!=null?rho.toFixed(2):'N/A','',tl('daily returns','rendimenti giornalieri'))}</div>
-      <div class="chart-box" style="height:240px"><canvas class="x-cv" aria-label="ratio"></canvas></div>
+      <div class="chart-box x-cv" style="height:260px" aria-label="ratio"></div>
       <div class="src-line">${chip(S.DERIVED)} ${tl('ratio of daily closes on common dates','rapporto delle chiusure giornaliere nelle date comuni')} · ${al.length} ${tl('obs','oss.')} · ${esc(st.a)} ${pctN(ta)} ${tl('vs','contro')} ${esc(st.b)} ${pctN(tbv)} ${tl('over the period','nel periodo')} · ${tl('rising = A outperforms B','in salita = A fa meglio di B')} · Twelve Data, ${tl('split-adjusted','rettificate per i frazionamenti')}</div>`;
     setProv(win,{['h:'+st.a]:ha.data.status==='STALE'?S.STALE:S.LIVE,['h:'+st.b]:hb.data.status==='STALE'?S.STALE:S.LIVE,'ds:cross':S.DERIVED},'Ratio of two real histories');
-    win._draw=()=>drawLines(body.querySelector('.x-cv'),[{vals:ratio,col:C.amber}],{labels:axisDates(al.map(x=>x.t)),fmt:v=>v.toPrecision(3)});requestAnimationFrame(win._draw);bind();}
+    lwLines(win,body.querySelector('.x-cv'),'x',[{name:`${st.a} / ${st.b}`,col:C.amber,pts:al.map((x,i)=>({time:x.t,value:ratio[i]}))}],{fmt:v=>v.toPrecision(5),pf:{type:'price',precision:4,minMove:0.0001}});bind();}
 
   // ---------- BT: simple backtest on real daily history (buy & hold, SMA crossover); every result DERIVED ----------
   function btStats(eq,dates){if(eq.length<3)return null;const r=[];for(let i=1;i<eq.length;i++)r.push(eq[i]/eq[i-1]-1);const n=r.length,mean=r.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(r.reduce((a,b)=>a+(b-mean)**2,0)/Math.max(1,n-1));
@@ -1769,14 +1980,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const res=btRun(h.data.points,st);
     if(res.err){setProv(win,{'ds:bt':S.NA});body.innerHTML=form+`<div class="banner warn"><b>N/A</b> — ${esc(res.err)}</div>`;bind();return;}
     const s=res.stats,b=res.bhStats,row=(l,f,a,bb,c)=>`<tr><td class="l">${l}</td><td class="num ${c?cls(a):''}">${f(a)}</td><td class="num ${c?cls(bb):''}">${f(bb)}</td></tr>`,p1=v=>fin(v)?pctN(v,1):'N/A',x2=v=>fin(v)?v.toFixed(2):'N/A';
-    body.innerHTML=form+(st.msg?`<div class="wl-msg">${esc(st.msg)}</div>`:'')+`<div class="chart-box" style="height:230px"><canvas class="bt-cv" aria-label="equity"></canvas></div>
+    body.innerHTML=form+(st.msg?`<div class="wl-msg">${esc(st.msg)}</div>`:'')+`<div class="chart-box bt-cv" style="height:250px" aria-label="equity"></div>
       <div class="cmp-legend"><span class="leg-item"><i style="background:${C.amber}"></i>${st.strat==='bh'?tl('Buy & hold','Compra e tieni'):`SMA ${st.fast}/${st.slow}`}</span><span class="leg-item"><i style="background:${C.muted}"></i>${tl('Buy & hold','Compra e tieni')} ${esc(st.sym)}</span><span class="k">${tl('rebased to 100','base 100')} · ${fmtDay(res.dates[0])} – ${fmtDay(res.dates[res.dates.length-1])}</span></div>
       <table class="pf" style="max-width:560px"><thead><tr><th class="l">${tl('RESULT','RISULTATO')} ${chip(S.DERIVED)}</th><th>${tl('STRATEGY','STRATEGIA')}</th><th>${tl('BUY & HOLD','COMPRA E TIENI')}</th></tr></thead><tbody>
       ${row(tl('Total return','Rendimento totale'),p1,s.tot,b.tot,1)}${row(tl('CAGR (annualised)','CAGR (annualizzato)'),p1,s.cagr,b.cagr,1)}${row(tl('Volatility (annualised)','Volatilità (annualizzata)'),v=>fin(v)?v.toFixed(1)+'%':'N/A',s.vol,b.vol)}${row(tl('Sharpe (risk-free 0)','Sharpe (tasso privo di rischio 0)'),x2,s.sharpe,b.sharpe)}${row(tl('Max drawdown','Massimo ribasso'),p1,s.mdd,b.mdd,1)}
       <tr><td class="l">${tl('Trades (entries + exits)','Operazioni (entrate + uscite)')}</td><td class="num">${res.trades}</td><td class="num">1</td></tr><tr><td class="l">${tl('Time in the market','Tempo investito')}</td><td class="num">${res.exposure.toFixed(0)}%</td><td class="num">100%</td></tr></tbody></table>
       <div class="scr-count">${tl('Real daily closes from Twelve Data, adjusted for splits and dividends. Rules: the signal is taken at a close and executed at the next close (no look-ahead); long or flat, no leverage, no interest on cash; cost per trade only as you set it; no taxes or slippage. CAGR needs at least six months. A test on past prices, not a forecast or advice.','Chiusure giornaliere reali da Twelve Data, rettificate per frazionamenti e dividendi. Regole: il segnale si prende a una chiusura e si esegue alla chiusura successiva (nessun uso del futuro); long o liquidità, nessuna leva, nessun interesse sulla liquidità; costo per operazione solo se lo imposti; niente tasse o slippage. Il CAGR richiede almeno sei mesi. Un test sui prezzi passati, non una previsione né un consiglio.')}</div>`;
     setProv(win,{['h:'+st.sym]:h.data.status==='STALE'?S.STALE:S.LIVE,'ds:bt':S.DERIVED},'Backtest: real history; results computed here');
-    win._draw=()=>drawLines(body.querySelector('.bt-cv'),[{vals:res.bh.map(v=>v/res.bh[0]*100),col:C.muted,w:1.3},{vals:res.eq.map(v=>v/res.eq[0]*100),col:C.amber}],{labels:axisDates(res.dates),fmt:v=>v.toFixed(0),ref:100});requestAnimationFrame(win._draw);bind();}
+    lwLines(win,body.querySelector('.bt-cv'),'bt',[{name:st.strat==='bh'?tl('Buy & hold','Compra e tieni'):`SMA ${st.fast}/${st.slow}`,col:C.amber,pts:res.dates.map((d,i)=>({time:d,value:res.eq[i]/res.eq[0]*100}))},{name:tl('Buy & hold','Compra e tieni')+' '+st.sym,col:C.muted,w:1,pts:res.dates.map((d,i)=>({time:d,value:res.bh[i]/res.bh[0]*100}))}],{fmt:v=>v.toFixed(1),ref:100,pf:{type:'price',precision:1,minMove:0.1}});bind();}
 
   // ---------- ALRT: price alerts (stored on the server, checked in this page on each live quote) ----------
   const ALR={list:null,err:null,at:0,loading:false,busy:false,msg:'',form:{op:'>='},firing:new Set()};
@@ -1811,7 +2022,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // ---------- NOTE: your notes, optionally tied to a symbol (stored on the server) ----------
   const NT={list:null,err:null,at:0,loading:false,busy:false,msg:'',form:{},filter:''};
   async function noteLoad(force){if(NT.loading||(!force&&NT.at&&Date.now()-NT.at<300000))return;NT.loading=true;
-    try{const r=await fetch(CONFIG.proxyBase+'/api/user/notes',{cache:'no-store'});const j=await r.json();if(j&&Array.isArray(j.notes)){NT.list=j.notes;NT.err=null;}else NT.err=(j&&j.error)||'http '+r.status;}catch(e){NT.err='network';}finally{NT.loading=false;NT.at=Date.now();repaintTypes(['NOTE']);}}
+    try{const r=await fetch(CONFIG.proxyBase+'/api/user/notes',{cache:'no-store'});const j=await r.json();if(j&&Array.isArray(j.notes)){NT.list=j.notes;NT.err=null;}else NT.err=(j&&j.error)||'http '+r.status;}catch(e){NT.err='network';}finally{NT.loading=false;NT.at=Date.now();repaintTypes(['NOTE','GP']);}}
   function renderNote(body,win){noteLoad();const f=NT.form;
     if(!NT.list&&!NT.err){setProv(win,{'ds:NOTE':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading your notes…','Caricamento delle note…')}</div>`;return;}
     if(!NT.list){setProv(win,{'ds:NOTE':S.NA});body.innerHTML=naB(tl('notes storage unavailable','archivio delle note non disponibile'),NT.err);return;}
@@ -1822,13 +2033,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     setProv(win,{'ds:note':S.LIVE},'Your notes');
     const fm=body.querySelector('.nt-f');fm.elements.text.oninput=()=>{f.text=fm.elements.text.value;};fm.elements.sym.oninput=()=>{f.sym=fm.elements.sym.value;};
     const fi=body.querySelector('[data-k="nfilter"]');fi.oninput=()=>{NT.filter=fi.value;clearTimeout(win._qt);win._qt=setTimeout(()=>liveRepaint(win),180);};
-    fm.onsubmit=async e=>{e.preventDefault();const text=String(f.text||'').trim();if(!text){NT.msg=tl('Write something first','Scrivi prima qualcosa');return repaintTypes(['NOTE']);}NT.busy=true;repaintTypes(['NOTE']);
+    fm.onsubmit=async e=>{e.preventDefault();const text=String(f.text||'').trim();if(!text){NT.msg=tl('Write something first','Scrivi prima qualcosa');return repaintTypes(['NOTE','GP']);}NT.busy=true;repaintTypes(['NOTE','GP']);
       const r=f.id?await send7('PUT','/api/user/notes?id='+encodeURIComponent(f.id),{text,sym:f.sym||''}):await send7('POST','/api/user/notes',{text,sym:f.sym||''});NT.busy=false;
-      if(r.err)NT.msg=tl('Not saved: ','Non salvato: ')+r.err;else{NT.list=r.j.notes;NT.msg=tl('Saved','Salvata');NT.form={};}repaintTypes(['NOTE']);};
-    const cn=body.querySelector('.nt-cancel');if(cn)cn.onclick=()=>{NT.form={};repaintTypes(['NOTE']);};
-    $$('.nt-ed',body).forEach(b=>b.onclick=()=>{const n=NT.list.find(x=>x.id===b.dataset.id);if(n){NT.form={id:n.id,text:n.text,sym:n.sym||''};repaintTypes(['NOTE']);}});
-    $$('.nt-del',body).forEach(b=>b.onclick=()=>{NT.confirm=b.dataset.id;repaintTypes(['NOTE']);});
-    $$('.nt-yes',body).forEach(b=>b.onclick=async()=>{NT.confirm=null;const r=await send7('DELETE','/api/user/notes?id='+encodeURIComponent(b.dataset.id));if(r.j)NT.list=r.j.notes;repaintTypes(['NOTE']);});}
+      if(r.err)NT.msg=tl('Not saved: ','Non salvato: ')+r.err;else{NT.list=r.j.notes;NT.msg=tl('Saved','Salvata');NT.form={};}repaintTypes(['NOTE','GP']);};
+    const cn=body.querySelector('.nt-cancel');if(cn)cn.onclick=()=>{NT.form={};repaintTypes(['NOTE','GP']);};
+    $$('.nt-ed',body).forEach(b=>b.onclick=()=>{const n=NT.list.find(x=>x.id===b.dataset.id);if(n){NT.form={id:n.id,text:n.text,sym:n.sym||''};repaintTypes(['NOTE','GP']);}});
+    $$('.nt-del',body).forEach(b=>b.onclick=()=>{NT.confirm=b.dataset.id;repaintTypes(['NOTE','GP']);});
+    $$('.nt-yes',body).forEach(b=>b.onclick=async()=>{NT.confirm=null;const r=await send7('DELETE','/api/user/notes?id='+encodeURIComponent(b.dataset.id));if(r.j)NT.list=r.j.notes;repaintTypes(['NOTE','GP']);});}
 
   // ---------- SYS: system status (sources configured yes/no, provider credits, scheduler, this page) ----------
   function renderSys(body,win){const st7=win.state;const e=get7('/api/status',300000,['SYS']);win._load=()=>get7('/api/status',300000,['SYS']);const u=X7['/api/status?usage=1'],d=u&&u.data&&u.at>=(e.at||0)?u.data:e.data;
@@ -1936,7 +2147,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   /* ---------- window types ---------- */
   const WINTYPES={
-    GP:{tag:'GP',w:560,h:470,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
+    GP:{tag:'GP',w:660,h:560,title:w=>`${w.state.ticker}${BY[w.state.ticker].name?' · '+BY[w.state.ticker].name:''}`,render:renderSecurity},
     WL:{tag:'WL',w:400,h:330,title:()=>'WATCHLIST',render:renderWatchlistWin},
     SRCH:{tag:'SRCH',w:860,h:480,title:w=>w.state.q?`SYMBOL SEARCH · ${w.state.q}`:'SYMBOL SEARCH',render:renderSearch},
     HEAT:{tag:'HEAT',w:520,h:400,title:()=>'SECTOR HEATMAP',render:renderHeat},
@@ -1981,7 +2192,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- window manager ---------- */
   function isMobile(){return window.innerWidth<=880;}
   function paintWin(w){const def=WINTYPES[w.type],a=document.activeElement,fk=a&&w.bodyEl.contains(a)?(a.getAttribute('data-k')||a.getAttribute('name')):null;let caret=null;try{caret=a&&a.selectionStart;}catch(e){}
-    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;def.render(w.bodyEl,w);w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);updateGlobal();
+    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();def.render(w.bodyEl,w);lwSweep(w);w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);updateGlobal();
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
@@ -2004,16 +2215,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{sector:'ALL',dir:'ALL',sort:'chg',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
-  function closeWin(w,batch){const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
+  function closeWin(w,batch){lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
   function closeAll(){if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
   function undoClose(){const item=closedStack.pop();if(!item)return;const arr=Array.isArray(item)?item:[item];arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);});renderTaskbar();}
   function toggleMin(w){w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
   function toggleMax(w){w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
-  function reflowWin(w){if(!w.bodyEl||w.min)return;const b=w.bodyEl,cv=b.querySelector('canvas');
-    if(w.type==='GP'&&cv)drawChart(cv,BY[w.state.ticker],w.state.tf);
-    else if(w.type==='COMP')drawCompareChart(b,w.state);
-    else if(w.type==='MAP')drawSpx(w);
-    else if(w.type==='YLD')$$('.yc-cv',b).forEach(c=>{const d=EXT.yields.data,k=d&&d.curves&&d.curves[c.dataset.curve];if(k)drawYieldCurve(c,k);});
+  // interactive charts (Lightweight Charts) size themselves; canvas drawings are redrawn
+  function reflowWin(w){if(!w.bodyEl||w.min)return;
+    if(w.type==='MAP')drawSpx(w);
     else if(w._draw)w._draw();}
   function tileAll(){const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
     live.forEach((w,i)=>{w.max=false;w.el.classList.remove('ismax');w.x=(i%cols)*cw;w.y=Math.floor(i/cols)*ch;w.w=cw-6;w.h=ch-6;applyRect(w);requestAnimationFrame(()=>reflowWin(w));});bringFront(live[live.length-1]);}

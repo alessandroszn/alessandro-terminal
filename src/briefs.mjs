@@ -14,7 +14,7 @@ import { getUniverse, getCloses, getLive, alpacaConfigured, todayBarFinal, liveP
 import { BRIEF_MODEL, verifyNumbers } from "./briefing.mjs";
 
 export const PERIODS = {
-  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "300 to 450", schedule: "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "1W", eq: "1D" },
+  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "300 to 450", schedule: "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "5D", eq: "1D" },
   evening: { label: "Evening", sections: ["In one line", "How the day went", "What changed since this morning", "Tomorrow"], words: "250 to 400", schedule: "Written automatically on weekday evenings at 22:30 (Rome time), after the US close.", chipTf: "1D", eq: "1D" },
   weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "450 to 700", schedule: "Written automatically on Saturday mornings at 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
   monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "450 to 700", schedule: "Written automatically on the first Saturday of each month at 08:00 (Rome time).", chipTf: "6M", eq: "1M" },

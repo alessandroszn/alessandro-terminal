@@ -48,7 +48,7 @@ ok("output: missing sections reported", parseOutput("## In one line\nx", "daily"
 const sz = sanitize(po.body, data.text);
 ok("links: kept only if the URL is in DATA", /\[FT\]\(https:\/\/www\.ft\.com\/content\/x1\)/.test(sz.body) && !/evil\.example/.test(sz.body) && sz.removedLinks[0] === "https://evil.example.com/a");
 const w = attachWindows("daily", eq);
-ok("windows: heat map, top/bottom contributor charts, curves, markets", w[0].type === "MAP" && w[0].state.metric === "1D" && w.some((x) => x.type === "GP" && x.state.ticker === "AAA" && x.state.tf === "1W") && w.some((x) => x.type === "GP" && x.state.ticker === "BBB") && w.some((x) => x.type === "YLD"));
+ok("windows: heat map, top/bottom contributor charts, curves, markets", w[0].type === "MAP" && w[0].state.metric === "1D" && w.some((x) => x.type === "GP" && x.state.ticker === "AAA" && x.state.tf === "5D") && w.some((x) => x.type === "GP" && x.state.ticker === "BBB") && w.some((x) => x.type === "YLD"));
 // story windows: chosen from the edition's data, each tied to the section it explains, reason built from the same figures
 const CURVES = { US: { id: "US", points: [{ tenor: "2Y", value: 3.6, changeBp: 1 }, { tenor: "10Y", value: 4.13, changeBp: 3 }] }, EA: { id: "EA", points: [{ tenor: "2Y", value: 3.05, changeBp: 5.5 }, { tenor: "10Y", value: 3.52, changeBp: 1.7 }] } };
 const QUOTES = [{ symbol: "EUR/USD", price: 1.12, changePct: -0.52 }, { symbol: "USD/JPY", price: 158.1, changePct: 0.71 }, { symbol: "XAU/USD", price: 4165.24, changePct: 1.01 }, { symbol: "BTC/USD", price: 85650, changePct: -2.4 }];
