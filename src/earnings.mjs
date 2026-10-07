@@ -8,6 +8,8 @@ import { fetchText, cachedSource, iso, easternDate } from "./lib.mjs";
 import { getUniverse, alpacaDailyBars, alpacaConfigured } from "./spx.mjs";
 
 export const FINNHUB = "https://finnhub.io/api/v1";
+// the secret as set in the dashboard: FINNHUB_KEY, or FINHUB_KEY (the name it was first saved under, 7 Oct 2026)
+export const finnhubKey = (env) => (env && (env.FINNHUB_KEY || env.FINHUB_KEY)) || null;
 const addDays = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -47,7 +49,7 @@ async function getRows(url, env, ctx, w) {
       const universe = {};
       for (const [u, idx] of [[spx, "S&P 500"], [ndx, "Nasdaq-100"]]) for (const it of (u.data && u.data.items) || []) { const x = universe[it.sym] || (universe[it.sym] = { name: it.name, weight: it.weight, index: [] }); x.index.push(idx); if (idx === "S&P 500") x.weight = it.weight; }
       if (!Object.keys(universe).length) return { err: "universe_unavailable" };
-      const f = await fetchText(`${FINNHUB}/calendar/earnings?${new URLSearchParams({ from: w.from, to: w.to })}`, { timeoutMs: 15000, headers: { "X-Finnhub-Token": env.FINNHUB_KEY, accept: "application/json" } });
+      const f = await fetchText(`${FINNHUB}/calendar/earnings?${new URLSearchParams({ from: w.from, to: w.to })}`, { timeoutMs: 15000, headers: { "X-Finnhub-Token": finnhubKey(env), accept: "application/json" } });
       if (f.err) return { err: f.http === 401 ? "provider_auth" : f.err };
       let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
       return j && Array.isArray(j.earningsCalendar) ? { data: normalizeEarnings(j, universe) } : { err: "provider_error" };
@@ -55,7 +57,7 @@ async function getRows(url, env, ctx, w) {
 }
 export async function handleEarnings(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
-  if (!env.FINNHUB_KEY) return send({ error: "finnhub_not_configured", status: "N/A", message: "Finnhub API key not set in the Worker (FINNHUB_KEY)" }, 503);
+  if (!finnhubKey(env)) return send({ error: "finnhub_not_configured", status: "N/A", message: "Finnhub API key not set in the Worker (FINNHUB_KEY)" }, 503);
   const w = span(url), r = await getRows(url, env, ctx, w);
   if (!r.data) return send({ error: r.err, status: "N/A" }, r.err === "rate_limited" ? 429 : 502);
   if (url.pathname.endsWith("/reactions")) {

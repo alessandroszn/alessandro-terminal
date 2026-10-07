@@ -6,6 +6,7 @@
 //   GET              /api/status[?usage=1]     system status for SYS: which sources are configured (yes/no only),
 //                                              Twelve Data credit usage (checked on request: 1 credit), the scheduler's last run
 // Nothing here is market data: these are the owner's own entries. All start empty.
+import { finnhubKey } from "./earnings.mjs";
 import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 
 export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board" };
@@ -114,7 +115,7 @@ export function sourcesStatus(env) {
   return [
     { id: "twelvedata", name: "Twelve Data", use: "quotes, intraday and daily history, market state", configured: !!env.TWELVEDATA_KEY },
     { id: "alpaca", name: "Alpaca", use: "U.S. consolidated daily bars, trades, crypto, options (indicative)", configured: !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY) },
-    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: !!env.FINNHUB_KEY },
+    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: !!finnhubKey(env) },
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and futures curves (CMDTY, FCRV)", configured: !!env.EIA_KEY },
     { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
     { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },

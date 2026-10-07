@@ -114,6 +114,9 @@ globalThis.fetch = async (u, o = {}) => {
 r = await call("/api/earnings?back=0&fwd=20", undefined, { ...env, FINNHUB_KEY: KEY_FH });
 ok("/api/earnings: S&P 500 and Nasdaq-100 companies from the real index lists, both indexes kept", r.status === 200 && r.j.rows.map((x) => x.sym).join() === "JPM,NFLX" && r.j.rows[1].index.join() === "S&P 500,Nasdaq-100" && r.j.status === "LIVE");
 ok("/api/earnings: the key is sent only in the X-Finnhub-Token header (never in the URL or response)", fhHeaders["X-Finnhub-Token"] === KEY_FH && !fhUrl.includes(KEY_FH) && !r.text.includes(KEY_FH));
+fhHeaders = null;
+r = await call("/api/earnings?back=0&fwd=21", undefined, { ...env, FINHUB_KEY: KEY_FH });
+ok("/api/earnings: the secret saved as FINHUB_KEY works too (header only)", r.status === 200 && fhHeaders && fhHeaders["X-Finnhub-Token"] === KEY_FH && !r.text.includes(KEY_FH));
 
 // ---------- company description (SEC) ----------
 const SUB = { cik: "320193", name: "Apple Inc.", tickers: ["AAPL"], exchanges: ["Nasdaq"], sic: "3571", sicDescription: "Electronic Computers", category: "Large accelerated filer", stateOfIncorporation: "CA", stateOfIncorporationDescription: "CA", fiscalYearEnd: "0927", phone: "(408) 996-1010", website: "", addresses: { business: { street1: "ONE APPLE PARK WAY", city: "CUPERTINO", stateOrCountry: "CA", zipCode: "95014" } },
