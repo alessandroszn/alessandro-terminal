@@ -73,7 +73,7 @@ export const BANKS = [
 ];
 export async function handleCentralBanks(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
-  const res = await Promise.all(BANKS.map((b) => cachedSource({ origin: url.origin, key: `cb/${b.id}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: b.load }).then((r) => ({ b, r }))));
+  const res = await Promise.all(BANKS.map((b) => cachedSource({ origin: url.origin, key: `cb2/${b.id}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: b.load }).then((r) => ({ b, r }))));
   const banks = res.map(({ b, r }) => ({ id: b.id, name: b.name, ccy: b.ccy, page: b.page, ...(r.data ? { ...r.data, status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) } : { status: "N/A", error: r.err }) }));
   return send({ banks, note: "Policy rates as published by each central bank, with their dates. Meetings: see the calendar (Forex Factory).", status: banks.some((b) => b.status !== "N/A") ? "LIVE" : "N/A" }, banks.some((b) => b.status !== "N/A") ? 200 : 502);
 }
@@ -86,7 +86,7 @@ export function parseSpread(text) {
   return Object.entries(by).filter(([, x]) => Number.isFinite(x["2Y"]) && Number.isFinite(x["10Y"])).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, x]) => ({ date: d, y2: x["2Y"], y10: x["10Y"], bp: Math.round((x["10Y"] - x["2Y"]) * 1000) / 10 }));
 }
 export async function handleSpread(url, env, ctx, H, json) {
-  const r = await cachedSource({ origin: url.origin, key: "sprd/EA", ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
+  const r = await cachedSource({ origin: url.origin, key: "sprd/EA2", ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
     load: async () => { const f = await fetchText(ECB_SPRD_URL, { timeoutMs: 15000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const s = parseSpread(f.text); return s.length > 20 ? { data: s } : { err: "no_data" }; } });
   const out = { series: { EA: r.data ? { name: "Euro area — AAA government bonds, 10Y minus 2Y (spot)", source: "European Central Bank", sourceUrl: "https://data.ecb.europa.eu/data/datasets/YC", points: r.data, status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) } : { status: "N/A", error: r.err },
     US: { status: "N/A", error: "needs a FRED API key (the U.S. Treasury XML times out from the server)" } }, basis: "daily spot rates from the ECB; spread = 10Y − 2Y in basis points (DERIVED)" };

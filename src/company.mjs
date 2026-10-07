@@ -68,7 +68,7 @@ export function pickFact(j, unit) {
       const ytd = ok.filter((x) => /^10-Q/.test(x.form) && x.end === quarter.end && x.start && dur(x) < 300).sort((a, b) => dur(b) - dur(a) || (a.filed < b.filed ? 1 : -1))[0];
       const target = ytd ? Date.parse(ytd.end) - 364 * DAY : null;
       const prior = ytd ? ok.filter((x) => x.start && Math.abs(Date.parse(x.end) - target) <= 8 * DAY && Math.abs(dur(x) - dur(ytd)) <= 8).sort((a, b) => (a.filed < b.filed ? 1 : -1))[0] : null;
-      if (ytd && prior && annual.end > prior.end && annual.end < ytd.end) ttm = { value: ytd.val + annual.val - prior.val, end: ytd.end, basis: "year-to-date + last fiscal year − year-to-date a year earlier" };
+      if (ytd && prior && annual.end > prior.end && annual.end < ytd.end) ttm = { value: Math.round((ytd.val + annual.val - prior.val) * 1e6) / 1e6, end: ytd.end, basis: "year-to-date + last fiscal year − year-to-date a year earlier" };
     }
   }
   // several different values for the same instant and filing (e.g. one per share class): no single figure to use
