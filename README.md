@@ -69,6 +69,11 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
   works. Each edition records `writtenBy: schedule | terminal`; `/api/briefs` reports the last scheduled run.
 - Usage: ~300 runs/day, ~70 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition.
 
+## Languages (EN / IT)
+- Toggle in the top bar, remembered in the browser (Italian by default for an Italian browser).
+- `public/terminal/i18n.js` renders the terminal's own words (labels, messages, notes) in Italian as they are drawn; data is never translated (headlines, company and event names, tickers; `.notranslate`). Each text node is translated once; phrases never match inside longer words.
+- Briefings are written by the model in English and Italian from the same DATA (same number check, decimal point kept); editions without the Italian version can get it on request from their own stored data (`POST /api/briefs/lang?id=…&lang=it`).
+
 ## Symbol discovery (T05)
 search → select → fetch. Nothing is preloaded and no ticker list is maintained by hand.
 1. **Discovery**: `/api/search?q=Novartis` asks the provider's symbol master (name or ticker, all
@@ -164,6 +169,7 @@ node test/spx.test.mjs          # T06: S&P 500 map data (holdings parser, Alpaca
 node test/press.test.mjs        # T06: publishers' and central banks' RSS parsing and endpoint
 node test/briefs.test.mjs       # T06: briefing editions, schedule, data lines, link/number checks, archive
 node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export normalizer and endpoint)
+node test/i18n.test.mjs         # T06: interface translations (stable, data-safe)
 node test/maps.test.mjs         # T06: Nasdaq-100 / Dow / ETF / crypto maps, xlsx reader, world exchanges, portfolio
 node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)

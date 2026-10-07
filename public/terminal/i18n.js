@@ -225,7 +225,8 @@
   var PHR = PHRASES.slice().sort(function (a, b) { return b[0].length - a[0].length; });
   var PHR_MAP = new Map(PHR);
   // single short words only as whole words; longer phrases anywhere
-  var PHR_RE = new RegExp(PHR.map(function (p) { var e = p[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return /^\w+$/.test(p[0]) ? "\\b" + e + "\\b" : e; }).join("|"), "g");
+  // a phrase never matches inside a longer word ("ASIA-PACIFIC" is not found again in "ASIA-PACIFICO")
+  var PHR_RE = new RegExp(PHR.map(function (p) { var e = p[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return (/^[A-Za-z]/.test(p[0]) ? "(?<![A-Za-z])" : "") + e + (/[A-Za-z]$/.test(p[0]) ? "(?![A-Za-z])" : ""); }).join("|"), "g");
 
   function tr(s) {
     if (cur !== "it" || !s) return s;
@@ -242,9 +243,9 @@
   var SKIP = ".notranslate,.nm,script,style,textarea,code,pre";
   function skip(el) { return !el || (el.closest && el.closest(SKIP)); }
   function trTextNode(n) {
-    if (cur !== "it" || skip(n.parentElement)) return;
+    if (cur !== "it" || n.__it === n.data || skip(n.parentElement)) return; // a node is translated once: never twice
     var v = n.data, o = tr(v);
-    if (o !== v) { if (n.__en == null) n.__en = v; n.data = o; }
+    if (o !== v) { n.__en = v; n.__it = o; n.data = o; }
   }
   var ATTRS = ["title", "placeholder", "aria-label"];
   function trAttrs(el) {
@@ -252,8 +253,10 @@
     for (var i = 0; i < ATTRS.length; i++) {
       var a = ATTRS[i], v = el.getAttribute && el.getAttribute(a);
       if (!v) continue;
+      el.__itAttr = el.__itAttr || {};
+      if (el.__itAttr[a] === v) continue; // already ours
       var o = tr(v);
-      if (o !== v) { el.__enAttr = el.__enAttr || {}; if (el.__enAttr[a] == null) el.__enAttr[a] = v; el.setAttribute(a, o); }
+      if (o !== v) { el.__enAttr = el.__enAttr || {}; el.__enAttr[a] = v; el.__itAttr[a] = o; el.setAttribute(a, o); }
     }
   }
   function walk(root, fn) {
@@ -267,8 +270,8 @@
   function translate(root) { walk(root || document.body, function (n, isText) { if (isText) trTextNode(n); else trAttrs(n); }); }
   function restore(root) {
     walk(root || document.body, function (n, isText) {
-      if (isText) { if (n.__en != null) { n.data = n.__en; n.__en = null; } }
-      else if (n.__enAttr) { for (var a in n.__enAttr) n.setAttribute(a, n.__enAttr[a]); n.__enAttr = null; }
+      if (isText) { if (n.__en != null && n.__it === n.data) n.data = n.__en; n.__en = null; n.__it = null; }
+      else if (n.__enAttr) { for (var a in n.__enAttr) if (n.__itAttr && n.getAttribute(a) === n.__itAttr[a]) n.setAttribute(a, n.__enAttr[a]); n.__enAttr = null; n.__itAttr = null; }
     });
   }
   var mo = null;
@@ -280,8 +283,7 @@
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i];
         if (m.type === "childList") m.addedNodes.forEach(function (n) { translate(n); });
-        else if (m.type === "characterData") { if (m.target.__en != null && m.target.data !== tr(m.target.__en)) m.target.__en = null; trTextNode(m.target); }
-        else if (m.type === "attributes" && m.target.__enAttr && m.target.__enAttr[m.attributeName] != null) { /* our own write */ }
+        else if (m.type === "characterData") trTextNode(m.target); // our own write is skipped (__it); new text from the page is translated
         else if (m.type === "attributes") trAttrs(m.target);
       }
     });

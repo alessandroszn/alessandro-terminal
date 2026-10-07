@@ -493,6 +493,11 @@ const OK_API = {
   await cmd(page, "PF"); await page.waitForTimeout(600);
   const pf = await winOf(page, "PORTAFOGLIO");
   ok("[G] Italian: portfolio labels translated; the trade side keeps its value for the server", !!pf && /VALORE DI MERCATO/.test(pf.text) && /AGGIUNGI OPERAZIONE/.test(pf.text) && /Il portafoglio è vuoto/.test(pf.text) && (await page.$eval('.pf-form select[name="side"]', (s) => s.value)) === "BUY" && (await page.$eval('.pf-form select[name="side"] option', (o) => o.textContent)) === "ACQUISTO");
+  // every window open in Italian: the page stays responsive (a translation that re-matched itself once froze it)
+  for (const c of ["EXCH", "MAP", "MOV", "SCR", "COMP", "CORR", "HEAT", "SET", "YLD", "MKT", "WL", "SRCH"]) await cmd(page, c);
+  await page.waitForTimeout(1500);
+  const t0 = Date.now(); const regions = await page.evaluate(() => [...document.querySelectorAll(".ex-t tr.grp td")].map((td) => td.textContent).join(" | "));
+  ok("[G] Italian: all windows open, page responsive, region names translated once", Date.now() - t0 < 2000 && /ASIA-PACIFICO · 0\/1 APERTE/.test(regions) && !/PACIFICOO/.test(regions) && /EUROPA E AFRICA · 1\/1 APERTE/.test(regions), regions);
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(600);
   ok("[G] back to English: launcher and windows in English again", (await page.$$eval("#fnbar .fn", (b) => b.map((x) => x.textContent).join(","))).startsWith("SECURITY,SEARCH,WATCHLIST,PORTFOLIO") && !!(await winOf(page, "ECONOMIC CALENDAR")) && (await page.evaluate(() => document.documentElement.lang)) === "en");
   const body = await page.evaluate(() => document.body.innerText);
