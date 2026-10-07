@@ -84,7 +84,7 @@ export async function handleDes(url, env, ctx, H, json) {
   if (url.pathname.endsWith("/fact")) {
     const id = url.searchParams.get("c") || "", F = FACTS[id];
     if (!F) return send({ error: "bad_request", message: `c must be one of ${Object.keys(FACTS).join(",")}` }, 400);
-    const r = await cachedSource({ origin: url.origin, key: `des/fact/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 30 * 60_000,
+    const r = await cachedSource({ origin: url.origin, key: `des/fact2/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 30 * 60_000,
       load: async () => {
         const res = await Promise.all(F.concepts.map(([tax, concept]) => fetchText(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10(c.cik)}/${tax}/${concept}.json`, { timeoutMs: 12000, headers: secHeadersFor(env) }).then((f) => ({ tax, concept, p: pj(f) }))));
         let best = null, err = null;
