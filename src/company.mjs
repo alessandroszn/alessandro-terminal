@@ -136,8 +136,10 @@ export async function handleOptions(url, env, ctx, H, json) {
   if (!spot.data) return send({ error: spot.err === "no_data" ? "no_underlying_price" : spot.err, status: "N/A" }, 502);
   const S = spot.data.price;
   if (url.pathname.endsWith("/expirations")) {
-    const r = await cachedSource({ origin: url.origin, key: `opt/exp/${sym}/${today}`, ttlMs: 3600_000, staleMaxMs: 86400_000, ctx, failTtlMs: 5 * 60_000,
-      load: async () => { const c = await contracts(env, sym, { expiration_date_gte: today, expiration_date_lte: addDays(today, 120), strike_price_gte: String(Math.floor(S * (100 - BAND_EXP) / 100)), strike_price_lte: String(Math.ceil(S * (100 + BAND_EXP) / 100)) }); if (c.err) return c; const by = {}; for (const x of c.data) by[x.exp] = (by[x.exp] || 0) + 1; const exps = Object.entries(by).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([exp, n]) => ({ exp, contractsNearSpot: n })); return exps.length ? { data: exps } : { err: "no_data" }; } });
+    // after the U.S. close (16:15 New York) today's expiries are over: list from the next day
+    const etHM = new Date().toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false }).slice(0, 5), first = etHM >= "16:15" ? addDays(today, 1) : today;
+    const r = await cachedSource({ origin: url.origin, key: `opt/exp/${sym}/${first}`, ttlMs: 3600_000, staleMaxMs: 86400_000, ctx, failTtlMs: 5 * 60_000,
+      load: async () => { const c = await contracts(env, sym, { expiration_date_gte: first, expiration_date_lte: addDays(today, 120), strike_price_gte: String(Math.floor(S * (100 - BAND_EXP) / 100)), strike_price_lte: String(Math.ceil(S * (100 + BAND_EXP) / 100)) }); if (c.err) return c; const by = {}; for (const x of c.data) by[x.exp] = (by[x.exp] || 0) + 1; const exps = Object.entries(by).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([exp, n]) => ({ exp, contractsNearSpot: n })); return exps.length ? { data: exps } : { err: "no_data" }; } });
     return send(r.data ? { symbol: sym, spot: spot.data, expirations: r.data, source: "Alpaca options contracts", status: "LIVE" } : { symbol: sym, error: r.err === "no_data" ? "no_listed_options" : r.err, status: "N/A" }, r.data ? 200 : r.err === "no_data" ? 404 : 502);
   }
   if (!url.pathname.endsWith("/chain")) return send({ error: "not found" }, 404);
