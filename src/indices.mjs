@@ -426,6 +426,11 @@ export async function handleIndices(url, env, ctx, H, json) {
     const h = await getIndexHistory(url, env, ctx, ix);
     return send(h, h.points ? 200 : 502);
   }
+  if (url.searchParams.get("diag") === "1") { // temporary: what the exchanges answer the Worker (status, type, first bytes)
+    const one = async (u, h = {}) => { try { const r = await fetch(u, { headers: { "user-agent": "AlessandroTerminal/1.0 (+https://alessandrozanichelli.com/terminal)", ...h } }); const t = await r.text(); return [r.status, r.headers.get("content-type"), t.slice(0, 160)]; } catch (e) { return ["err", String(e && e.message)]; } };
+    const d = new Date(Date.now() - 86400_000 + 330 * 60_000).toISOString().slice(0, 10);
+    return send({ b3q: await one(B3_QUOTE("IBOV"), { accept: "application/json" }), b3y: await one(B3_YEAR("IBOV", 2026), { accept: "application/json" }), nse: await one(NSE_FILE(d), { accept: "text/csv,text/plain" }), d });
+  }
   const g = url.searchParams.get("g");
   if (!g) return send({ ...indexCatalog(), basis: BASIS });
   if (!GROUPS.some(([id]) => id === g)) return send({ error: "bad_request", message: "unknown group" }, 400);
