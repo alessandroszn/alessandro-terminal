@@ -13,6 +13,11 @@ export const MIC_CNBC = {
   XSWX: "-CH", XVTX: "-CH", XHEL: "-FI", XOSL: "-NO", XSTO: "-SE", XTSE: "-CA", XASX: "-AU", XNSE: "-IN", BVMF: "-BR",
   XSHG: "-CN", XSHE: "-CN", XTAI: "-TW", XSES: "-SG", XHKG: "-HK", XJPX: ".T", XTKS: ".T",
 };
+// the exchange's time zone by CNBC suffix (charts show intraday bars in exchange time)
+const SUFFIX_TZ = { IT: "Europe/Rome", DE: "Europe/Berlin", FF: "Europe/Berlin", FR: "Europe/Paris", GB: "Europe/London", NL: "Europe/Amsterdam", BE: "Europe/Brussels", PT: "Europe/Lisbon", ES: "Europe/Madrid",
+  CH: "Europe/Zurich", FI: "Europe/Helsinki", NO: "Europe/Oslo", SE: "Europe/Stockholm", CA: "America/Toronto", AU: "Australia/Sydney", IN: "Asia/Kolkata", BR: "America/Sao_Paulo", CN: "Asia/Shanghai",
+  TW: "Asia/Taipei", SG: "Asia/Singapore", HK: "Asia/Hong_Kong", T: "Asia/Tokyo" };
+export const cnbcTzOf = (code) => { const m = /[-.]([A-Z]{1,2})$/.exec(String(code || "")); return m ? SUFFIX_TZ[m[1]] || null : null; };
 export const isCnbcId = (id) => /^C:[A-Z0-9][A-Z0-9.\-]{0,15}$/.test(String(id || ""));
 export function cnbcCodeFor(id) {
   const s = String(id || "").toUpperCase();

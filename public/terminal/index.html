@@ -1005,10 +1005,11 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     gpLegend(win,h,null);}
   function gpCaption(e,src,st){const d=e&&e.data,hs=histSt(e);
     if(!d)return`${chip(hs)} ${e&&e.err?tl('real history unavailable — ','storico reale non disponibile — ')+esc(P.errorText(e.err)):tl('requesting real history…','richiedo lo storico reale…')}`;
-    const bits=[`${chip(hs,'history: '+hs)} Twelve Data · ${tl(...src.about)} · ${d.count} ${tl('bars','barre')} · ${tl('fetched','scaricato alle')} ${fmtTime(d.fetchedAt)}`];
-    if(src.intra)bits.push(tl('times in exchange time','orari della borsa')+(d.exchangeTimezone?' ('+esc(d.exchangeTimezone)+')':''));
+    const cn=d.source==='cnbc',about=cn?(src.intra?[tl('CNBC 5-minute bars','barre CNBC a 5 minuti'),'']:[tl('CNBC daily bars, adjusted as CNBC adjusts them','barre giornaliere CNBC, rettificate come le rettifica CNBC'),'']):src.about;
+    const bits=[`${chip(hs,'history: '+hs)} ${cn?'CNBC':'Twelve Data'} · ${cn?about[0]:tl(...about)} · ${d.count} ${tl('bars','barre')} · ${tl('fetched','scaricato alle')} ${fmtTime(d.fetchedAt)}`];
+    if(src.intra)bits.push(cn&&!d.exchangeTimezone?tl('times in UTC','orari in UTC'):tl('times in exchange time','orari della borsa')+(d.exchangeTimezone?' ('+esc(d.exchangeTimezone)+')':''));
     if(d.lastBarPartial)bits.push(tl('last bar still forming','ultima barra ancora in formazione'));
-    if(st.ind.vol)bits.push(src.intra?tl('intraday volume may cover only part of the venues','il volume intraday può coprire solo parte delle sedi'):tl('volume consolidated; today only part of the venues','volume consolidato; oggi solo parte delle sedi'));
+    if(st.ind.vol)bits.push(cn?tl('volume as CNBC reports it','volume come lo riporta CNBC'):src.intra?tl('intraday volume may cover only part of the venues','il volume intraday può coprire solo parte delle sedi'):tl('volume consolidated; today only part of the venues','volume consolidato; oggi solo parte delle sedi'));
     if(['ma20','ma50','ma200','bb','rsi'].some(k=>st.ind[k]))bits.push(`${chip(S.DERIVED,'computed here from the real bars')} ${tl('indicators computed from these bars','indicatori calcolati da queste barre')}`);
     if(st.cmp.length)bits.push(tl('compare: % change from the first bar in view','confronto: variazione % dalla prima barra visibile'));
     if(hs===S.STALE&&d.staleReason)bits.push(tl('refresh failed: ','aggiornamento fallito: ')+esc(P.errorText(d.staleReason)));

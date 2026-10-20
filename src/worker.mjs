@@ -39,7 +39,7 @@ import { handleDes, handleOptions } from "./company.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
 import { handleAlerts, runAlerts, ALERT_CRON } from "./alerts.mjs";
 import { handleFinra } from "./finra.mjs";
-import { isCnbcId, cnbcCodeFor, cnbcIntlRec, cnbcInstrument, loadCnbcRaw, cnbcHistory, CNBC_INTL_SOURCE } from "./intl.mjs";
+import { isCnbcId, cnbcCodeFor, cnbcIntlRec, cnbcInstrument, loadCnbcRaw, cnbcHistory, cnbcTzOf, CNBC_INTL_SOURCE } from "./intl.mjs";
 import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
@@ -505,7 +505,7 @@ async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "pl
   const key = `${url.origin}/__cache/history-cnbc?${new URLSearchParams({ symbol: id, range, interval })}`, entry = await cacheGet(cache, key);
   const envelope = (points, fetchedAt, stale, staleReason) => {
     const last = points[points.length - 1];
-    return { symbol: id, cnbcSymbol: code, range, interval, adjust: "cnbc", timeBasis: intraday ? "utc" : "cnbc_date", currency: null, exchange: null, exchangeTimezone: null, type: null,
+    return { symbol: id, cnbcSymbol: code, range, interval, adjust: "cnbc", timeBasis: intraday ? "utc" : "cnbc_date", currency: null, exchange: null, exchangeTimezone: cnbcTzOf(code), type: null,
       count: points.length, points, status: stale ? STATUS.STALE : STATUS.LIVE, source: CNBC_INTL_SOURCE, fetchedAt: new Date(fetchedAt).toISOString(),
       staleAt: new Date(fetchedAt + historyStaleAfterMs(intraday, interval)).toISOString(), lastBarPartial: !intraday && !!last && last.t === isoDate(new Date(now)),
       note: "CNBC's bars (adjusted as CNBC adjusts them); daily bars carry CNBC's date", ...(stale ? { staleReason } : {}), asOf: new Date(fetchedAt).toISOString(), provider: CNBC_INTL_SOURCE };
