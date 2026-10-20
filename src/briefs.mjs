@@ -125,14 +125,15 @@ export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, cu
     eq.losers.forEach((r) => L.push(line("LOSER", r)));
     sources.push({ name: "S&P 500 constituents: Alpaca prices, iShares IVV weights (derived)", timestamp: eq.lastDate || iso(now) });
   } else L.push("EQUITY S&P 500 constituent prices: N/A (not available for this edition)");
-  L.push(...M.lines.filter((l) => l.startsWith("INDEX")));
+  const idxLine = (l) => l.startsWith("INDEX") || l.startsWith("SECTOR_EU");
+  L.push(...M.lines.filter(idxLine));
   for (const q of quotes) {
     symbols.add(q.symbol);
     const h = fxHist && fxHist[q.symbol];
     L.push(`QUOTE \`${q.symbol}\` ${q.name || q.symbol}: last ${raw(q.price)}${q.currency ? " " + q.currency : ""}, day change ${f2(q.changePct)}% vs previous close ${raw(q.prevClose)}${h ? `, ${PERIODS[period].eq} change ${f2(h.chg)}% vs close ${raw(h.base)} on ${h.baseDate}` : ""} — data time ${q.timestamp} [Twelve Data]`);
   }
   if (quotes.length) sources.push({ name: "Twelve Data (FX, crypto, gold, watchlist)", timestamp: quotes.map((q) => q.timestamp).filter(Boolean).sort().pop() });
-  L.push(...M.lines.filter((l) => !l.startsWith("INDEX")));
+  L.push(...M.lines.filter((l) => !idxLine(l)));
   M.symbols.forEach((s) => symbols.add(s));
   sources.push(...M.sources);
   for (const c of Object.values(curves || {})) {
@@ -164,7 +165,7 @@ export function systemPrompt(period, lang = "en") {
     `The first section is a single sentence. Total length ${p.words} words. Short paragraphs; bullets only for lists of events.`,
     "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round prices, yields and percentages to at most two decimals (e.g. 0.58%); FX rates to four.",
     "The EQUITY figure in DATA is an IVV-weighted average of S&P 500 constituent prices, not the index: never call it the index or give a level for it. INDEX lines are the published index levels: use them for the level and the change of an index (S&P 500, Nasdaq, Dow, DAX, EURO STOXX 50, Nikkei 225…), with the date or time given; the VIX is a volatility index in points.",
-    "In the equities section, cover the United States, Europe and Asia from the INDEX lines before the sectors and single stocks.",
+    "In the equities section, cover the United States, Europe, Asia and the other markets from the INDEX lines before the sectors and single stocks. SECTOR lines are S&P 500 sectors (U.S., derived from constituents); SECTOR_EU lines are STOXX Europe 600 sector indices.",
     "FX_ECB lines are the ECB's daily reference rates (a fixing around 16:00 CET), not live prices: call them the ECB fixing. ENERGY lines are EIA spot prices published with a lag of about a week: always give their date and never present them as today's move. CRYPTO lines are closes of completed UTC days. CMDTY_MONTHLY lines are IMF monthly average prices.",
     "Write tickers in backticks exactly as in DATA, e.g. `NVDA`, `EUR/USD`.",
     "When you mention a headline, link it with Markdown using its exact URL from DATA, e.g. [FT](https://www.ft.com/...). Use no other URL.",

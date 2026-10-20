@@ -14,10 +14,10 @@ import { getYieldCurves, CURVES } from "./yields.mjs";
 import { BRIEF_CURVES } from "./briefs.mjs";
 import { getWorldCalendar, getCalendar, archiveFF, archivedFF } from "./calendar.mjs";
 import { getPress, PRESS } from "./press.mjs";
-import { INDICES, getIndexGroup, getIndexHistory } from "./indices.mjs";
+import { INDICES, getIndexGroup, getIndexHistory, nseOn, nseLatest } from "./indices.mjs";
 import { getEcbFx, ecbFxKey, getImf, IMF_KEY } from "./markets.mjs";
 import { getEnergySpot } from "./macro.mjs";
-import { BRIEF_ECB_N, CRYPTO_SYMS, tailKey, tailOf } from "./briefmkt.mjs";
+import { BRIEF_ECB_N, CRYPTO_SYMS, tailKey, tailOf, BRIEF_HIST, refDateOf } from "./briefmkt.mjs";
 
 export const BUFFER_MIN = 2;  // minutes between the last staging run and the write (KV propagation)
 export const SCHEDULE_UTC = ["* 5-7 * * *", "* 20-21 * * *"]; // covers the slots in both CET and CEST
@@ -36,10 +36,10 @@ export function stepsFor(periods) {
   s.push("yields", ...BRIEF_CURVES.filter((id) => id !== "US" && id !== "EA").map((id) => "bonds:" + id), "calendar", ...Object.keys(PRESS).map((id) => "press:" + id));
   // markets (20 Oct 2026): world indices, the ECB fixing, energy, crypto pairs; for a week / a month also each U.S. / MSCI
   // index's daily history (one file per minute) and the crypto closes a week / a month ago; IMF prices monthly
-  s.push("idx:eu", "idx:world", "ecbfx", "energy", "crypto");
+  s.push("idx:eu", "idx:sec", "idx:sec2", "idx:asia", "idx:world", "ecbfx", "energy", "crypto");
   if (has("weekly")) s.push("crypto:1W");
   if (has("monthly")) s.push("crypto:1M", "imf");
-  if (long) s.push(...INDICES.filter((x) => x.src === "cboe").map((x) => "idxh:" + x.id));
+  if (long) s.push(...BRIEF_HIST.map((id) => "idxh:" + id));
   if (!has("evening")) s.push("idx:us", "closes");
   s.push("fx", "retry", "retry");
   return s;
@@ -65,7 +65,8 @@ export function cronPlan(now = Date.now()) {
 const closesKey = (now) => `spx/closes/recent/${easternDate(new Date(now))}`;
 const utcDay = (now) => new Date(now).toISOString().slice(0, 10);
 // the staged copy of one index: its own source, or the FRED close standing in for Cboe
-const idxKeys = (ix) => ix.src === "cboe" ? [`idx/q/${ix.id}`, ...(ix.fred ? [`idx/fred/${ix.fred}`] : [])] : ix.src === "stoxx" ? [`idx/stoxx/${ix.file}`] : ix.src === "nikkei" ? ["idx/nikkei"] : [`idx/fred/${ix.series}`];
+const idxKeys = (ix) => ({ cboe: [`idx/q/${ix.id}`, ...(ix.fred ? [`idx/fred/${ix.fred}`] : [])], stoxx: [`idx/stoxx/${ix.file}`], nikkei: ["idx/nikkei"], fred: [`idx/fred/${ix.series}`],
+  six: [`idx/six/q/${ix.id}`], sse: [`idx/sse/q/${ix.id}`], b3: [`idx/b3/q/${ix.id}`], nse: ["idx/nse/latest"], asx: [`idx/asx/${ix.id}`] })[ix.src] || [];
 const anyFresh = async (store, keys, minAt) => (await Promise.all(keys.map((k) => store.get(k)))).some((e) => fresh(e, minAt));
 const fresh = (e, minAt) => !!(e && (e.data || e.rec) && e.fetchedAt >= minAt);
 
@@ -123,6 +124,14 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
   }
   if (step.startsWith("idxh:")) {
     const ix = INDICES.find((x) => x.id === step.slice(5)); if (!ix) return "unknown_index";
+    if (ix.src === "nse") { // no history: the file of the last session on or before each reference date, and the latest one
+      const refs = plan.periods.map((p) => refDateOf(p, plan.date)).filter(Boolean), res = await Promise.all([...refs, null].map((d) => (d ? nseOn({ origin }, sctx, d) : nseLatest({ origin }, sctx))));
+      const rows0 = res.map((r) => r.data && r.data.rows[ix.nse]).filter(Boolean), latest = rows0.length === res.length ? rows0[rows0.length - 1] : null, pts = rows0.slice(0, -1).map((x) => [x.date, x.last]);
+      if (!latest || !pts.length) return (res.find((r) => r.err) || {}).err || "no_data";
+      const rows = [...new Map([...pts, [latest.date, latest.last]].sort((a, b) => (a[0] < b[0] ? -1 : 1))).entries()];
+      await sctx.store.put(tailKey(ix.id), { data: rows, source: "NSE (daily close files)", fetchedAt: Date.now() }, 3 * 86400);
+      return "ok";
+    }
     const h = await getIndexHistory({ origin }, env, sctx, ix);
     if (!h.points) return h.error || "no_data";
     await sctx.store.put(tailKey(ix.id), tailOf(h), 3 * 86400); // the rows an edition needs, without the ten-year file

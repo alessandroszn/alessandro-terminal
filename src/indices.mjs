@@ -1,19 +1,23 @@
-// WORLD INDICES (IDX) — approved 7 Oct 2026: free publications of the index providers and of Cboe, nothing estimated.
-//   GET /api/indices?g=us|eu|world   the indices of one group: last level, change, day range (when published), time, source
-//   GET /api/indices                 the catalog only (groups, names, sources, what is not connected)
-//   GET /api/indices/history?id=SPX  daily closes (open/high/low too when published) for the chart and for the
-//                                    1M / YTD / 52-week figures the page derives
+// WORLD INDICES (IDX) — approved 7 Oct 2026 (Cboe, STOXX, Nikkei, FRED) and 20 Oct 2026 (SIX, Shanghai Stock Exchange, B3, NSE,
+// ASX): free publications of the index providers and the exchanges, nothing estimated.
+//   GET /api/indices?g=us|vol|eu|sec|sec2|asia|world   the indices of one group: last level, change, day range, time, source
+//   GET /api/indices                                   the catalog only (groups, names, sources, what is not connected)
+//   GET /api/indices/history?id=SPX                    daily closes (open/high/low too when published) for the chart and the
+//                                                      1M / YTD / 52-week figures the page derives
 // Sources:
-//   Cboe delayed quotes, 15 minutes (cdn-api.cboe.com, the data behind cboe.com): S&P 500, Nasdaq-100, Dow Jones (Cboe DJX
-//     = 1/100 of the DJIA, shown ×100: DERIVED), Russell 2000, VIX, MSCI EAFE, MSCI Emerging Markets; daily history since
-//     1975, of which the last ten years are kept
-//   STOXX Ltd. daily closes, last 3 months (stoxx.com): EURO STOXX 50, STOXX Europe 600, DAX, MDAX, EURO STOXX Banks
-//   Nikkei Inc. daily open/high/low/close since 2023 (indexes.nikkei.co.jp): Nikkei 225
-//   FRED (needs FRED_KEY): Nasdaq Composite (NASDAQCOM, daily close); the official closes of S&P 500, Nasdaq-100, Dow and
-//     VIX stand in, labelled as such, when Cboe does not answer
-// Not connected (no free official source): FTSE 100, CAC 40, FTSE MIB, SMI, Hang Seng.
-// The index providers reserve redistribution: the values are shown only in this private terminal, each with its source.
-// A group stays small (≤ 10 sources with their fallbacks) so one request keeps within the Worker's subrequest limit.
+//   Cboe delayed quotes, 15 minutes (cdn-api.cboe.com): S&P 500, S&P 100, Nasdaq-100, Dow (Cboe DJX = 1/100 of the DJIA, ×100:
+//     DERIVED), Russell 1000 / 2000, VIX and the other Cboe volatility indices, MSCI EAFE / EM / ACWI; daily history since 1975
+//   STOXX Ltd. daily closes, last 3 months (stoxx.com): EURO STOXX 50, EURO STOXX, STOXX Europe 50 / 600 and its sectors, DAX,
+//     MDAX, TecDAX, EURO STOXX Banks
+//   Nikkei Inc. daily CSV: Nikkei 225 · FRED: Nasdaq Composite (and the official closes standing in when Cboe does not answer)
+//   SIX (six-group.com data service, 15-min delayed snapshot + daily closes): SMI, SPI, IBEX 35 (BME belongs to SIX)
+//   Shanghai Stock Exchange (yunhq.sse.com.cn, port 32042): SSE Composite, CSI 300 — snapshot and daily bars
+//   B3 (cotacao.b3.com.br + the daily closes of B3's index statistics, one year per file): Ibovespa
+//   NSE end-of-day file (nsearchives.nseindia.com, one file per day, no history): Nifty 50, Nifty Bank
+//   ASX's data vendor (asx.api.markitdigital.com): S&P/ASX 200 — level and change without a time (PARTIAL), no history
+// Not connected (no free official source): FTSE 100, CAC 40, FTSE MIB, Hang Seng, KOSPI, S&P/TSX.
+// The index providers and exchanges reserve redistribution: the values are shown only in this private terminal, each with its source.
+// A group stays small (≤ 12 fetches with the FRED stand-ins) so one request keeps within the Worker's limits.
 import { fetchText, cachedSource, parseCsv, iso, easternToUtc } from "./lib.mjs";
 import { fredSeries } from "./yields.mjs";
 
@@ -23,30 +27,77 @@ export const STOXX_URL = (file) => `https://www.stoxx.com/document/Indices/Curre
 export const NIKKEI_URL = "https://indexes.nikkei.co.jp/nkave/historical/nikkei_stock_average_daily_en.csv";
 const HIST_ROWS = 2600; // ten years of sessions
 
-export const GROUPS = [["us", "United States"], ["eu", "Europe"], ["world", "Asia & global"]];
+// one request per group: a group stays within the Worker's limits (≤ 12 fetches with the FRED stand-ins, ≤ 50 cache calls)
+export const GROUPS = [["us", "United States"], ["vol", "Volatility (Cboe)"], ["eu", "Europe"],
+  ["sec", "Europe · STOXX 600 sectors — financials, technology, health, staples"], ["sec2", "Europe · STOXX 600 sectors — energy, materials, industrials, cyclicals"],
+  ["asia", "Asia-Pacific"], ["world", "Americas & global"]];
+const cb = (id, g, name, sym, ccy, owner, extra = {}) => ({ id, g, name, ccy, src: "cboe", sym, owner, ...extra });
+const sx = (id, g, name, file, owner = "STOXX") => ({ id, g, name, ccy: "EUR", src: "stoxx", file, owner });
+const sec = (g, code, name) => sx(code, g, `STOXX Europe 600 ${name}`, `h_3m${code.toLowerCase()}`);
 export const INDICES = [
   { id: "SPX", g: "us", name: "S&P 500", ccy: "USD", src: "cboe", sym: "_SPX", fred: "SP500", owner: "S&P Dow Jones Indices" },
   { id: "NDX", g: "us", name: "Nasdaq-100", ccy: "USD", src: "cboe", sym: "_NDX", fred: "NASDAQ100", owner: "Nasdaq" },
   { id: "DJI", g: "us", name: "Dow Jones Industrial Average", ccy: "USD", src: "cboe", sym: "_DJX", scale: 100, fred: "DJIA", owner: "S&P Dow Jones Indices" },
   { id: "COMP", g: "us", name: "Nasdaq Composite", ccy: "USD", src: "fred", series: "NASDAQCOM", owner: "Nasdaq" },
   { id: "RUT", g: "us", name: "Russell 2000", ccy: "USD", src: "cboe", sym: "_RUT", owner: "FTSE Russell" },
+  cb("OEX", "us", "S&P 100", "_OEX", "USD", "S&P Dow Jones Indices"),
+  cb("RUI", "us", "Russell 1000", "_RUI", "USD", "FTSE Russell"),
   { id: "VIX", g: "us", name: "Cboe Volatility Index (VIX)", ccy: "", src: "cboe", sym: "_VIX", fred: "VIXCLS", owner: "Cboe" },
-  { id: "SX5E", g: "eu", name: "EURO STOXX 50", ccy: "EUR", src: "stoxx", file: "h_3msx5e", owner: "STOXX" },
-  { id: "SXXP", g: "eu", name: "STOXX Europe 600", ccy: "EUR", src: "stoxx", file: "h_3msxxp", owner: "STOXX" },
-  { id: "DAX", g: "eu", name: "DAX", ccy: "EUR", src: "stoxx", file: "h_3mdax", owner: "STOXX (DAX index family)" },
-  { id: "MDAX", g: "eu", name: "MDAX", ccy: "EUR", src: "stoxx", file: "h_3mmdax", owner: "STOXX (DAX index family)" },
-  { id: "SX7E", g: "eu", name: "EURO STOXX Banks", ccy: "EUR", src: "stoxx", file: "h_3msx7e", owner: "STOXX" },
-  { id: "N225", g: "world", name: "Nikkei 225", ccy: "JPY", src: "nikkei", owner: "Nikkei Inc." },
-  { id: "MXEA", g: "world", name: "MSCI EAFE", ccy: "USD", src: "cboe", sym: "_MXEA", owner: "MSCI" },
-  { id: "MXEF", g: "world", name: "MSCI Emerging Markets", ccy: "USD", src: "cboe", sym: "_MXEF", owner: "MSCI" },
+  cb("VXN", "vol", "Cboe Nasdaq-100 Volatility (VXN)", "_VXN", "", "Cboe"),
+  cb("VIX9D", "vol", "Cboe 9-Day Volatility (VIX9D)", "_VIX9D", "", "Cboe"),
+  cb("VIX3M", "vol", "Cboe 3-Month Volatility (VIX3M)", "_VIX3M", "", "Cboe"),
+  cb("VVIX", "vol", "Cboe VIX of VIX (VVIX)", "_VVIX", "", "Cboe"),
+  cb("OVX", "vol", "Cboe Crude Oil Volatility (OVX)", "_OVX", "", "Cboe"),
+  cb("GVZ", "vol", "Cboe Gold Volatility (GVZ)", "_GVZ", "", "Cboe"),
+  sx("SX5E", "eu", "EURO STOXX 50", "h_3msx5e"),
+  sx("SXXP", "eu", "STOXX Europe 600", "h_3msxxp"),
+  sx("SX5P", "eu", "STOXX Europe 50", "h_3msx5p"),
+  sx("SXXE", "eu", "EURO STOXX", "h_3msxxe"),
+  sx("DAX", "eu", "DAX", "h_3mdax", "STOXX (DAX index family)"),
+  sx("MDAX", "eu", "MDAX", "h_3mmdax", "STOXX (DAX index family)"),
+  sx("TDXP", "eu", "TecDAX", "h_3mtdxp", "STOXX (DAX index family)"),
+  { id: "SMI", g: "eu", name: "Swiss Market Index (SMI)", ccy: "CHF", src: "six", valor: "CH0009980894CHF9", owner: "SIX" },
+  { id: "SPI", g: "eu", name: "Swiss Performance Index (SPI)", ccy: "CHF", src: "six", valor: "CH0009987501CHF9", owner: "SIX" },
+  { id: "IBEX", g: "eu", name: "IBEX 35", ccy: "EUR", src: "six", valor: "ES0SI0000005EUR9", owner: "BME (SIX)" },
+  sec("sec", "SX7P", "Banks"), sec("sec", "SXIP", "Insurance"), sec("sec", "SXFP", "Financial Services"), sec("sec", "SX86P", "Real Estate"),
+  sec("sec", "SX8P", "Technology"), sec("sec", "SXKP", "Telecommunications"), sec("sec", "SXMP", "Media"), sec("sec", "SXDP", "Health Care"),
+  sec("sec", "SX3P", "Food, Beverage and Tobacco"), sec("sec", "SXQP", "Personal Care, Drug and Grocery Stores"),
+  sec("sec2", "SXEP", "Energy"), sec("sec2", "SX6P", "Utilities"), sec("sec2", "SXPP", "Basic Resources"), sec("sec2", "SX4P", "Chemicals"),
+  sec("sec2", "SXOP", "Construction and Materials"), sec("sec2", "SXNP", "Industrial Goods and Services"), sec("sec2", "SXAP", "Automobiles and Parts"),
+  sec("sec2", "SXRP", "Retail"), sec("sec2", "SXTP", "Travel and Leisure"), sx("SX7E", "sec2", "EURO STOXX Banks", "h_3msx7e"),
+  { id: "N225", g: "asia", name: "Nikkei 225", ccy: "JPY", src: "nikkei", owner: "Nikkei Inc." },
+  { id: "XJO", g: "asia", name: "S&P/ASX 200", ccy: "AUD", src: "asx", code: "xjo", owner: "S&P Dow Jones Indices" },
+  { id: "SHCOMP", g: "asia", name: "SSE Composite", ccy: "CNY", src: "sse", code: "000001", owner: "China Securities Index Co. (SSE)" },
+  { id: "CSI300", g: "asia", name: "CSI 300", ccy: "CNY", src: "sse", code: "000300", owner: "China Securities Index Co." },
+  { id: "NIFTY", g: "asia", name: "Nifty 50", ccy: "INR", src: "nse", nse: "Nifty 50", owner: "NSE Indices" },
+  { id: "BANKNIFTY", g: "asia", name: "Nifty Bank", ccy: "INR", src: "nse", nse: "Nifty Bank", owner: "NSE Indices" },
+  { id: "IBOV", g: "world", name: "Ibovespa", ccy: "BRL", src: "b3", sym: "IBOV", owner: "B3" },
+  cb("MXEA", "world", "MSCI EAFE", "_MXEA", "USD", "MSCI"),
+  cb("MXEF", "world", "MSCI Emerging Markets", "_MXEF", "USD", "MSCI"),
+  cb("MXACW", "world", "MSCI ACWI", "_MXACW", "USD", "MSCI"),
 ];
-export const NOT_CONNECTED = [["UKX", "FTSE 100", "eu"], ["CAC", "CAC 40", "eu"], ["FTSEMIB", "FTSE MIB", "eu"], ["SMI", "SMI", "eu"], ["HSI", "Hang Seng", "world"]];
+export const NOT_CONNECTED = [["UKX", "FTSE 100", "eu"], ["CAC", "CAC 40", "eu"], ["FTSEMIB", "FTSE MIB", "eu"], ["HSI", "Hang Seng", "asia"], ["KOSPI", "KOSPI", "asia"], ["TSX", "S&P/TSX Composite", "world"]];
 const SRC = {
   cboe: { name: "Cboe (15-min delayed)", url: "https://www.cboe.com/us/indices/" },
   stoxx: { name: "STOXX (daily close)", url: "https://www.stoxx.com/" },
   nikkei: { name: "Nikkei Inc. (daily)", url: "https://indexes.nikkei.co.jp/en/nkave/index/profile?idx=nk225" },
   fred: { name: "FRED (daily close)", url: "https://fred.stlouisfed.org/" },
+  six: { name: "SIX (15-min delayed)", url: "https://www.six-group.com/en/market-data/indices.html" },
+  sse: { name: "Shanghai Stock Exchange (delayed)", url: "https://english.sse.com.cn/" },
+  b3: { name: "B3 (delayed)", url: "https://www.b3.com.br/en_us/market-data-and-indices/indices/" },
+  nse: { name: "NSE (daily close file)", url: "https://www.nseindia.com/" },
+  asx: { name: "ASX (≥20-min delayed, no time)", url: "https://www.asx.com.au/markets/trade-our-cash-market/overview/indices" },
 };
+// approved 20 Oct 2026 (exchange websites' own data services; not documented APIs — N/A whenever they refuse)
+export const SIX_SNAP = (valor) => `https://www.six-group.com/fqs/snap.json?select=ValorId,ClosingPrice,ClosingPerformance,ClosingDelta,PreviousClosingPrice,MarketDate,MarketTime&where=ValorId=${valor}`;
+export const SIX_HIST = (valor, from) => `https://www.six-group.com/fqs/charts.json?select=ValorId&where=ValorId=${valor}&fromdate=${from}&netting=1440`;
+export const SSE_SNAP = (code) => `https://yunhq.sse.com.cn:32042/v1/sh1/snap/${code}`;
+export const SSE_DAYK = (code, n) => `https://yunhq.sse.com.cn:32042/v1/sh1/dayk/${code}?begin=-${n}&end=-1&select=date,open,high,low,close`;
+export const B3_QUOTE = (sym) => `https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/${sym}`;
+export const B3_YEAR = (sym, year) => `https://sistemaswebb3-listados.b3.com.br/indexStatisticsProxy/IndexCall/GetPortfolioDay/${btoa(JSON.stringify({ index: sym, language: "pt-br", year: String(year) }))}`;
+export const NSE_FILE = (d) => `https://nsearchives.nseindia.com/content/indices/ind_close_all_${d.slice(8, 10)}${d.slice(5, 7)}${d.slice(0, 4)}.csv`;
+export const ASX_HEADER = (code) => `https://asx.api.markitdigital.com/asx-research/1.0/companies/${code}/header`;
+export const ASX_STATS = (code) => `https://asx.api.markitdigital.com/asx-research/1.0/companies/${code}/key-statistics`;
 const fredUrlOf = (s) => `https://fred.stlouisfed.org/series/${s}`;
 
 const pos = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
@@ -129,6 +180,79 @@ export function closeRow(rows) {
     open: ohlc ? L[1] : null, high: ohlc ? L[2] : null, low: ohlc ? L[3] : null, date: L[0], asOf: null, note: null };
 }
 const DAY = 86400_000;
+
+// ---------- exchange websites (approved 20 Oct 2026) ----------
+const ymdNum = (n) => { const t = String(n == null ? "" : n); return /^\d{8}$/.test(t) ? `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}` : null; };
+const hmsOk = (x) => { const t = String(x == null ? "" : x).replace(/\..*$/, "").padStart(6, "0"); return /^\d{6}$/.test(t) ? t : null; };
+// wall-clock time in a time zone → UTC (two passes for the DST edges)
+const tzOff = (tz, t) => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(t)).map((x) => [x.type, x.value])); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - t; };
+export function zonedToUtc(tz, d, hms = "000000") { const g = Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), +hms.slice(0, 2), +hms.slice(2, 4), +hms.slice(4, 6)); let t = g - tzOff(tz, g); t = g - tzOff(tz, t); return t; }
+const fixedToUtc = (d, hms, offH) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), +hms.slice(0, 2) - offH, +hms.slice(2, 4), +hms.slice(4, 6));
+const withChg = (last, prev) => ({ last, prev, chg: prev ? r4(last - prev) : null, chgPct: prev ? r4(((last - prev) / prev) * 100) : null });
+
+// SIX snapshot {colNames, rowData:[[valor, last, chg%, chg, prev, yyyymmdd, hhmmss]]}: the time is the snapshot's (15 minutes delayed)
+export function parseSixSnap(j) {
+  const c = j && j.colNames, r = j && Array.isArray(j.rowData) && j.rowData[0];
+  if (!Array.isArray(c) || !r) return null;
+  const v = (k) => r[c.indexOf(k)], last = pos(v("ClosingPrice")), date = ymdNum(v("MarketDate"));
+  if (!last || !date) return null;
+  const hms = hmsOk(v("MarketTime"));
+  return { ...withChg(last, pos(v("PreviousClosingPrice"))), open: null, high: null, low: null, date, asOf: hms ? iso(zonedToUtc("Europe/Zurich", date, hms)) : null, note: null };
+}
+// SIX daily bars (netting 1440): {valors:[{data:{Date:[yyyymmdd], Close:[…]}}]} → [[date, close]]
+export function parseSixHist(j) {
+  const d = j && Array.isArray(j.valors) && j.valors[0] && j.valors[0].data;
+  if (!d || !Array.isArray(d.Date) || !Array.isArray(d.Close)) return [];
+  const m = new Map(); d.Date.forEach((x, i) => { const k = ymdNum(x), c = pos(d.Close[i]); if (k && c) m.set(k, c); });
+  return [...m].sort(byDate);
+}
+// SSE snapshot {date, time, snap:[name, prev, open, high, low, last, chg, chg%, …]} — Shanghai time (UTC+8, no daylight saving)
+export function parseSseSnap(j) {
+  const a = j && j.snap, date = ymdNum(j && j.date);
+  if (!Array.isArray(a) || !date) return null;
+  const last = pos(a[5]);
+  if (!last) return null;
+  const hms = hmsOk(j.time);
+  return { ...withChg(last, pos(a[1])), open: pos(a[2]), high: pos(a[3]), low: pos(a[4]), date, asOf: hms ? iso(fixedToUtc(date, hms, 8)) : null, note: null };
+}
+// SSE daily bars {kline:[[yyyymmdd, open, high, low, close]]}
+export function parseSseDayk(j) {
+  return (j && Array.isArray(j.kline) ? j.kline : []).map((x) => { const d = ymdNum(x[0]), o = pos(x[1]), h = pos(x[2]), l = pos(x[3]), c = pos(x[4]); return d && c ? (o && h && l ? [d, o, h, l, c] : [d, null, null, null, c]) : null; }).filter(Boolean).sort(byDate);
+}
+// B3 now {Msg:{dtTm "yyyy-mm-dd hh:mm:ss" Brasília (UTC−3)}, Trad:[{scty:{SctyQtn:{curPrc, prcFlcn %, opngPric, minPric, maxPric}}}]}
+const ptNum = (x) => { const t = String(x == null ? "" : x).trim(); if (!t) return null; const n = Number(t.replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
+export function parseB3Quote(j) {
+  const t = j && Array.isArray(j.Trad) && j.Trad[0], q = t && t.scty && t.scty.SctyQtn, m = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(String((j && j.Msg && j.Msg.dtTm) || ""));
+  const last = q && pos(q.curPrc);
+  if (!last || !m) return null;
+  const pc = Number(q.prcFlcn);
+  return { last, chgPct: q.prcFlcn != null && Number.isFinite(pc) ? pc : null, open: pos(q.opngPric), high: pos(q.maxPric), low: pos(q.minPric), date: m[1], asOf: iso(fixedToUtc(m[1], m[2] + m[3] + m[4], -3)) };
+}
+// B3 daily closes of one year {results:[{day, rateValue1…rateValue12: "187.952,91"}]}
+export function parseB3Year(j, year) {
+  const out = [];
+  for (const r of j && Array.isArray(j.results) ? j.results : []) for (let mo = 1; mo <= 12; mo++) { const v = ptNum(r["rateValue" + mo]); if (v && r.day >= 1 && r.day <= 31) out.push([`${year}-${String(mo).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`, v]); }
+  return out.sort(byDate);
+}
+// NSE end-of-day file: Index Name, Index Date (dd-mm-yyyy), Open, High, Low, Closing, Points Change, Change(%), …
+export function parseNse(text) {
+  const out = {};
+  for (const r of parseCsv(String(text || "")).slice(1)) {
+    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(String(r[1] || "").trim()), c = pos(r[5]), ch = Number(r[6]);
+    if (!m || !c) continue;
+    const prev = Number.isFinite(ch) && r[6] !== "" && r[6] !== "-" ? r2(c - ch) : null;
+    out[String(r[0]).trim()] = { ...withChg(c, prev), open: pos(r[2]), high: pos(r[3]), low: pos(r[4]), date: `${m[3]}-${m[2]}-${m[1]}` };
+  }
+  return out;
+}
+// ASX (its data vendor): level and change now; previous close and day range from the key statistics; no time is published
+export function parseAsx(h, k) {
+  const d = h && h.data, s = k && k.data, last = d && pos(d.priceLast);
+  if (!last) return null;
+  const prev = s ? pos(s.priceClose) : null, hi = s && pos(s.priceDayHigh), lo = s && pos(s.priceDayLow);
+  const x = prev ? withChg(last, prev) : { last, prev: null, chg: Number.isFinite(d.priceChange) ? r4(d.priceChange) : null, chgPct: Number.isFinite(d.priceChangePercent) ? r4(d.priceChangePercent) : null };
+  return { ...x, open: null, high: hi ? r2(hi) : null, low: lo ? r2(lo) : null, date: null, asOf: null, note: "ASX publishes no time for this value" };
+}
 // a daily value older than five days (a weekend and a holiday) is no longer the latest one
 export const tooOld = (date, now) => !date || now - Date.parse(String(date).slice(0, 10) + "T12:00:00Z") > 5 * DAY;
 
@@ -164,9 +288,65 @@ const cboeHist = (url, ctx, ix) => cache(url, ctx, `idx/h/${ix.id}`, 6 * 3600_00
   return s.length >= 2 ? { data: s } : { err: "no_data" };
 }, 15 * 60_000);
 
+// SIX, SSE, B3, NSE, ASX (approved 20 Oct 2026)
+const sixSnap = (url, ctx, ix) => cache(url, ctx, `idx/six/q/${ix.id}`, 60_000, 7 * DAY, async () => {
+  const r = await getJson(SIX_SNAP(ix.valor), 8000); if (r.err) return { err: r.err };
+  const q = parseSixSnap(r.j); return q ? { data: q } : { err: "no_data" };
+}, 2 * 60_000);
+const tenYearsAgo = () => new Date(Date.now() - 3653 * DAY).toISOString().slice(0, 10);
+const sixHist = (url, ctx, ix) => cache(url, ctx, `idx/six/h/${ix.id}`, 6 * 3600_000, 14 * DAY, async () => {
+  const r = await getJson(SIX_HIST(ix.valor, tenYearsAgo().replace(/-/g, "")), 20000); if (r.err) return { err: r.err };
+  const s = parseSixHist(r.j); return s.length >= 2 ? { data: s.slice(-HIST_ROWS) } : { err: "no_data" };
+}, 15 * 60_000);
+const sseSnap = (url, ctx, ix) => cache(url, ctx, `idx/sse/q/${ix.id}`, 60_000, 7 * DAY, async () => {
+  const r = await getJson(SSE_SNAP(ix.code), 8000); if (r.err) return { err: r.err };
+  const q = parseSseSnap(r.j); return q ? { data: q } : { err: "no_data" };
+}, 2 * 60_000);
+const sseHist = (url, ctx, ix) => cache(url, ctx, `idx/sse/h/${ix.id}`, 6 * 3600_000, 14 * DAY, async () => {
+  const r = await getJson(SSE_DAYK(ix.code, HIST_ROWS), 20000); if (r.err) return { err: r.err };
+  const s = parseSseDayk(r.j); return s.length >= 2 ? { data: s } : { err: "no_data" };
+}, 15 * 60_000);
+const b3Quote = (url, ctx, ix) => cache(url, ctx, `idx/b3/q/${ix.id}`, 60_000, 7 * DAY, async () => {
+  const r = await getJson(B3_QUOTE(ix.sym), 8000); if (r.err) return { err: r.err };
+  const q = parseB3Quote(r.j); return q ? { data: q } : { err: "no_data" };
+}, 2 * 60_000);
+// B3 publishes the daily closes one calendar year at a time: this year and the last one
+const b3Hist = (url, ctx, ix) => cache(url, ctx, `idx/b3/h/${ix.id}`, 6 * 3600_000, 14 * DAY, async () => {
+  const y = new Date().getUTCFullYear(), res = await Promise.all([y - 1, y].map((yr) => getJson(B3_YEAR(ix.sym, yr), 15000).then((r) => (r.err ? r : { data: parseB3Year(r.j, yr) }))));
+  const s = res.flatMap((r) => r.data || []);
+  return s.length >= 2 ? { data: s } : { err: (res.find((r) => r.err) || {}).err || "no_data" };
+}, 15 * 60_000);
+const istDay = (t) => new Date(t + 330 * 60_000).toISOString().slice(0, 10); // India: UTC+5:30
+async function nseFileOn(d) {
+  const f = await fetchText(NSE_FILE(d), { timeoutMs: 8000, headers: { accept: "text/csv,text/plain" } });
+  if (f.err) return { err: f.err, http: f.http };
+  const rows = parseNse(f.text);
+  return rows["Nifty 50"] ? { data: { date: d, rows } } : { err: "no_data" };
+}
+// the latest file: today's (India) once published, otherwise the last weekday's (≤ 5 files tried, stops on a refusal)
+async function nseBack(t0, tries = 7) {
+  let last = "no_data";
+  for (let i = 0, t = t0; i < tries; i++, t -= DAY) {
+    const d = istDay(t), w = new Date(d + "T12:00:00Z").getUTCDay();
+    if (w === 0 || w === 6) continue;
+    const r = await nseFileOn(d);
+    if (r.data) return r;
+    last = r.err; if (r.http && r.http !== 404) break;
+  }
+  return { err: last };
+}
+export const nseLatest = (url, ctx) => cache(url, ctx, "idx/nse/latest", 30 * 60_000, 10 * DAY, () => nseBack(Date.now()), 10 * 60_000);
+// the file of the last session on or before a date (the briefings' week / month references)
+export const nseOn = (url, ctx, d) => cache(url, ctx, `idx/nse/d/${d}`, 30 * DAY, 30 * DAY, () => nseBack(Date.parse(d + "T12:00:00Z") - 330 * 60_000), 10 * 60_000);
+const asxRow = (url, ctx, ix) => cache(url, ctx, `idx/asx/${ix.id}`, 60_000, 7 * DAY, async () => {
+  const [h, k] = await Promise.all([getJson(ASX_HEADER(ix.code), 8000), getJson(ASX_STATS(ix.code), 8000)]);
+  if (h.err) return { err: h.err };
+  const q = parseAsx(h.j, k.err ? null : k.j); return q ? { data: q } : { err: "no_data" };
+}, 2 * 60_000);
+
 const base = (ix) => ({ id: ix.id, name: ix.name, group: ix.g, ccy: ix.ccy, owner: ix.owner });
 // one index: its primary source, or for Cboe the FRED close when Cboe does not answer
-async function indexRow(url, env, ctx, ix, now) {
+async function indexRow(url, env, ctx, ix, now, shared = {}) {
   const stale = (r) => r.cache === "STALE";
   if (ix.src === "cboe") {
     const r = await cboeQuote(url, ctx, ix);
@@ -180,6 +360,27 @@ async function indexRow(url, env, ctx, ix, now) {
     }
     return { ...base(ix), source: SRC.cboe.name, sourceUrl: SRC.cboe.url, status: "N/A", error: r.err };
   }
+  const na = (src, err) => ({ ...base(ix), source: SRC[src].name, sourceUrl: SRC[src].url, status: "N/A", error: err || "no_data" });
+  if (ix.src === "six" || ix.src === "sse" || ix.src === "asx") {
+    const r = ix.src === "six" ? await sixSnap(url, ctx, ix) : ix.src === "sse" ? await sseSnap(url, ctx, ix) : await asxRow(url, ctx, ix);
+    if (!r.data) return na(ix.src, r.err);
+    const noTime = ix.src === "asx"; // a level without a time is shown PARTIAL
+    return { ...base(ix), ...r.data, kind: "delayed", delayMin: ix.src === "six" ? 15 : ix.src === "asx" ? 20 : null, source: SRC[ix.src].name, sourceUrl: SRC[ix.src].url,
+      status: noTime ? "PARTIAL" : stale(r) || tooOld(r.data.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
+  }
+  if (ix.src === "b3") { // the level now; the previous close from B3's own daily closes (change DERIVED), else the change as published
+    const [q, h] = await Promise.all([b3Quote(url, ctx, ix), b3Hist(url, ctx, ix)]);
+    if (!q.data) return na("b3", q.err);
+    const before = h.data ? h.data.filter(([d]) => d < q.data.date) : [], pc = before.length ? before[before.length - 1] : null;
+    const x = pc ? withChg(q.data.last, pc[1]) : { last: q.data.last, prev: null, chg: null, chgPct: q.data.chgPct };
+    return { ...base(ix), ...q.data, ...x, prevDate: pc ? pc[0] : null, kind: "delayed", delayMin: null, source: SRC.b3.name, sourceUrl: SRC.b3.url,
+      status: stale(q) || tooOld(q.data.date, now) ? "STALE" : "LIVE", fetchedAt: iso(q.fetchedAt) };
+  }
+  if (ix.src === "nse") {
+    const r = await (shared.nse || (shared.nse = nseLatest(url, ctx))), x = r.data && r.data.rows[ix.nse]; // one file for both Nifty rows
+    if (!x) return na("nse", r.err || "no_data");
+    return { ...base(ix), ...x, kind: "close", source: SRC.nse.name, sourceUrl: SRC.nse.url, status: stale(r) || tooOld(x.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
+  }
   const r = ix.src === "stoxx" ? await stoxxSeries(url, ctx, ix) : ix.src === "nikkei" ? await nikkeiSeries(url, ctx) : await fredIdx(url, env, ctx, ix.series);
   const s = ix.src === "fred" ? `FRED · ${ix.owner} (daily close)` : SRC[ix.src].name, su = ix.src === "fred" ? fredUrlOf(ix.series) : SRC[ix.src].url;
   const c = r.data && closeRow(r.data);
@@ -188,8 +389,8 @@ async function indexRow(url, env, ctx, ix, now) {
 }
 
 export async function getIndexGroup(url, env, ctx, g, now = Date.now()) {
-  const list = INDICES.filter((x) => x.g === g);
-  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now)));
+  const list = INDICES.filter((x) => x.g === g), shared = {};
+  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now, shared)));
 }
 
 export async function getIndexHistory(url, env, ctx, ix) {
@@ -200,6 +401,11 @@ export async function getIndexHistory(url, env, ctx, ix) {
     if (!r.data && ix.fred && env.FRED_KEY) { const e = r.err; r = await fredIdx(url, env, ctx, ix.fred); source = `FRED · ${ix.owner} (daily close)`; sourceUrl = fredUrlOf(ix.fred); note = `Cboe did not answer (${e}): official closes from FRED`; derived = false; }
   } else if (ix.src === "stoxx") { r = await stoxxSeries(url, ctx, ix); source = SRC.stoxx.name; sourceUrl = SRC.stoxx.url; note = "STOXX publishes the last 3 months for free"; }
   else if (ix.src === "nikkei") { r = await nikkeiSeries(url, ctx); source = SRC.nikkei.name; sourceUrl = SRC.nikkei.url; }
+  else if (ix.src === "six") { r = await sixHist(url, ctx, ix); source = "SIX (daily closes)"; sourceUrl = SRC.six.url; }
+  else if (ix.src === "sse") { r = await sseHist(url, ctx, ix); source = "Shanghai Stock Exchange (daily)"; sourceUrl = SRC.sse.url; }
+  else if (ix.src === "b3") { r = await b3Hist(url, ctx, ix); source = "B3 (daily closes)"; sourceUrl = SRC.b3.url; note = "B3 publishes the daily closes one year at a time: this year and the last one are kept"; }
+  else if (ix.src === "nse" || ix.src === "asx") return { ...base(ix), source: SRC[ix.src].name, sourceUrl: SRC[ix.src].url, status: "N/A", error: "no_history",
+    note: ix.src === "nse" ? "NSE publishes one file per day: no free history" : "ASX publishes no free history" };
   else { r = await fredIdx(url, env, ctx, ix.series); source = `FRED · ${ix.owner} (daily close)`; sourceUrl = fredUrlOf(ix.series); }
   if (!r.data) return { ...base(ix), source, sourceUrl, status: "N/A", error: r.err || "no_data" };
   const pts = r.data, ohlc = pts.some((p) => p.length === 5 && p[1] != null);
@@ -227,4 +433,4 @@ export async function handleIndices(url, env, ctx, H, json) {
   const ok = rows.some((r) => r.status !== "N/A");
   return send({ group: g, indices: rows, notConnected: NOT_CONNECTED.filter((x) => x[2] === g).map(([id, name]) => ({ id, name, reason: "no free official source" })), basis: BASIS, status: ok ? "LIVE" : "N/A" }, ok ? 200 : 502);
 }
-const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, MSCI EAFE and EM), STOXX and Nikkei daily closes, FRED daily closes; changes against the previous close (DERIVED for the daily closes); the index providers reserve redistribution — shown only in this private terminal";
+const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, volatility indices, MSCI EAFE, EM and ACWI), STOXX and Nikkei daily closes, SIX 15-minute delayed (SMI, SPI, IBEX 35), Shanghai Stock Exchange (SSE Composite, CSI 300), B3 (Ibovespa), NSE daily close file (Nifty), ASX (S&P/ASX 200, no time published), FRED daily closes; changes against the previous close (DERIVED where computed); the index providers reserve redistribution — shown only in this private terminal";

@@ -3,7 +3,7 @@
 // (cron.mjs); an edition reads only those staged copies (Workers KV), also when the terminal writes it, so writing an
 // edition never calls these sources. Every value keeps its own date and source; a period change is computed only from
 // two values of the same source; nothing is filled in.
-import { INDICES, GROUPS, getIndexGroup, getIndexHistory } from "./indices.mjs";
+import { INDICES, getIndexGroup, getIndexHistory } from "./indices.mjs";
 import { getEcbFx, getImf } from "./markets.mjs";
 import { getEnergySpot } from "./macro.mjs";
 import { getCloses, CRYPTO_PAIRS, alpacaConfigured } from "./spx.mjs";
@@ -13,7 +13,14 @@ export const CRYPTO_SYMS = CRYPTO_PAIRS.map((x) => x.sym);
 // the pairs of the markets board: EUR crosses as the ECB publishes them, the others through the dollar rate of the same fixing
 export const BRIEF_FX = [["EUR", "GBP"], ["EUR", "JPY"], ["EUR", "CHF"], ["USD", "CHF"], ["USD", "CAD"], ["AUD", "USD"], ["NZD", "USD"], ["USD", "CNY"], ["USD", "SGD"],
   ["USD", "SEK"], ["USD", "NOK"], ["USD", "PLN"], ["USD", "TRY"], ["USD", "INR"], ["USD", "BRL"], ["USD", "MXN"], ["USD", "ZAR"], ["USD", "KRW"]];
-const GROUP_NAME = { us: "United States", eu: "Europe", world: "Asia & global" };
+const GROUP_NAME = { us: "United States", vol: "United States", eu: "Europe", sec: "Europe", sec2: "Europe", asia: "Asia-Pacific", world: "Americas & global" };
+// the indices an edition reports (the IDX window has more): the benchmarks of each region with a time or a date
+// (S&P/ASX 200 is left out: its source publishes no time); the STOXX Europe 600 sectors give the best and worst three
+export const BRIEF_IDX = ["SPX", "NDX", "DJI", "COMP", "RUT", "VIX", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "NIFTY", "IBOV", "MXEF", "MXACW"];
+export const BRIEF_GROUPS = ["us", "eu", "sec", "sec2", "asia", "world"];
+const SECTOR_GROUPS = ["sec", "sec2"];
+// indices whose week / month change needs their own history staged (the others come with their group's series)
+export const BRIEF_HIST = BRIEF_IDX.filter((id) => ["cboe", "six", "sse", "b3", "nse"].includes((INDICES.find((x) => x.id === id) || {}).src));
 const LONG = { weekly: { span: "1W", days: 7, crypto: "1W" }, monthly: { span: "1M", days: 30, crypto: "1M" } };
 
 const shift = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
@@ -43,12 +50,13 @@ export async function marketInputs(origin, env, ctx0, period, edition, now) {
   // each staged copy is read and parsed once (an index's series serves both its level and its period change)
   const memo = new Map(), ctx = ctx0 && ctx0.store ? { ...ctx0, store: { get: (k) => (memo.has(k) ? memo.get(k) : (memo.set(k, ctx0.store.get(k)), memo.get(k))), put: (...a) => ctx0.store.put(...a) } } : ctx0;
   const errors = {}, u = { origin }, L = LONG[period], refDate = refDateOf(period, edition.d);
-  let indices = (await Promise.all(GROUPS.map(([g]) => getIndexGroup(u, env, ctx, g, now)))).flat();
+  const rowsOf = (await Promise.all(BRIEF_GROUPS.map((g) => getIndexGroup(u, env, ctx, g, now)))).flat();
+  let indices = BRIEF_IDX.map((id) => rowsOf.find((r) => r.id === id)).filter(Boolean), sectors = rowsOf.filter((r) => SECTOR_GROUPS.includes(r.group) && r.id !== "SX7E");
   const na = indices.filter((r) => r.status === "N/A");
   if (na.length) errors.indices = na.map((r) => `${r.id} ${r.error || "no_data"}`).join("; ");
   if (L) { // the week's / month's change from each index's own daily history
     const histOf = async (ix) => {
-      const t = ix.src === "cboe" && ctx.store ? await ctx.store.get(tailKey(ix.id)) : null;
+      const t = BRIEF_HIST.includes(ix.id) && ctx.store ? await ctx.store.get(tailKey(ix.id)) : null;
       if (t && t.data && t.data.length && now - t.fetchedAt < 3 * 86400_000) return { points: t.data, source: t.source };
       return getIndexHistory(u, env, ctx, ix);
     };
@@ -56,6 +64,8 @@ export async function marketInputs(origin, env, ctx0, period, edition, now) {
     indices = indices.map((r, i) => { const h = hist[i], c = h && h.points ? refChange(h.points.map((p) => [p[0], p[p.length - 1]]), refDate) : null; return c ? { ...r, ref: { ...c, source: h.source } } : r; });
     const miss = indices.filter((r) => r.status !== "N/A" && !r.ref).map((r) => r.id);
     if (miss.length) errors.indexRef = miss.join(", ");
+    const sh = await Promise.all(sectors.map((r) => (r.status === "N/A" ? null : getIndexHistory(u, env, ctx, INDICES.find((x) => x.id === r.id)))));
+    sectors = sectors.map((r, i) => { const h = sh[i], c = h && h.points ? refChange(h.points.map((p) => [p[0], p[p.length - 1]]), refDate) : null; return c ? { ...r, ref: { ...c, source: h.source } } : r; });
   }
   const alp = alpacaConfigured(env);
   const [fx, energy, crypto, cryptoRef, imf] = await Promise.all([
@@ -71,7 +81,7 @@ export async function marketInputs(origin, env, ctx0, period, edition, now) {
   if (cryptoRef && !cryptoRef.data) errors.cryptoRef = cryptoRef.err;
   if (imf && !imf.data) errors.imf = imf.err;
   return {
-    period, refDate, indices,
+    period, refDate, indices, sectors,
     ecb: fx.data ? { series: fx.data, fetchedAt: fx.fetchedAt } : null,
     energy: energy.spot ? { spot: energy.spot.map(({ history, ...x }) => x), source: energy.source, sourceUrl: energy.sourceUrl, fetchedAt: energy.fetchedAt } : null,
     crypto: crypto.data ? { closes: crypto.data, ref: cryptoRef && cryptoRef.data ? cryptoRef.data : null, refTarget: cryptoRef ? cryptoRef.target : null, fetchedAt: crypto.fetchedAt } : null,
@@ -123,12 +133,20 @@ export function marketLines(period, mk, { quoteSyms = [] } = {}) {
   const note = (name, at, url) => { if (!name) return; const p = srcAt.get(name); if (!p || (at && at > p.at)) srcAt.set(name, { at, url }); };
   for (const r of mk.indices) {
     if (r.status === "N/A") { lines.push(`INDEX ${GROUP_NAME[r.group]} — ${label(r)}: N/A (${r.error || "no_data"})`); continue; }
-    const when = r.kind === "delayed" ? `15-minute delayed quote, last trade ${nyClock(r.asOf) || r.date}` : `close of ${r.date}`;
+    const when = r.kind === "delayed" ? `${r.delayMin ? r.delayMin + "-minute delayed" : "delayed"} quote, ${/Cboe/.test(r.source) ? "last trade" : "as of"} ${nyClock(r.asOf) || r.date}` : `close of ${r.date}`;
     const day = fin(r.chgPct) ? `${f2(r.chgPct)}% vs previous close ${raw(r.prev)}${r.prevDate ? ` of ${r.prevDate}` : ""}` : `day change N/A${r.note ? ` (${r.note})` : ""}`;
     lines.push(`INDEX ${GROUP_NAME[r.group]} — ${label(r)}: ${raw(r.last)}${r.id === "VIX" ? " points" : ""}, ${day}; ${when} [${r.source}${r.derived ? "; DERIVED" : ""}]`);
     if (r.ref) lines.push(`INDEX_${L.span} ${label(r)}: ${f2(r.ref.chg)}% — close ${raw(r.ref.last)} on ${r.ref.lastDate} vs ${raw(r.ref.base)} on ${r.ref.baseDate} [${r.ref.source}]`);
     note(r.source, r.asOf || r.fetchedAt, r.sourceUrl);
   }
+  // STOXX Europe 600 sectors: the three strongest and the three weakest (day, or the edition's week / month)
+  const sk = (r) => (L ? r.ref && r.ref.chg : r.chgPct);
+  const ss = (mk.sectors || []).filter((r) => r.status !== "N/A" && fin(sk(r))).sort((a, b) => sk(b) - sk(a));
+  for (const r of ss.length > 6 ? [...ss.slice(0, 3), ...ss.slice(-3)] : ss) {
+    lines.push(L ? `SECTOR_EU ${r.name}: ${f2(r.ref.chg)}% (${L.span}) — close ${raw(r.ref.last)} on ${r.ref.lastDate} vs ${raw(r.ref.base)} on ${r.ref.baseDate} [STOXX daily close]`
+      : `SECTOR_EU ${r.name}: ${f2(r.chgPct)}% on the day — close ${raw(r.last)} on ${r.date} [STOXX daily close]`);
+  }
+  if (ss.length) note("STOXX Europe 600 sector indices (daily close)", ss.map((r) => r.date).sort().pop(), "https://www.stoxx.com/");
   const fx = fxMoves(mk);
   // EUR/USD only when the live quote is missing (the live quote is in the QUOTE lines)
   if (mk.ecb && !quoteSyms.includes("EUR/USD")) { const s = mk.ecb.series.USD; if (s && s.length) fx.unshift({ pair: "EUR/USD", value: s[s.length - 1][1], date: s[s.length - 1][0], chg: s.length > 1 ? pct(s[s.length - 1][1], s[s.length - 2][1]) : null, prevDate: s.length > 1 ? s[s.length - 2][0] : null, ref: null, derived: false }); }
@@ -159,7 +177,7 @@ export function marketLines(period, mk, { quoteSyms = [] } = {}) {
 // ---------- windows ----------
 const pc = (v) => `${f2(v)}%`;
 // the benchmark indices a window can lead with (not the VIX, not a sector or mid-cap index)
-const HEADLINE = ["SPX", "NDX", "DJI", "COMP", "RUT", "SX5E", "SXXP", "DAX", "N225", "MXEA", "MXEF"];
+const HEADLINE = ["SPX", "NDX", "DJI", "COMP", "RUT", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "NIFTY", "IBOV", "MXEF", "MXACW"];
 export function marketWindows(period, mk, add, { quoteSyms = [] } = {}) {
   if (!mk) return;
   const L = LONG[period], span = L ? L.span : "1D";

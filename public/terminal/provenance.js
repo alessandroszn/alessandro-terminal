@@ -109,6 +109,7 @@
     provider_auth: "provider rejected the server key",
     provider_error: "provider error / empty response",
     no_data: "no data for this range",
+    no_history: "the source publishes no free history",
     network: "could not reach /api",
     expired: "last real value is older than 24 h",
     eia_not_configured: "EIA API key not set in the Worker",

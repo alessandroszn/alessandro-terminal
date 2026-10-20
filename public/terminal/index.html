@@ -505,7 +505,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>WL</code><span>Watchlist — add/remove symbols (saved on this device)</span></div>
     <div class="help-row"><code>MKT</code><span>Markets: equities, FX, crypto, metals (real quotes)</span></div>
     <div class="help-row"><code>MAP</code><span>Heat maps: S&amp;P 500, Nasdaq-100, Dow 30, sectors, countries, crypto, FX — coloured by 1D / 1W / 1M / 3M / 6M / YTD / 1Y change</span></div>
-    <div class="help-row"><code>IDX</code><span>World indices: US, MSCI EAFE and EM from Cboe (15-min delayed), Europe from STOXX, Nikkei 225, Nasdaq Composite from FRED; 1M, YTD, 52 weeks and a chart</span></div>
+    <div class="help-row"><code>IDX</code><span>World indices (54): US, volatility and MSCI from Cboe (15-min delayed), Europe and its STOXX 600 sectors from STOXX, SMI / SPI / IBEX 35 from SIX, Nikkei 225, SSE Composite and CSI 300 from the Shanghai Stock Exchange, Nifty from NSE, S&P/ASX 200 from ASX, Ibovespa from B3, Nasdaq Composite from FRED; 1M, YTD, 52 weeks and a chart</span></div>
     <div class="help-row"><code>IDX DAX</code><span>World indices with one index on the chart</span></div>
     <div class="help-row"><code>YLD</code><span>Government yields of 35 countries and the euro area from central banks and debt offices (monthly OECD average where no daily source exists): WORLD table with changes, 2s10s and spreads; each country's curve vs past dates and its 10Y history</span></div>
     <div class="help-row"><code>CURVE US IT DE</code><span>Yield curves of up to 6 countries on one chart, or one country at several dates</span></div>
@@ -525,7 +525,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>CB · SPRD</code><span>Central bank policy rates; 2s10s spreads</span></div>
     <div class="help-row"><code>BOND</code><span>World government bonds (US, Germany, UK, Japan, Canada, Switzerland, euro area) with changes and spreads; US inflation and credit (FRED)</span></div>
     <div class="help-row"><code>COT</code><span>Futures positioning: CFTC Commitments of Traders for the major contracts</span></div>
-    <div class="help-row"><code>ETF</code><span>ETFs by asset class: equities, Treasuries, credit, commodities, real estate, currencies, volatility, crypto</span></div>
+    <div class="help-row"><code>ETF</code><span>ETFs by asset class (140): equities, dividends, industries and themes, Treasuries, credit, commodities, real estate, international, currencies, volatility, crypto, leveraged</span></div>
     <div class="help-row"><code>ERN</code><span>Earnings calendar with surprise and price reaction</span></div>
     <div class="help-row"><code>DES AAPL</code><span>Company description and fundamentals from SEC filings</span></div>
     <div class="help-row"><code>OMON AAPL</code><span>Option chain (Alpaca indicative feed)</span></div>
@@ -1064,7 +1064,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const mktGrp=(t,sub)=>`<tr class="grp"><td colspan="7">${t}${sub?` <span class="k" style="letter-spacing:0;text-transform:none">· ${sub}</span>`:''}</td></tr>`;
   const mktWait=(e,what)=>!e.data&&!e.err?`<tr><td colspan="7" class="dim l">${tl('Loading','Caricamento')} ${what}…</td></tr>`:null;
   const mktNA=(e,what)=>{const d=e.data,err=(d&&d.error)||e.err;return`<tr><td class="na">—</td><td class="l na" colspan="5">N/A — ${what}: ${esc(P.errorText(err||'no_data'))}</td><td>${chip(S.NA,String(err||''))}</td></tr>`;};
-  function mktLoad(){IDX_G.forEach(g=>idxG(g));get7('/api/markets/fx',3600000,['MKT']);get7('/api/markets/cmdty',6*3600000,['MKT']);get7('/api/energy',3600000,['CMDTY','FCRV','MKT']);spxEnsure('1D','CRYPTO');}
+  function mktLoad(){IDX_MAIN_G.forEach(g=>idxG(g));get7('/api/markets/fx',3600000,['MKT']);get7('/api/markets/cmdty',6*3600000,['MKT']);get7('/api/energy',3600000,['CMDTY','FCRV','MKT']);spxEnsure('1D','CRYPTO');}
   function renderMarkets(body,win){const items={};mktLoad();win._load=mktLoad;
     // (not during boot: the first refresh fetches the watchlist first, then the board)
     const missing=MARKET_SYMS.filter(x=>!BY[x].q&&!BY[x].qErr&&!BY[x]._pending);if(missing.length&&DATA.provider)DATA.fetchNow(missing);
@@ -1117,16 +1117,25 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // ---- INDICES (IDX): Cboe 15-minute delayed quotes (US, MSCI EAFE / EM), STOXX and Nikkei daily closes, FRED (Nasdaq
   // Composite; the official close stands in when Cboe does not answer). Levels only as /api/indices returns them;
   // 1M, YTD and the 52-week range DERIVED here from the real daily history; nothing filled in where a source stops ----
-  const IDX_G=['us','eu','world'],IDX_IDS=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','SXXP','DAX','MDAX','SX7E','N225','MXEA','MXEF'];
-  const idxGName=g=>({us:tl('UNITED STATES','STATI UNITI'),eu:tl('EUROPE','EUROPA'),world:tl('ASIA & GLOBAL','ASIA E GLOBALI')})[g]||g;
+  const IDX_G=['us','vol','eu','sec','sec2','asia','world'],IDX_MAIN_G=['us','eu','asia','world'];
+  const IDX_IDS=['SPX','NDX','DJI','COMP','RUT','OEX','RUI','VIX','VXN','VIX9D','VIX3M','VVIX','OVX','GVZ','SX5E','SXXP','SX5P','SXXE','DAX','MDAX','TDXP','SMI','SPI','IBEX',
+    'SX7P','SXIP','SXFP','SX86P','SX8P','SXKP','SXMP','SXDP','SX3P','SXQP','SXEP','SX6P','SXPP','SX4P','SXOP','SXNP','SXAP','SXRP','SXTP','SX7E','N225','XJO','SHCOMP','CSI300','NIFTY','BANKNIFTY','IBOV','MXEA','MXEF','MXACW'];
+  const idxGName=g=>({us:tl('UNITED STATES','STATI UNITI'),vol:tl('VOLATILITY (CBOE)','VOLATILITÀ (CBOE)'),eu:tl('EUROPE','EUROPA'),sec:tl('EUROPE · STOXX 600 SECTORS — FINANCIALS, TECHNOLOGY, HEALTH, STAPLES','EUROPA · SETTORI STOXX 600 — FINANZIARI, TECNOLOGIA, SALUTE, BENI DI PRIMA NECESSITÀ'),
+    sec2:tl('EUROPE · STOXX 600 SECTORS — ENERGY, MATERIALS, INDUSTRIALS, CYCLICALS','EUROPA · SETTORI STOXX 600 — ENERGIA, MATERIALI, INDUSTRIALI, CICLICI'),asia:tl('ASIA-PACIFIC','ASIA-PACIFICO'),world:tl('AMERICAS & GLOBAL','AMERICHE E GLOBALI')})[g]||g;
   const idxG=g=>get7('/api/indices?g='+g,60000,['IDX','MKT','EXCH']);
-  const idxH=id=>get7('/api/indices/history?id='+id,1800000,['IDX']);
-  const idxS=r=>({LIVE:S.LIVE,STALE:S.STALE,DERIVED:S.DERIVED})[r&&r.status]||S.NA;
+  // daily histories (1M, YTD, 52 weeks, the chart): at most three requests at a time — opening IDX asks for ~50 of them
+  const IDXQ={n:0,q:[]};
+  function idxH(id,first){const p='/api/indices/history?id='+id,e=X7[p];if(e&&(e.data||e.err||e.loading))return get7(p,1800000,['IDX']);
+    const i=IDXQ.q.indexOf(id);if(first&&i>0){IDXQ.q.splice(i,1);IDXQ.q.unshift(id);}else if(i<0){if(first)IDXQ.q.unshift(id);else IDXQ.q.push(id);}
+    idxHpump();return X7[p]||(X7[p]={});}
+  function idxHpump(){while(IDXQ.n<3&&IDXQ.q.length){const id=IDXQ.q.shift(),e=get7('/api/indices/history?id='+id,1800000,['IDX']);IDXQ.n++;const done=()=>{if(e.loading)setTimeout(done,150);else{IDXQ.n--;idxHpump();}};done();}}
+  const idxS=r=>({LIVE:S.LIVE,STALE:S.STALE,DERIVED:S.DERIVED,PARTIAL:S.PARTIAL})[r&&r.status]||S.NA;
   const lvl=v=>fin(v)?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
   const lvlS=v=>fin(v)?(v>=0?'+':'−')+lvl(Math.abs(v)):'—';
   const dmy=d=>{const t=new Date(String(d||'').slice(0,10)+'T12:00:00Z');return isFinite(t)?t.toLocaleDateString(I18N.locale(),{day:'2-digit',month:'short',timeZone:'UTC'}):'—';};
   const isoShift=(d,mo,yr,dd)=>{const t=new Date(d+'T12:00:00Z');if(mo)t.setUTCMonth(t.getUTCMonth()-mo);if(yr)t.setUTCFullYear(t.getUTCFullYear()-yr);if(dd)t.setUTCDate(t.getUTCDate()-dd);return t.toISOString().slice(0,10);};
-  function idxTime(r){return r.kind==='delayed'?`${fmtHM(r.asOf)} <span class="k" title="${tl('Cboe quotes are 15 minutes delayed','le quotazioni Cboe sono ritardate di 15 minuti')}">15m</span>`:`<span title="${tl('daily close published by the source','chiusura giornaliera pubblicata dalla fonte')}">${tl('close','chiusura')} ${dmy(r.date)}</span>`;}
+  function idxTime(r){if(r.kind==='delayed'&&!r.asOf)return`<span class="dim" title="${esc(r.note||tl('the source publishes no time','la fonte non pubblica l\'orario'))}">${tl('no time','senza orario')}</span>`;
+    return r.kind==='delayed'?`${fmtHM(r.asOf)}${r.delayMin?` <span class="k" title="${esc(r.source)}: ${tl('delayed','ritardo')} ${r.delayMin} min">${r.delayMin}m</span>`:''}`:`<span title="${tl('daily close published by the source','chiusura giornaliera pubblicata dalla fonte')}">${tl('close','chiusura')} ${dmy(r.date)}</span>`;}
   // 1M and YTD against real past closes (the last close on or before that day); the 52-week range from the daily highs and
   // lows (closes when the source publishes only closes) plus today's range — only when the history covers the whole year
   function idxStats(r,h){const P=h&&h.points;if(!P||!P.length||!fin(r.last))return null;const oh=h.fields==='ohlc',c=p=>p[p.length-1];
@@ -1136,8 +1145,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       [r.low,r.high,r.last].forEach(v=>{if(fin(v)){lo=Math.min(lo,v);hi=Math.max(hi,v);}});}
     return{m1:p1?(r.last/c(p1)-1)*100:null,ytd:py?(r.last/c(py)-1)*100:null,lo,hi,fromCloses:!oh};}
   // markets board: the main indices, each opening IDX on its chart
-  const MKT_IDX=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','DAX','N225'];
-  function mktIdx(items){const G=IDX_G.map(g=>idxG(g)),rows=G.flatMap(e=>e.data&&Array.isArray(e.data.indices)?e.data.indices:[]).filter(r=>MKT_IDX.includes(r.id));
+  const MKT_IDX=['SPX','NDX','DJI','COMP','RUT','VIX','SX5E','DAX','SMI','IBEX','N225','SHCOMP','NIFTY','IBOV'];
+  function mktIdx(items){const G=IDX_MAIN_G.map(g=>idxG(g)),rows=G.flatMap(e=>e.data&&Array.isArray(e.data.indices)?e.data.indices:[]).filter(r=>MKT_IDX.includes(r.id));
     let h=`<tr class="grp"><td colspan="7">INDICES</td></tr>`;
     if(!rows.length){const err=G.map(e=>(e.data&&e.data.error)||e.err).find(Boolean);return h+(G.every(e=>e.err||(e.data&&!e.data.indices))&&err?`<tr><td class="na">IDX</td><td class="l na" colspan="5">N/A — ${esc(P.errorText(err))}</td><td>${chip(S.NA)}</td></tr>`:`<tr><td colspan="7" class="dim l">${tl('Loading…','Caricamento…')}</td></tr>`);}
     return h+MKT_IDX.map(id=>rows.find(r=>r.id===id)).filter(Boolean).map(r=>{const s=idxS(r);items['idx:'+r.id]=s;
@@ -1162,7 +1171,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
           <td class="num ${cls(x&&x.m1)}">${x&&fin(x.m1)?pctN(x.m1):naR}</td><td class="num ${cls(x&&x.ytd)}">${x&&fin(x.ytd)?pctN(x.ytd):naR}</td><td class="l">${idxRange(x)||naR}</td><td class="l k">${idxTime(r)}</td><td>${chip(s,title)}</td></tr>`;}
       const nc=(d.notConnected||[]).map(n=>n.name);if(nc.length)tb+=`<tr class="ix-nc"><td class="l na" colspan="9">N/A — ${esc(nc.join(' · '))}: ${tl('no free official source','nessuna fonte ufficiale gratuita')}</td><td>${chip(S.NA,tl('no free official source','nessuna fonte ufficiale gratuita'))}</td></tr>`;}
     // the chart of the selected index: its real daily history (+ the session in progress from the delayed quote)
-    const r=all.find(x=>x.id===st.id)||{id:st.id,name:st.id},H=idxH(st.id),hd=H.data&&H.data.points?H.data:null;
+    const r=all.find(x=>x.id===st.id)||{id:st.id,name:st.id},H=idxH(st.id,true),hd=H.data&&H.data.points?H.data:null;
     let rows=[],span='',RNG=[['1M',1],['3M',3],['6M',6],['YTD','ytd'],['1Y',12],['5Y',60],['10Y',120],['MAX',0]];
     if(hd){const oh=hd.fields==='ohlc',pts=hd.points;rows=pts.map(p=>oh?{time:p[0],open:p[1],high:p[2],low:p[3],close:p[4]}:{time:p[0],close:p[1]});
       if(r.kind==='delayed'&&r.date&&r.date>pts[pts.length-1][0]&&fin(r.last)){if(!oh)rows.push({time:r.date,close:r.last,live:1});else if(fin(r.open)&&fin(r.high)&&fin(r.low))rows.push({time:r.date,open:r.open,high:r.high,low:r.low,close:r.last,live:1});}
@@ -1176,7 +1185,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <div class="chart-box ix-box" style="height:220px" aria-label="${esc(st.id)} history"></div>
       <div class="src-line">${hd?span:H.err?naS()+' '+esc(P.errorText((H.data&&H.data.error)||H.err)):tl('loading the history…','carico lo storico…')}</div></div>
       <div class="corr-wrap"><table class="pf ix-t"><thead><tr><th class="l">${tl('INDEX','INDICE')}</th><th>${tl('LEVEL','LIVELLO')}</th><th>${tl('CHG','VAR.')}</th><th>${tl('CHG%','VAR.%')}</th><th>${tl('DAY RANGE','RANGE DEL GIORNO')}</th><th>1M</th><th>YTD</th><th class="l">${tl('52 WEEKS','52 SETTIMANE')}</th><th class="l">${tl('AS OF','AGGIORN.')}</th><th>${tl('DATA','DATI')}</th></tr></thead><tbody>${tb}</tbody></table></div>
-      <div class="src-line">${chip(S.DERIVED)} ${tl('changes against the previous close; 1M, YTD and the 52-week range computed from the daily history of the same source','variazioni rispetto alla chiusura precedente; 1M, YTD e range a 52 settimane calcolati dallo storico giornaliero della stessa fonte')} · ${tl('US indices, MSCI EAFE and EM: Cboe, 15 minutes delayed · Europe: STOXX daily closes · Nikkei 225: Nikkei Inc. · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)','indici USA, MSCI EAFE ed EM: Cboe, ritardo 15 minuti · Europa: chiusure giornaliere STOXX · Nikkei 225: Nikkei Inc. · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)')} · ${tl('the index providers reserve redistribution: private use only','i fornitori degli indici riservano la ridistribuzione: solo uso privato')}</div>`;
+      <div class="src-line">${chip(S.DERIVED)} ${tl('changes against the previous close; 1M, YTD and the 52-week range computed from the daily history of the same source','variazioni rispetto alla chiusura precedente; 1M, YTD e range a 52 settimane calcolati dallo storico giornaliero della stessa fonte')} · ${tl('US indices, volatility, MSCI EAFE / EM / ACWI: Cboe, 15 minutes delayed · Europe and its sectors: STOXX daily closes · SMI, SPI, IBEX 35: SIX, 15 minutes delayed · Nikkei 225: Nikkei Inc. · SSE Composite, CSI 300: Shanghai Stock Exchange · Nifty: NSE daily close file · S&P/ASX 200: ASX, no time published (PARTIAL) · Ibovespa: B3 · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)','indici USA, volatilità, MSCI EAFE / EM / ACWI: Cboe, ritardo 15 minuti · Europa e i suoi settori: chiusure giornaliere STOXX · SMI, SPI, IBEX 35: SIX, ritardo 15 minuti · Nikkei 225: Nikkei Inc. · SSE Composite, CSI 300: Borsa di Shanghai · Nifty: file di chiusura NSE · S&P/ASX 200: ASX, senza orario (PARTIAL) · Ibovespa: B3 · Nasdaq Composite: FRED · Dow Jones = Cboe DJX × 100 (DERIVED)')} · ${tl('the index providers reserve redistribution: private use only','i fornitori degli indici riservano la ridistribuzione: solo uso privato')}</div>`;
     setProv(win,{...items,'idx:calc':S.DERIVED},'Indices: Cboe (15-min delayed), STOXX, Nikkei Inc., FRED');
     $$('tr[data-ix]',body).forEach(tr=>{const go=()=>{st.id=tr.dataset.ix;paintWin(win);};tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}};});
     $$('[data-irng]',body).forEach(b=>b.onclick=()=>{st.rng=b.dataset.irng;paintWin(win);});
@@ -1390,12 +1399,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // (holidays and early closes included); a session's length and earlier sessions follow the exchange's regular hours
   // (reference data, lunch breaks not drawn). The % is the latest change of the market's main index where IDX has a source.
   // [city, MIC, IANA time zone, regular open, regular close (local), index id in IDX or null]
-  const WM=[['Sydney','XASX','Australia/Sydney','10:00','16:00',null],['Tokyo','XJPX','Asia/Tokyo','09:00','15:30','N225'],['Seoul','XKRX','Asia/Seoul','09:00','15:30',null],
-    ['Shanghai','XSHG','Asia/Shanghai','09:30','15:00',null],['Hong Kong','XHKG','Asia/Hong_Kong','09:30','16:00',null],['Mumbai','XNSE','Asia/Kolkata','09:15','15:30',null],
+  const WM=[['Sydney','XASX','Australia/Sydney','10:00','16:00','XJO'],['Tokyo','XJPX','Asia/Tokyo','09:00','15:30','N225'],['Seoul','XKRX','Asia/Seoul','09:00','15:30',null],
+    ['Shanghai','XSHG','Asia/Shanghai','09:30','15:00','SHCOMP'],['Hong Kong','XHKG','Asia/Hong_Kong','09:30','16:00',null],['Mumbai','XNSE','Asia/Kolkata','09:15','15:30','NIFTY'],
     ['Frankfurt','XETR','Europe/Berlin','09:00','17:30','DAX'],['Milan','XMIL','Europe/Rome','09:00','17:30',null],['Paris','XPAR','Europe/Paris','09:00','17:30',null],
-    ['Zurich','XSWX','Europe/Zurich','09:00','17:30',null],['Madrid','XMAD','Europe/Madrid','09:00','17:30',null],['London','XLON','Europe/London','08:00','16:30',null],
-    ['São Paulo','BVMF','America/Sao_Paulo','10:00','18:00',null],['Toronto','XTSE','America/Toronto','09:30','16:00',null],['New York','XNYS','America/New_York','09:30','16:00','SPX']];
-  const WM_NOIDX={XASX:'S&P/ASX 200',XKRX:'KOSPI',XSHG:'SSE Composite',XHKG:'Hang Seng',XNSE:'Nifty 50',XMIL:'FTSE MIB',XPAR:'CAC 40',XSWX:'SMI',XMAD:'IBEX 35',XLON:'FTSE 100',BVMF:'Ibovespa',XTSE:'S&P/TSX Composite'};
+    ['Zurich','XSWX','Europe/Zurich','09:00','17:30','SMI'],['Madrid','XMAD','Europe/Madrid','09:00','17:30','IBEX'],['London','XLON','Europe/London','08:00','16:30',null],
+    ['São Paulo','BVMF','America/Sao_Paulo','10:00','18:00','IBOV'],['Toronto','XTSE','America/Toronto','09:30','16:00',null],['New York','XNYS','America/New_York','09:30','16:00','SPX']];
+  const WM_NOIDX={XKRX:'KOSPI',XHKG:'Hang Seng',XMIL:'FTSE MIB',XPAR:'CAC 40',XLON:'FTSE 100',XTSE:'S&P/TSX Composite'};
   // wall-clock time in a time zone → UTC instant
   function zonedMs(tz,y,mo,d,hh,mm){const g=Date.UTC(y,mo-1,d,hh,mm);let t=g-tzOffMin(tz,g)*60000;t=g-tzOffMin(tz,t)*60000;return t;}
   // the exchange's regular sessions (Mon–Fri local) for the local days around now
@@ -1412,8 +1421,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         else bars.push({s:ex.opensAt,e:S?S.e:ex.opensAt+((R[0]&&R[0].e-R[0].s)||390*60000),k:'next'});}}
     return{bars,open:n.open,moved:n.moved};}
   const fmtHm=ms=>{const m=Math.max(0,Math.round(ms/60000)),h=Math.floor(m/60),d=Math.floor(h/24);return d?`${d}d ${h%24}h`:h?`${h}h${String(m%60).padStart(2,'0')}`:`${m}m`;};
-  function wmIdx(id){if(!id)return null;for(const g of IDX_G){const d=(X7['/api/indices?g='+g]||{}).data;const r=d&&Array.isArray(d.indices)?d.indices.find(i=>i.id===id):null;if(r)return r;}return null;}
-  function renderWorldMarkets(body,win,tabs,bind){const e=EXT.exchanges,d=e.data;IDX_G.forEach(g=>idxG(g));
+  function wmIdx(id){if(!id)return null;for(const g of IDX_MAIN_G){const d=(X7['/api/indices?g='+g]||{}).data;const r=d&&Array.isArray(d.indices)?d.indices.find(i=>i.id===id):null;if(r)return r;}return null;}
+  function renderWorldMarkets(body,win,tabs,bind){const e=EXT.exchanges,d=e.data;IDX_MAIN_G.forEach(g=>idxG(g));
     if(!d&&!e.err){setProv(win,{'ds:EXCH':S.LOADING});body.innerHTML=tabs+`<div class="empty">${tl('Loading exchange status…','Caricamento dello stato delle borse…')}</div>`;bind();return;}
     if(!d||d.error||!Array.isArray(d.exchanges)){setProv(win,{'ds:EXCH':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — ${tl('exchange status unavailable','stato delle borse non disponibile')} (${esc(P.errorText((d&&d.error)||e.err||'network'))}). ${tl('No open/closed state is guessed.','Nessuno stato aperto/chiuso viene ipotizzato.')}</div>`;bind();return;}
     const now=Date.now(),W0=now-6*3600000,W1=now+18*3600000,pos=t=>Math.max(0,Math.min(100,(t-W0)/(W1-W0)*100)),items={'ds:exch':d.status==='STALE'?S.STALE:S.LIVE,'ds:exch-times':S.DERIVED};
@@ -2588,7 +2597,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('[data-cgrp]',body).forEach(b=>b.onclick=()=>{st.grp=b.dataset.cgrp;paintWin(win);});}
 
   // ---------- ETF: ETFs by asset class (Alpaca prices; ETF prices, not the assets they hold) ----------
-  const ETF_GI={'US equity':'Azioni USA','Factors':'Fattori','Treasuries':'Titoli di Stato USA','Credit and aggregate':'Credito e aggregato','Commodities':'Materie prime','Real estate':'Immobiliare','International':'Internazionali','Currencies':'Valute','Volatility':'Volatilità','Crypto':'Cripto'};
+  const ETF_GI={'US equity':'Azioni USA','Factors':'Fattori','Dividends and income':'Dividendi e reddito','Industries and themes':'Industrie e temi','Leveraged and inverse':'A leva e inversi','Treasuries':'Titoli di Stato USA','Credit and aggregate':'Credito e aggregato','Commodities':'Materie prime','Real estate':'Immobiliare','International':'Internazionali','Currencies':'Valute','Volatility':'Volatilità','Crypto':'Cripto'};
   function renderEtfBoard(body,win){const st=win.state;st.metric=st.metric||'1D';st.grp=st.grp||'ALL';st.sort=st.sort||'class';spxEnsure(st.metric,'ETF');const M=mapSt('ETF'),U=M.u;let rows=(spxRows(st.metric,'ETF')||[]).slice();
     const groups=U&&U.items?[...new Set(U.items.map(x=>x.sector))]:[],bondG=['Treasuries','Credit and aggregate'];
     rows=rows.filter(r=>st.grp==='ALL'||(st.grp==='BONDS'?bondG.includes(r.sector):r.sector===st.grp));
