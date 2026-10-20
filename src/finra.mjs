@@ -88,7 +88,7 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
   const f = deps.fetch || fetch, now = deps.now || Date.now(), p = url.pathname;
   if (p === "/api/finra/shorts") {
     let detail = null;
-    const r = await cachedSource({ origin: url.origin, key: "finra/si/top3", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+    const r = await cachedSource({ origin: url.origin, key: "finra/si/top4", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 60_000, ctx, load: async () => {
       let date = null;
       for (const c of settlementCandidates(now).slice(0, 10)) {
         const one = await finraQuery({ limit: 1, fields: ["settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: c }] }, f);
@@ -109,8 +109,10 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
     const sym = String(url.searchParams.get("sym") || "").trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
     let detail = null;
-    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym3/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
-      const q = await finraQuery({ limit: 40, fields: FIELDS, compareFilters: [{ compareType: "EQUAL", fieldName: "symbolCode", fieldValue: sym }] }, f);
+    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym4/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+      // the dataset goes back years: the last 13 months only (FINRA sorts only within one date, so the rows are sorted here)
+      const from = new Date(now - 400 * DAY).toISOString().slice(0, 10), to = new Date(now).toISOString().slice(0, 10);
+      const q = await finraQuery({ limit: 40, fields: FIELDS, compareFilters: [{ compareType: "EQUAL", fieldName: "symbolCode", fieldValue: sym }], dateRangeFilters: [{ fieldName: "settlementDate", startDate: from, endDate: to }] }, f);
       if (q.err) { detail = q.detail || null; return { err: q.err }; }
       const rows = q.data.slice().sort((a, b) => (String(a.settlementDate) < String(b.settlementDate) ? 1 : -1)).map((x) => ({ date: String(x.settlementDate || "").slice(0, 10), short: n(x.currentShortPositionQuantity), previous: n(x.previousShortPositionQuantity), changePct: n(x.changePercent), adv: n(x.averageDailyVolumeQuantity), days: n(x.daysToCoverQuantity) === DAYS_UNDEFINED ? null : n(x.daysToCoverQuantity) })).filter((x) => x.date && x.short != null);
       return rows.length ? { data: rows } : { err: "no_data" };
