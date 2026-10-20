@@ -30,6 +30,12 @@ export async function handleDiag(url, env, ctx, H, json) {
     const r = await fetch(u, { headers: { "user-agent": UA, accept: "application/json" } }); const t = await r.text();
     return send({ status: r.status, size: t.length, head: t.slice(0, 900) });
   }
+  const lk = url.searchParams.get("lookup");
+  if (lk) {
+    const u = `https://symlookup.cnbc.com/symservice/symlookup.do?prefix=${encodeURIComponent(lk)}&partnerid=20064&fund=1&output=json`;
+    const r = await fetch(u, { headers: { "user-agent": UA, accept: "application/json" } }); const t = await r.text();
+    return send({ status: r.status, size: t.length, head: t.slice(0, 2500) });
+  }
   const nq = url.searchParams.get("nq");
   if (nq) {
     if (!/^\/api\/[A-Za-z0-9/._-]+$/.test(nq.split("?")[0])) return send({ error: "bad path" });
