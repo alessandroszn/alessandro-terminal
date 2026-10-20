@@ -115,7 +115,7 @@
     "Equities: S&P 500, Nasdaq-100 and Dow 30 members with weights and changes": "Azioni: componenti di S&P 500, Nasdaq-100 e Dow 30 con pesi e variazioni",
     "Currency board and crypto board": "Quadro delle valute e quadro delle cripto",
     "Commodities (EIA energy, gold) and energy futures curves": "Materie prime (energia EIA, oro) e curve dei futures energetici",
-    "Central banks compared: policy rates of 40 banks (BIS), last move, 12-month change, next decision from each bank's calendar, what the market prices; history since 2006; same-day official detail. SPRD: 2s10s spreads": "Banche centrali a confronto: tassi ufficiali di 40 banche (BIS), ultima mossa, variazione a 12 mesi, prossima decisione dal calendario di ogni banca, cosa prezza il mercato; storico dal 2006; dettaglio ufficiale del giorno. SPRD: spread 2s10s",
+    "Central banks compared: policy rates of 39 banks (BIS), last move, 12-month change, next decision from each bank's calendar, what the market prices; history since 2006; same-day official detail. SPRD: 2s10s spreads": "Banche centrali a confronto: tassi ufficiali di 39 banche (BIS), ultima mossa, variazione a 12 mesi, prossima decisione dal calendario di ogni banca, cosa prezza il mercato; storico dal 2006; dettaglio ufficiale del giorno. SPRD: spread 2s10s",
     "Earnings calendar with surprise and price reaction": "Calendario delle trimestrali con sorpresa e reazione del prezzo",
     "Company description and fundamentals from SEC filings": "Scheda della società e fondamentali dai depositi SEC",
     "Option chain (Alpaca indicative feed)": "Catena delle opzioni (feed indicativo Alpaca)",

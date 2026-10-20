@@ -39,7 +39,7 @@ const us = summarize(by.US);
 ok("summary: last move = first day of the new level, size in bp, level before; 12-month change and moves", us.value === 3.875 && us.date === "2026-10-13" && us.move.date === "2026-09-17" && us.move.bp === -25 && us.move.from === 4.125 && us.chg12.bp === -25 && us.chg12.date === "2025-09-18" && us.moves12 === 1, JSON.stringify(us));
 ok("summary: no move inside the window → move null (the monthly series is used then)", summarize(by.JP).move === null);
 ok("monthly: the month of the last change", lastMonthlyChange([["2024-01", 0.1], ["2024-03", 0.25], ["2024-04", 0.25]]).month === "2024-03" && lastMonthlyChange([["2024-01", 0.1], ["2024-02", 0.1]]) === null);
-ok("40 BIS areas named, the G10 first", Object.keys(CB_AREAS).length === 40 && CB_ORDER.slice(0, 3).join() === "US,XM,GB" && CB_ORDER.length === 40);
+ok("39 BIS areas named, the G10 first; Croatia (euro since 2023) left out", Object.keys(CB_AREAS).length === 39 && CB_ORDER.slice(0, 3).join() === "US,XM,GB" && CB_ORDER.length === 39 && !CB_AREAS.HR);
 const anyMeet = Object.entries(CB_MEETINGS)[0];
 ok("meeting calendars: ISO dates in order, each with the bank's own page and the date it was checked", Object.values(CB_MEETINGS).every((m) => /^https:\/\//.test(m.url) && /^\d{4}-\d{2}-\d{2}$/.test(m.checked) && m.dates.every((d, i) => /^\d{4}-\d{2}-\d{2}$/.test(d) && (i === 0 || d > m.dates[i - 1]))));
 ok("meeting calendars: 14 banks read from their own sites; Riksbank and Brazil not listed (pages need JavaScript)", Object.keys(CB_MEETINGS).length === 14 && !CB_MEETINGS.SE && !CB_MEETINGS.BR && CB_MEETINGS.US.dates[0] === "2026-10-28" && CB_MEETINGS.XM.dates.includes("2026-12-17") && Object.keys(CB_MEETINGS).every((a) => CB_AREAS[a]));
@@ -60,7 +60,7 @@ globalThis.fetch = async (u) => {
     return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.map((s) => s === "TH10Y-TH" ? { symbol: s, code: 1 } : Q(s, (s.startsWith("DE") ? 2.6 : s.startsWith("IT") ? 3.9 : 4) + "%", "4%", s === "IN30Y-IN" ? "2026-10-14T07:23:00.000-0400" : "2026-10-20T11:00:00.000-0400")) } }));
   }
   if (u.startsWith("https://ts-api.cnbc.com/")) return new Response(JSON.stringify({ barData: { priceBars: series.map(([d, v]) => ({ close: v.toFixed(4), tradeTime: d.replace(/-/g, "") + "000000" })) } }));
-  if (u.startsWith("https://stats.bis.org/api/v1/data/WS_CBPOL/M.")) return new Response("FREQ,REF_AREA,TIME_PERIOD,OBS_VALUE\nM,US,2025-08,4.375\nM,US,2025-09,4.125\nM,JP,2024-02,0.1\nM,JP,2024-03,0.25\nM,JP,2024-08,0.25\nM,HR,2022-11,2.5\nM,HR,2022-12,2.5\n");
+  if (u.startsWith("https://stats.bis.org/api/v1/data/WS_CBPOL/M.")) return new Response("FREQ,REF_AREA,TIME_PERIOD,OBS_VALUE\nM,US,2025-08,4.375\nM,US,2025-09,4.125\nM,JP,2024-02,0.1\nM,JP,2024-03,0.25\nM,JP,2024-08,0.25\nM,AR,2025-05,29\nM,AR,2025-06,29\n");
   if (u.startsWith("https://stats.bis.org/api/v1/data/WS_CBPOL/D.JP/")) return new Response("FREQ,REF_AREA,TIME_PERIOD,OBS_VALUE\nD,JP,2024-03-18,0.1\nD,JP,2024-03-19,0.25\nD,JP,2024-04-30,0.25\n");
   if (u.startsWith("https://stats.bis.org/api/v1/data/WS_CBPOL/D./")) return new Response(BIS_D.replace("D,JP,2026-10-13,0.5", "D,JP,2026-10-13,0.25").replace("D,JP,2025-09-01,0.5", "D,JP,2025-09-01,0.25"));
   return new Response("", { status: 404 });
@@ -86,9 +86,9 @@ ok("/api/yields/market/history: a maturity that is not quoted → 400", r.status
 
 r = await call("/api/cb/world");
 const W = r.j && Object.fromEntries(r.j.banks.map((b) => [b.id, b]));
-ok("/api/cb/world: every BIS area in order; the Fed's last move and 12-month change from the daily series", r.status === 200 && r.j.banks.length === 40 && r.j.banks[0].id === "US" && W.US.value === 3.875 && W.US.move.date === "2026-09-17" && W.US.chg12.bp === -25 && W.US.note === "mid-point of the FOMC target range" && W.US.status === "LIVE", JSON.stringify(W && W.US));
+ok("/api/cb/world: every BIS area in order; the Fed's last move and 12-month change from the daily series", r.status === 200 && r.j.banks.length === 39 && r.j.banks[0].id === "US" && W.US.value === 3.875 && W.US.move.date === "2026-09-17" && W.US.chg12.bp === -25 && W.US.note === "mid-point of the FOMC target range" && W.US.status === "LIVE", JSON.stringify(W && W.US));
 ok("/api/cb/world: no move in the daily window → the month from the end-of-month series, then that month's daily data for the exact day", W.JP.move && W.JP.move.date === "2024-03-19" && W.JP.move.from === 0.1 && W.JP.move.bp === 15 && calls.some((u) => u.includes("WS_CBPOL/D.JP/all?startPeriod=2024-02-01&endPeriod=2024-04-30")), JSON.stringify(W.JP));
-ok("/api/cb/world: a stopped series (Croatia) shows its last month as STALE; an area with no data is N/A", W.HR.status === "STALE" && W.HR.freq === "M" && W.HR.date === "2022-12" && W.NO.status === "N/A");
+ok("/api/cb/world: a stopped series (Argentina) shows its last month as STALE; an area with no data is N/A", W.AR.status === "STALE" && W.AR.freq === "M" && W.AR.date === "2025-06" && W.AR.value === 29 && W.NO.status === "N/A");
 ok("/api/cb/world: market yields named for 'priced' where quoted (euro area → Germany)", W.XM.mkt === "DE" && W.GB.mkt === "UK" && W.NO.mkt === null);
 ok("/api/cb/world: next decision from the bank's calendar with its page and the date it was checked", W.US.next.date === "2026-10-28" && W.US.next.time === "14:00 Washington" && /federalreserve\.gov/.test(W.US.next.url) && W.US.next.checked === "2026-10-20" && W.SE.next === null);
 r = await call("/api/cb/history?ids=US,JP,ZZ");

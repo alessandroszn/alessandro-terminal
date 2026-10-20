@@ -86,7 +86,9 @@ export async function getMarketQuotes(origin, ctx) {
   return cachedSource({ origin, key: "myld/q1", ttlMs: 60_000, staleMaxMs: 5 * 86400_000, failTtlMs: 60_000, ctx, load: loadQuotes });
 }
 
-// daily closes of one symbol: [["2026-10-19", 4.012], ...] oldest first (the session date of each bar, New York time)
+// daily closes of one symbol: [["2026-10-19", 4.012], ...] oldest first, dated as CNBC dates its bars. Checked 20 Oct 2026:
+// U.S. and Canadian bars carry the session's own date; for German, French and Italian bonds the bar of a day holds the
+// previous session's close (it matches the quote's previous close), and some markets have weekend bars. Shown as dated.
 export function parseBars(j) {
   const bars = j && j.barData && Array.isArray(j.barData.priceBars) ? j.barData.priceBars : [];
   const out = [];
@@ -147,7 +149,7 @@ export async function handleMarketYields(url, env, ctx, H, json) {
       const p = pastOf(r.data), c = (past[id] = past[id] || {});
       for (const [k, x] of Object.entries(p)) (c[k] = c[k] || { date: x.date, points: [] }).points.push({ tenor: t, months: tenorMonths(t), value: x.value, date: x.date });
     });
-    return send({ past, errors, ...src, basis: "daily closes (New York session date) of the same symbol; the last close on or before each date", meta: { generatedAt: iso(now) } }, Object.keys(past).length ? 200 : 502);
+    return send({ past, errors, ...src, basis: "CNBC's daily bars of the same symbol, dated as CNBC dates them (for some markets the day after the session); the last bar on or before each date", meta: { generatedAt: iso(now) } }, Object.keys(past).length ? 200 : 502);
   }
   const r = await getMarketQuotes(url.origin, ctx);
   if (!r.data) return send({ status: "N/A", error: r.err, ...src }, 502);

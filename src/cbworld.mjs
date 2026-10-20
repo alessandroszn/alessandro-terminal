@@ -12,7 +12,8 @@ export const bisDailyUrl = (start, areas = "") => `https://stats.bis.org/api/v1/
 export const bisDailyRangeUrl = (area, start, end) => `https://stats.bis.org/api/v1/data/WS_CBPOL/D.${area}/all?startPeriod=${start}&endPeriod=${end}&detail=dataonly&format=csv`;
 export const BIS_MONTHLY_URL = "https://stats.bis.org/api/v1/data/WS_CBPOL/M./all?startPeriod=2006-01&detail=dataonly&format=csv";
 
-// BIS area → central bank, region, currency and the market yields used for "what the market prices" (see YLD, MARKET)
+// BIS area → central bank, region, currency and the market yields used for "what the market prices" (see YLD, MARKET).
+// Croatia is left out: it adopted the euro in 2023 and the BIS series stopped (its rate is the ECB's).
 export const CB_AREAS = {
   US: ["Federal Reserve", "Americas", "USD", "US"], CA: ["Bank of Canada", "Americas", "CAD", "CA"], BR: ["Banco Central do Brasil", "Americas", "BRL", "BR"],
   MX: ["Banco de México", "Americas", "MXN", "MX"], CL: ["Banco Central de Chile", "Americas", "CLP", "CL"], CO: ["Banco de la República (Colombia)", "Americas", "COP", null],
@@ -21,7 +22,7 @@ export const CB_AREAS = {
   SE: ["Sveriges Riksbank", "Europe", "SEK", "SE"], NO: ["Norges Bank", "Europe", "NOK", null], DK: ["Danmarks Nationalbank", "Europe", "DKK", "DK"],
   PL: ["Narodowy Bank Polski", "Europe", "PLN", null], CZ: ["Czech National Bank", "Europe", "CZK", null], HU: ["Magyar Nemzeti Bank", "Europe", "HUF", "HU"],
   RO: ["National Bank of Romania", "Europe", "RON", null], RS: ["National Bank of Serbia", "Europe", "RSD", null], MK: ["National Bank of North Macedonia", "Europe", "MKD", null],
-  IS: ["Central Bank of Iceland", "Europe", "ISK", null], HR: ["Croatian National Bank", "Europe", "HRK", null], RU: ["Bank of Russia", "Europe", "RUB", null],
+  IS: ["Central Bank of Iceland", "Europe", "ISK", null], RU: ["Bank of Russia", "Europe", "RUB", null],
   TR: ["Central Bank of the Republic of Türkiye", "Europe", "TRY", "TR"],
   JP: ["Bank of Japan", "Asia-Pacific", "JPY", "JP"], CN: ["People's Bank of China", "Asia-Pacific", "CNY", "CN"], AU: ["Reserve Bank of Australia", "Asia-Pacific", "AUD", "AU"],
   NZ: ["Reserve Bank of New Zealand", "Asia-Pacific", "NZD", "NZ"], KR: ["Bank of Korea", "Asia-Pacific", "KRW", "KR"], IN: ["Reserve Bank of India", "Asia-Pacific", "INR", "IN"],
@@ -32,7 +33,9 @@ export const CB_AREAS = {
 };
 export const CB_ORDER = ["US", "XM", "GB", "JP", "CH", "CA", "AU", "NZ", "SE", "NO", "DK", ...Object.keys(CB_AREAS).filter((k) => !["US", "XM", "GB", "JP", "CH", "CA", "AU", "NZ", "SE", "NO", "DK"].includes(k))];
 // what the BIS series is for the banks where it is not the bank's single published rate
-export const CB_NOTE = { US: "mid-point of the FOMC target range", XM: "deposit facility rate" };
+// (euro area: the BIS series is the main refinancing rate in earlier years — 0.00% from March 2016 — and the deposit
+// facility rate now — 2.50% in Oct 2026, the MRO being 2.65%; checked 20 Oct 2026)
+export const CB_NOTE = { US: "mid-point of the FOMC target range", XM: "the deposit facility rate now; the main refinancing rate in earlier years" };
 
 // BIS compact CSV (FREQ,REF_AREA,TIME_PERIOD,OBS_VALUE) → { area: [[period, value], ...] } oldest first; "NaN" and empty cells are not values
 export function parseBisCsv(text) {
@@ -126,7 +129,7 @@ export async function handleCbWorld(url, env, ctx, H, json) {
     const [name, region, ccy, mkt] = CB_AREAS[id], s = d.data && d.data[id], mm = m.data && m.data[id];
     const next = nextMeeting(id, today);
     if (!s) {
-      // only the end-of-month series (a series the BIS stopped, e.g. Croatia after the euro): shown with its month, as STALE
+      // only the end-of-month series (a series the BIS stopped, e.g. Argentina's after June 2025): shown with its month, as STALE
       if (mm && mm.length) { const l = mm[mm.length - 1]; return { id, name, region, ccy, mkt, value: l[1], date: l[0], freq: "M", status: "STALE", note: "end-of-month series only (no recent daily data from the BIS)", next }; }
       return { id, name, region, ccy, mkt, status: "N/A", error: d.err || "no_data", next };
     }
