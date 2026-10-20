@@ -554,6 +554,7 @@ export const app = {
     if (url.pathname === "/api/briefs" || url.pathname.startsWith("/api/briefs/")) return handleBriefs(url, env, ctx, H, json, req);
     if (url.pathname === "/api/cb") return handleCentralBanks(url, env, ctx, H, json);
     if (url.pathname === "/api/cb/world" || url.pathname === "/api/cb/history") return handleCbWorld(url, env, ctx, H, json);
+    if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
