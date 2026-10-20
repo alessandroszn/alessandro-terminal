@@ -103,6 +103,7 @@
     symbol_not_found: "unknown symbol at the provider",
     invalid_symbol: "invalid symbol",
     rate_limited: "provider rate limit reached",
+    daily_limit: "Twelve Data daily credits used up (they reset at 00:00 UTC)",
     provider_timeout: "provider timed out",
     provider_unreachable: "provider unreachable",
     provider_auth: "provider rejected the server key",

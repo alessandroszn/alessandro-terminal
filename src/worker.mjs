@@ -87,6 +87,45 @@ export const QUOTE_STALE_AFTER_CLOSED_MS = 60 * 60_000;
 export const STALE_MAX_MS = 24 * 3600_000;      // serve STALE data up to 24 h when the provider fails
 export function quoteFreshMs(marketOpen) { return marketOpen === false ? QUOTE_FRESH_CLOSED_MS : QUOTE_FRESH_OPEN_MS; }
 export function quoteStaleAfterMs(marketOpen) { return marketOpen === false ? QUOTE_STALE_AFTER_CLOSED_MS : QUOTE_STALE_AFTER_OPEN_MS; }
+// A quote taken while its market was closed stays the latest real value until that market opens again: U.S. equities
+// until New York's next open (Twelve Data market_state, holidays included, as cached by /api/exchanges), FX and metals
+// over the weekend until Sunday 21:00 UTC. Nothing is refetched in between — the provider would return the same close.
+export const FX_WEEKEND_OPEN_UTC_H = 21;
+export function fxNextOpen(now) {
+  const d = new Date(now), day = d.getUTCDay(), h = d.getUTCHours();
+  if (day === 6 || (day === 0 && h < FX_WEEKEND_OPEN_UTC_H) || (day === 5 && h >= FX_WEEKEND_OPEN_UTC_H + 1)) {
+    const sun = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + ((7 - day) % 7), FX_WEEKEND_OPEN_UTC_H));
+    return sun.getTime();
+  }
+  return null;
+}
+export function closedUntil(rec, fetchedAt, now, nyOpensAt) {
+  if (!rec || rec.marketOpen !== false) return null;
+  const s = String(rec.symbol || "");
+  if (s.includes("/")) { const t = fxNextOpen(fetchedAt); return t && now < t ? t : null; }
+  if (isUsEquity(rec) && Number.isFinite(nyOpensAt) && now < nyOpensAt && nyOpensAt - fetchedAt < 4 * 86400_000) return nyOpensAt;
+  return null;
+}
+// next New York open from the cached exchange status (no provider call; null when unknown or New York is open)
+async function nyNextOpen(origin, now) {
+  try {
+    const c = cacheFor(); if (!c) return null;
+    const r = await c.match(new Request(`${origin}/__cache/exchanges/state`)); if (!r) return null;
+    const e = await r.json(), ny = e && Array.isArray(e.data) ? e.data.find((x) => x.code === "XNYS") : null;
+    return ny && !ny.open && Number.isFinite(ny.opensAt) && ny.opensAt > now ? ny.opensAt : null;
+  } catch { return null; }
+}
+// Twelve Data's daily credits used up: no call until 00:00 UTC (the provider's reset); the page shows when it resumes
+export const nextUtcMidnight = (now) => { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); };
+async function tdBlockedUntil(origin, now) {
+  try { const c = cacheFor(); if (!c) return null; const r = await c.match(new Request(`${origin}/__cache/td/daily-limit`)); if (!r) return null; const j = await r.json(); return j && j.until > now ? j.until : null; } catch { return null; }
+}
+function tdBlock(origin, now, ctx) {
+  const c = cacheFor(); if (!c) return null; const until = nextUtcMidnight(now);
+  const p = c.put(new Request(`${origin}/__cache/td/daily-limit`), new Response(JSON.stringify({ until }), { headers: { "content-type": "application/json", "cache-control": `public, max-age=${Math.max(60, Math.ceil((until - now) / 1000))}` } }));
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+  return until;
+}
 
 const num = v => (v == null || v === "" ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
 const unixIso = s => (s == null || !Number.isFinite(Number(s)) ? null : new Date(Number(s) * 1000).toISOString());
@@ -132,8 +171,8 @@ export function isUsEquity(rec) {
   if (s.includes("/")) return false;
   return rec.mic ? US_MICS.has(rec.mic) : !s.includes(":");
 }
-export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = false, error = null }) {
-  const staleAtMs = fetchedAt + quoteStaleAfterMs(rec.marketOpen);
+export function buildInstrument(rec, { fetchedAt, now = Date.now(), stale = false, error = null, closedUntil: until = null }) {
+  const staleAtMs = Math.max(fetchedAt + quoteStaleAfterMs(rec.marketOpen), Number.isFinite(until) ? until : 0);
   const isStale = stale || now > staleAtMs;
   const us = isUsEquity(rec);
   const fields = {};
@@ -168,6 +207,7 @@ export function mapProviderError(td) {
   // the listing exists but the key's data plan does not include it ("available starting with Grow/Pro")
   if (code !== 401 && code !== 429 && /\bplan\b|upgrad|subscription/i.test(msg)) return { status: 403, error: "plan_required" };
   if (code === 404 || (code === 400 && /symbol|not found|invalid/i.test(msg))) return { status: 404, error: "symbol_not_found" };
+  if (code === 429 && /for the day|daily/i.test(msg)) return { status: 429, error: "daily_limit" };
   if (code === 429) return { status: 429, error: "rate_limited" };
   if (code === 401 || code === 403) return { status: 502, error: "provider_auth" };
   return { status: 502, error: "provider_error" };
@@ -178,7 +218,7 @@ export function providerDetail(td, key) {
   if (key) m = m.split(key).join("");
   return m.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
 }
-const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
+const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, daily_limit: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
 
 // the key travels in the Authorization header (provider's recommended method), never in the URL
 export const tdAuth = (key) => ({ authorization: `apikey ${key}` });
@@ -286,22 +326,25 @@ async function handleQuote(url, env, ctx, H) {
   const entries = {}, misses = [];
   const valid = symbols.filter(s => SYMBOL_RE.test(s));
   for (const s of symbols) if (!valid.includes(s)) errors[s] = { error: "invalid_symbol", status: STATUS.NA };
-  const cached = await Promise.all(valid.map(s => cacheGet(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`)));
+  const [cached, nyOpen, blocked] = await Promise.all([Promise.all(valid.map(s => cacheGet(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`))), nyNextOpen(url.origin, now), tdBlockedUntil(url.origin, now)]);
+  let limitUntil = blocked;
   for (const [i, s] of valid.entries()) {
     const e = cached[i];
     entries[s] = e;
-    if (e && e.rec && now - e.fetchedAt < quoteFreshMs(e.rec.marketOpen)) {
-      quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now });
+    const until = e && e.rec ? closedUntil(e.rec, e.fetchedAt, now, nyOpen) : null;
+    if (e && e.rec && (now - e.fetchedAt < quoteFreshMs(e.rec.marketOpen) || until)) {
+      quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, closedUntil: until });
       stat.hit++;
     } else misses.push(s);
   }
   if (misses.length) {
-    const results = await fetchQuotesCoalesced(misses, key);
+    const results = blocked ? misses.map(s => [s, { err: "daily_limit" }]) : await fetchQuotesCoalesced(misses, key);
+    if (!blocked && results.some(([, r]) => r.err === "daily_limit")) limitUntil = tdBlock(url.origin, now, ctx);
     for (const [s, r] of results) {
       if (r.rec) {
         const fetchedAt = Date.now();
         cachePut(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`, { rec: r.rec, fetchedAt }, ctx);
-        quotes[s] = buildInstrument(r.rec, { fetchedAt, now: fetchedAt });
+        quotes[s] = buildInstrument(r.rec, { fetchedAt, now: fetchedAt, closedUntil: closedUntil(r.rec, fetchedAt, fetchedAt, nyOpen) });
         stat.miss++;
       } else {
         const e = entries[s];
@@ -315,7 +358,7 @@ async function handleQuote(url, env, ctx, H) {
     }
   }
   const xc = stat.stale ? "STALE" : stat.miss && stat.hit ? "PARTIAL-HIT" : stat.miss ? "MISS" : stat.hit ? "HIT" : "NONE";
-  const body = { quotes, errors, meta: { source: SOURCE, generatedAt: new Date().toISOString(), cache: stat } };
+  const body = { quotes, errors, meta: { source: SOURCE, generatedAt: new Date().toISOString(), cache: stat, ...(limitUntil ? { dailyLimitUntil: new Date(limitUntil).toISOString() } : {}) } };
   let status = 200;
   if (!Object.keys(quotes).length) {
     const first = Object.values(errors)[0];
@@ -449,14 +492,17 @@ async function handleHistory(url, env, ctx, H) {
   };
   if (entry && entry.n && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.n, entry.fetchedAt, false), "HIT");
 
-  const { json: td, err } = await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}`, key);
-  let error = err || null, detail = null;
+  const blocked = await tdBlockedUntil(url.origin, now);
+  const { json: td, err } = blocked ? { err: "daily_limit" } : await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}`, key);
+  let error = err || null, detail = null, limitUntil = blocked;
   let n = null;
   if (!error) {
     if (!td || typeof td !== "object") error = "provider_error";
     else if (td.status === "error") { error = mapProviderError(td).error; detail = providerDetail(td, key); }
     else { n = normalizeHistory(td, { intraday }); if (!n.points.length) error = "no_data"; }
   }
+  if (error === "daily_limit" && !limitUntil) limitUntil = tdBlock(url.origin, now, ctx);
+  if (limitUntil) detail = `Twelve Data daily credits used up; resumes at ${new Date(limitUntil).toISOString()}`;
   if (!error) {
     const fetchedAt = Date.now();
     cachePut(cache, cacheKey, { n, fetchedAt }, ctx);

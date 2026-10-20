@@ -546,6 +546,20 @@ const OK_API = {
   if (SHOTS) { await cmd(page, "TILE"); await page.waitForTimeout(600); await page.screenshot({ path: SHOTS + "/e2e-t05-down.png" }); }
   await page.close();
 }
+// ---------- [B2] Twelve Data's daily credits used up: the page says when quotes resume and stops asking ----------
+{
+  const until = new Date(Date.now() + 3 * 3600e3).toISOString();
+  let quoteCalls = 0;
+  const LIM = { ...OK_API, quote: (syms) => { quoteCalls++; return { status: 429, body: { quotes: {}, errors: Object.fromEntries(syms.map((s) => [s, { error: "daily_limit", status: "N/A" }])), meta: { dailyLimitUntil: until } } }; } };
+  const { page, errors } = await openTerminal(LIM);
+  await page.waitForTimeout(2500);
+  const ts = await page.$eval("#tsTime", (e) => ({ t: e.textContent, c: e.className }));
+  const resume = await page.evaluate((u) => new Date(u).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }), until);
+  const n = quoteCalls;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await page.waitForTimeout(3000);
+  ok("[B2] daily credits used up: the top bar says when quotes resume; no further quote request until then", /⏸ quotes resume/.test(ts.t) && ts.t.includes(resume) && /ts-pause/.test(ts.c) && quoteCalls === n && errors.length === 0, JSON.stringify({ ts, resume, n, quoteCalls, errors }));
+  await page.close();
+}
 
 // =============== C. one stale instrument: the mix is indicated ===============
 {
@@ -808,8 +822,9 @@ const OK_API = {
   await cmd(page, "SYS"); await page.waitForTimeout(600);
   const sy = await winOf(page, "SYSTEM STATUS");
   ok("[H] SYS: sources configured yes/no (no key values), Twelve Data credits, scheduler", /Finnhub\s+earnings calendar \(ERN\)\s+NO/.test(sy.text) && /THIS MINUTE \(ACCOUNT\)\s+3 \/ 8/.test(sy.text) && /TODAY \(ACCOUNT\)\s+120 \/ 800/.test(sy.text) && /last scheduled run/.test(sy.text), sy.text.slice(0, 600));
+  const uBefore = t7.calls.filter((c) => c === "GET /api/status?usage=1").length;
   await page.click(".sys-u"); await page.waitForTimeout(600);
-  ok("[H] SYS: CHECK CREDITS asks the Worker for the usage (1 credit, on request only)", t7.calls.filter((c) => c === "GET /api/status?usage=1").length === 1 && t7.calls.filter((c) => c.startsWith("GET /api/status")).length === 2);
+  ok("[H] SYS: CHECK CREDITS asks the Worker for the usage (1 credit); otherwise only the hourly check of the page", t7.calls.filter((c) => c === "GET /api/status?usage=1").length === uBefore + 1 && uBefore <= 1);
   // WS
   await page.evaluate(() => document.querySelector("#tabs .tb-close").click()); await page.waitForTimeout(300); // CLOSE all
   await cmd(page, "WS MSFT"); await page.waitForTimeout(1500);

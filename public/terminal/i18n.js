@@ -208,7 +208,7 @@
     ["Past releases N/A", "Uscite passate N/A"],
     ["fetched", "aggiornato"], ["forecast", "previsto"], ["previous", "precedente"], ["data date", "data dei dati"], ["data time", "ora del dato"],
     ["refresh failed:", "aggiornamento fallito:"], ["last real quote from", "ultima quotazione reale del"],
-    ["not available on the current data plan", "non disponibile con il piano dati attuale"], ["no free official source", "nessuna fonte ufficiale gratuita"],
+    ["not available on the current data plan", "non disponibile con il piano dati attuale"], ["no free official source", "nessuna fonte ufficiale gratuita"], ["Twelve Data daily credits used up (they reset at 00:00 UTC)", "crediti giornalieri di Twelve Data esauriti (ripartono alle 00:00 UTC)"],
     ["listed by the provider, but not included in the current data plan", "quotato dal fornitore, ma non incluso nel piano dati attuale"],
     ["price source not connected (Alpaca keys not set)", "fonte dei prezzi non collegata (chiavi Alpaca assenti)"], ["S&P 500 constituent list unavailable", "lista dei componenti S&P 500 non disponibile"],
     ["provider refused the request", "il fornitore ha rifiutato la richiesta"], ["unknown symbol at the provider", "simbolo sconosciuto al fornitore"], ["invalid symbol", "simbolo non valido"],

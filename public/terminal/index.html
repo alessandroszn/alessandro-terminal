@@ -52,6 +52,7 @@
   .tsep{color:var(--dim)}
   .tnext{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   #tsNext{color:var(--muted)}
+  #tsTime.ts-pause{color:var(--amber)}
   .tclock{color:var(--fg);font-size:12px;font-variant-numeric:tabular-nums;margin-left:6px}
   @keyframes pulse{70%{box-shadow:0 0 0 6px rgba(46,194,138,0)}100%{box-shadow:0 0 0 0 rgba(46,194,138,0)}}
 
@@ -635,14 +636,19 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     refund(tk,k){if(tk&&k>0)tk.n=Math.max(0,tk.n-k);}};
   function histMeta(h){return{status:h.status||'LIVE',fetchedAt:h.fetchedAt||h.asOf||null,staleAt:h.staleAt||null,lastBarPartial:!!h.lastBarPartial,adjust:h.adjust,count:h.count,interval:h.interval,staleReason:h.staleReason||null};}
   const RETRY_MS=60000, INTRADAY_REFRESH_MS=600000;
-  const DATA={lastPull:null,provider:null,_q:Promise.resolve(),_gap:0,_timer:null,
+  // Twelve Data's daily credits: limitUntil = when they reset after running out (no background refresh until then);
+  // day = the account's own count (checked hourly while the page is visible, 1 credit): above 80% the refresh slows down
+  const DATA={lastPull:null,provider:null,_q:Promise.resolve(),_gap:0,_timer:null,limitUntil:0,day:null,_usageAt:0,
     init(){this.provider=Providers.twelvedata_proxy;
       this.refresh();
       document.addEventListener('visibilitychange',()=>{if(!document.hidden&&(!this.lastPull||Date.now()-this.lastPull>=this.interval()))this.refresh();});
-      setInterval(()=>this.sweep(),30000);
+      setInterval(()=>this.sweep(),30000);setTimeout(()=>this.usage(),20000);setInterval(()=>this.usage(),600000);
       // watchlist history after the first minute (the credit budget spaces the calls)
       setTimeout(()=>WATCH.forEach(s=>this.ensureSeries(s)),60000);},
-    interval(){const qs=UNI.filter(t=>t.q);const closed=qs.length&&qs.every(t=>t.q.marketOpen===false);return closed?CONFIG.quoteRefreshClosedMs:CONFIG.quoteRefreshOpenMs;},
+    interval(){const qs=UNI.filter(t=>t.q);const closed=qs.length&&qs.every(t=>t.q.marketOpen===false);const base=closed?CONFIG.quoteRefreshClosedMs:CONFIG.quoteRefreshOpenMs;
+      if(this.limitUntil>Date.now())return Math.max(base,this.limitUntil-Date.now()+60000);return this.saver()?base*3:base;},
+    saver(){const d=this.day;return!!(d&&d.limit&&d.used/d.limit>=0.8);},
+    async usage(){if(document.hidden||Date.now()-this._usageAt<3600000)return;this._usageAt=Date.now();try{const j=await (await fetch(CONFIG.proxyBase+'/api/status?usage=1',{cache:'no-store'})).json();const td=j&&j.twelvedata;if(td&&td.day&&fin(td.day.used))this.day={used:td.day.used,limit:td.day.limit,at:Date.now()};updateGlobal();}catch(e){}},
     schedule(){clearTimeout(this._timer);this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
     // symbols on screen: watchlist, the markets board when open, open security windows
     needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&w.type==='MKT'))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='BRF'))BRIEF_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PF'))pfNeeded().forEach(x=>{inst(x);s.add(x);});
@@ -655,7 +661,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         try{const j=await this.provider.quotes(chunk);Budget.refund(tk,j&&j.meta&&j.meta.cache&&j.meta.cache.hit);this.lastPull=Date.now();applyQuotes(j,chunk);}
         catch(e){console.warn('[data] quote request failed:',e&&e.message);quoteFailure('network',chunk);}}}
       finally{syms.forEach(x=>{if(BY[x])BY[x]._pending=false;});}},
-    async refresh(){if(this._busy)return;this._busy=true;
+    async refresh(){if(this._busy)return;if(this.limitUntil>Date.now())return this.schedule();this._busy=true;
       try{await this.fetchNow(this.needed());}finally{this._busy=false;this.schedule();}},
     // statuses change with time (LIVE -> STALE -> N/A): repaint when they do; reload open sections when due
     sweep(){let changed=false;Object.values(BY).forEach(t=>{let st=instStatus(t);
@@ -678,7 +684,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         finally{t._loadingIntra=false;this._repaintFor(sym);}});}
   };
   function clearMarket(t){t.q=null;MARKET_KEYS.forEach(k=>t[k]=null);}
-  function applyQuotes(j,syms){const quotes=j.quotes||{},errors=j.errors||{};
+  function applyQuotes(j,syms){const quotes=j.quotes||{},errors=j.errors||{};const lu=j.meta&&j.meta.dailyLimitUntil?Date.parse(j.meta.dailyLimitUntil):0;if(lu&&lu>Date.now()&&lu!==DATA.limitUntil){DATA.limitUntil=lu;setTimeout(()=>{updateStatusBar();updateGlobal();},0);}
     for(const s of syms){const t=BY[s];if(!t)continue;const q=quotes[s];
       if(q){const v=k=>P.fieldValue(q,k);t.q=q;t.qErr=null;
         t.px=v('price');t.prev=v('prevClose');t.chg=v('changePct');t.open=v('open');t.dayHigh=v('high');t.dayLow=v('low');t.vol=v('volume');t.lo52=v('fiftyTwoWeekLow');t.hi52=v('fiftyTwoWeekHigh');
@@ -772,18 +778,19 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     b.textContent='● '+label+(parts.length?' · '+parts.join(' · '):'');b.className='pvb b-'+pvKey(label);
     b.dataset.base='Data on screen now'+(sum.text?' ('+sum.text+')':'')+':\n'+inst.map(k=>`${k} — ${items[k]}`).join('\n');b.title=b.dataset.base+(SB_INFO?'\n\n'+SB_INFO:'');
     const ts=$('#topStatus'),tl2=$('#tsLabel');if(ts&&tl2){ts.className='tstat s-'+(label===S.LIVE||label===S.PARTIAL||label===S.DERIVED?'live':label===S.STALE?'stale':label===S.NA?'na':'loading');tl2.textContent=label===S.PARTIAL||label===S.DERIVED?'LIVE':label;
-      tl2.title=b.dataset.base+(DATA.lastPull?'\n\n'+tl('Last pull: ','Ultimo aggiornamento: ')+fmtTime(DATA.lastPull):'')+'\n'+tl('Click: system status (sources, credits, scheduled runs)','Clic: stato del sistema (fonti, crediti, esecuzioni programmate)');}}
+      tl2.title=b.dataset.base+(DATA.lastPull?'\n\n'+tl('Last pull: ','Ultimo aggiornamento: ')+fmtTime(DATA.lastPull):'')+(DATA.limitUntil>Date.now()?'\n'+tl('Twelve Data daily credits used up: quotes resume at','Crediti giornalieri di Twelve Data esauriti: le quotazioni riprendono alle')+' '+fmtHM(new Date(DATA.limitUntil).toISOString()):'')+'\n'+tl('Click: system status (sources, credits, scheduled runs)','Clic: stato del sistema (fonti, crediti, esecuzioni programmate)');}}
   let SB_INFO='';
   function updateStatusBar(){
     const live=UNI.filter(t=>t.q&&fin(t.px));
     const mo=live.map(t=>t.q.marketOpen).filter(x=>typeof x==='boolean');
     const adv=live.filter(t=>t.chg>=0).length,dec=live.filter(t=>t.chg<0).length;
-    const tt=$('#tsTime');if(tt)tt.textContent=DATA.lastPull?fmtHM(DATA.lastPull):'';
+    const tt=$('#tsTime');if(tt){tt.textContent=DATA.lastPull?fmtHM(DATA.lastPull):'';const lim=DATA.limitUntil>Date.now();tt.classList.toggle('ts-pause',lim);if(lim)tt.textContent+=` · ⏸ ${tl('quotes resume','quotazioni riprendono alle')} ${fmtHM(new Date(DATA.limitUntil).toISOString())}`;}
     const tsMax=live.map(t=>Date.parse(t.q.timestamp)).filter(isFinite);
     SB_INFO=[tl('U.S. market','Mercato USA')+': '+(!mo.length?'—':mo.some(Boolean)?tl('open','aperto'):tl('closed','chiuso')),
       tl('Watchlist breadth','Ampiezza della watchlist')+': '+(live.length?`${adv} ▲ / ${dec} ▼ · ${live.length} live`:'—'),
       tl('Last pull','Ultimo aggiornamento')+': '+(DATA.lastPull?fmtTime(DATA.lastPull):'—'),
-      tl('Data as of','Dati al')+': '+(tsMax.length?fmtTime(Math.max(...tsMax)):'—')].join('\n');
+      tl('Data as of','Dati al')+': '+(tsMax.length?fmtTime(Math.max(...tsMax)):'—'),
+      'Twelve Data '+tl('credits today','crediti oggi')+': '+(DATA.day?`${DATA.day.used} / ${DATA.day.limit||'—'}${DATA.saver()?' — '+tl('refresh slowed (×3) to stay within the day','aggiornamento rallentato (×3) per restare nel limite del giorno'):''}`:tl('not checked yet','non ancora controllati'))+(DATA.limitUntil>Date.now()?`\n${tl('Daily credits used up: quotes and charts resume at','Crediti del giorno esauriti: quotazioni e grafici riprendono alle')} ${fmtHM(new Date(DATA.limitUntil).toISOString())}`:'')].join('\n');
     const b=$('#dataBadge');if(b&&b.dataset.base!=null)b.title=b.dataset.base+'\n\n'+SB_INFO;}
   function repaintAll(){renderTape();wins.forEach(w=>{if(!w.min){const sc=w.bodyEl.scrollTop;paintWin(w);w.bodyEl.scrollTop=sc;}});updateStatusBar();updateGlobal();}
 
@@ -992,7 +999,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const chgAbs=fin(t.px)&&fin(t.prev)?t.px-t.prev:null,fs=k=>fStatus(t,k),src=gpSrc(st.tf);
     const failBanner=!t.q&&t.qErr==='plan_required'?`<div class="banner warn"><b>N/A</b> — quote and history unavailable: ${esc(planText(t))}. No substitute value is shown.</div>`:
       !t.q&&t.qErr?`<div class="banner warn"><b>N/A</b> — quote unavailable: ${esc(P.errorText(t.qErr))}. No substitute value is shown.</div>`:
-      ist===S.STALE?`<div class="banner warn"><b>STALE</b> — last real quote from ${fmtDT(t.q.timestamp)}${t.q.staleReason?'; refresh failed: '+esc(P.errorText(t.q.staleReason)):''}.</div>`:'';
+      ist===S.STALE?`<div class="banner warn"><b>STALE</b> — last real quote from ${fmtDT(t.q.timestamp)}${t.q.staleReason?'; refresh failed: '+esc(P.errorText(t.q.staleReason)):''}${t.q.staleReason==='daily_limit'&&DATA.limitUntil>Date.now()?' — '+tl('quotes resume at','le quotazioni riprendono alle')+' '+fmtHM(new Date(DATA.limitUntil).toISOString()):''}.</div>`:'';
     // a listing outside the data plan costs no credit: no history request at all
     const blocked=!!(t._planBlocked||(!t.q&&t.qErr==='plan_required'))||!isLiveSym(t.sym);
     const e=blocked?{err:'plan_required'}:hist7(t.sym,src.range,'splits',['GP'],{interval:src.iv,ttl:src.ttl});
