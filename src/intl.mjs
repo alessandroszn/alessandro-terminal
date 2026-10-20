@@ -12,9 +12,12 @@ export const MIC_CNBC = {
   XMIL: "-IT", MTAA: "-IT", XETR: "-DE", XFRA: "-FF", XPAR: "-FR", XLON: "-GB", XAMS: "-NL", XBRU: "-BE", XLIS: "-PT", XMAD: "-ES",
   XSWX: "-CH", XVTX: "-CH", XHEL: "-FI", XOSL: "-NO", XSTO: "-SE", XTSE: "-CA", XASX: "-AU", XNSE: "-IN", BVMF: "-BR",
   XSHG: "-CN", XSHE: "-CN", XTAI: "-TW", XSES: "-SG", XHKG: "-HK", XJPX: ".T", XTKS: ".T",
+  XDUB: "-IE", XMSM: "-IE", // Euronext Dublin (RYA-IE, KRZ-IE, BIRG-IE answer, 21 Oct 2026)
 };
+// not carried by CNBC (no primary listing in its symbol lookup, no code answers, 21 Oct 2026): Vienna (XWBO), Copenhagen
+// (XCSE), Korea (XKRX / XKOS) — their stocks are found in SRCH through other listings CNBC has (Xetra, Frankfurt, London, Milan)
 // the exchange's time zone by CNBC suffix (charts show intraday bars in exchange time)
-const SUFFIX_TZ = { IT: "Europe/Rome", DE: "Europe/Berlin", FF: "Europe/Berlin", FR: "Europe/Paris", GB: "Europe/London", NL: "Europe/Amsterdam", BE: "Europe/Brussels", PT: "Europe/Lisbon", ES: "Europe/Madrid",
+const SUFFIX_TZ = { IE: "Europe/Dublin", IT: "Europe/Rome", DE: "Europe/Berlin", FF: "Europe/Berlin", FR: "Europe/Paris", GB: "Europe/London", NL: "Europe/Amsterdam", BE: "Europe/Brussels", PT: "Europe/Lisbon", ES: "Europe/Madrid",
   CH: "Europe/Zurich", FI: "Europe/Helsinki", NO: "Europe/Oslo", SE: "Europe/Stockholm", CA: "America/Toronto", AU: "Australia/Sydney", IN: "Asia/Kolkata", BR: "America/Sao_Paulo", CN: "Asia/Shanghai",
   TW: "Asia/Taipei", SG: "Asia/Singapore", HK: "Asia/Hong_Kong", T: "Asia/Tokyo" };
 export const cnbcTzOf = (code) => { const m = /[-.]([A-Z]{1,2})$/.exec(String(code || "")); return m ? SUFFIX_TZ[m[1]] || null : null; };

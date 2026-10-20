@@ -17,7 +17,7 @@ globalThis.caches = { default: {
 
 // ---------- symbols ----------
 const MAP = [["ISP:XMIL", "ISP-IT"], ["SAP:XETR", "SAP-DE"], ["VOD:XLON", "VOD-GB"], ["7203:XJPX", "7203.T"], ["0700:XHKG", "700-HK"], ["700:XHKG", "700-HK"], ["VOLV B:XSTO", "VOLV.B-SE"], ["VOLV-B:XSTO", "VOLV.B-SE"],
-  ["RY:XTSE", "RY-CA"], ["600519:XSHG", "600519-CN"], ["NESN:XSWX", "NESN-CH"], ["C:700-HK", "700-HK"], ["C:7203.T", "7203.T"], ["AAPL", null], ["EUR/USD", null], ["005930:XKRX", null], ["NOVN:XXXX", null]];
+  ["RY:XTSE", "RY-CA"], ["600519:XSHG", "600519-CN"], ["NESN:XSWX", "NESN-CH"], ["C:700-HK", "700-HK"], ["C:7203.T", "7203.T"], ["RYA:XDUB", "RYA-IE"], ["AAPL", null], ["EUR/USD", null], ["005930:XKRX", null], ["EBS:XWBO", null], ["NOVO B:XCSE", null], ["NOVN:XXXX", null]];
 const bad = MAP.filter(([s, e]) => I.cnbcCodeFor(s) !== e);
 ok("SYMBOL:MIC → CNBC code (Milan -IT, Xetra -DE, London -GB, Tokyo .T, Hong Kong without leading zeros, Stockholm share class with a dot); C:<code> direct; unmapped exchanges none", bad.length === 0, JSON.stringify(bad));
 ok("CNBC big numbers: 103.871B, 17.33B, 950M, 1,234", I.cnbcBig("103.871B") === 103.871e9 && I.cnbcBig("17.33B") === 17.33e9 && I.cnbcBig("950M") === 950e6 && I.cnbcBig("1,234") === 1234 && I.cnbcBig("") === null);

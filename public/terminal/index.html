@@ -1019,7 +1019,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- content renderers (each paints into a window body and declares its provenance) ---------- */
   function renderSecurity(body,win){const st=win.state,t=BY[st.ticker],ist=instStatus(t);st.tf=gpTf(st.tf);st.ct=st.ct||'candle';st.ind=st.ind||{vol:true};st.cmp=(st.cmp||[]).filter(s=>s&&s!==t.sym).slice(0,3);
     const chgAbs=fin(t.px)&&fin(t.prev)?t.px-t.prev:null,fs=k=>fStatus(t,k),src=gpSrc(st.tf);
-    const failBanner=!t.q&&t.qErr==='plan_required'?`<div class="banner warn"><b>N/A</b> — quote and history unavailable: ${esc(planText(t))}. No substitute value is shown.</div>`:
+    const altQ=t.name?String(t.name).replace(/\b(Registered Shares|Ordinary Shares|Common Stock|Class [A-Z]|S\.p\.A\.|A\/S|AG|SE|PLC|N\.V\.|S\.A\.|Inc\.?|Ltd\.?|Co\.,? Ltd\.?)\b/gi,'').replace(/[^\p{L}\p{N} .&'\-]/gu,' ').replace(/\s+/g,' ').trim().slice(0,40):'';
+    const failBanner=!t.q&&t.qErr==='plan_required'?`<div class="banner warn"><b>N/A</b> — quote and history unavailable: ${esc(planText(t))}. No substitute value is shown.${altQ?` <button class="sr-b gp-alt" data-q="${esc(altQ)}" title="${tl('search other listings of this company (CNBC quotes some of them, e.g. on Xetra, London or Milan)','cerca altre quotazioni di questa società (CNBC ne quota alcune, es. su Xetra, Londra o Milano)')}">${tl('OTHER LISTINGS','ALTRE QUOTAZIONI')}</button>`:''}</div>`:
       !t.q&&t.qErr?`<div class="banner warn"><b>N/A</b> — quote unavailable: ${esc(P.errorText(t.qErr))}. No substitute value is shown.</div>`:
       ist===S.STALE?`<div class="banner warn"><b>STALE</b> — last real quote from ${t.q.dateOnly?fmtDay(t.q.dateOnly):fmtDT(t.q.timestamp)}${t.q.staleReason?'; refresh failed: '+esc(P.errorText(t.q.staleReason)):''}${t.q.staleReason==='daily_limit'&&DATA.limitUntil>Date.now()?' — '+tl('quotes resume at','le quotazioni riprendono alle')+' '+fmtHM(new Date(DATA.limitUntil).toISOString()):''}.</div>`:'';
     // a listing outside the data plan costs no credit: no history request at all
@@ -1046,6 +1047,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       </div></div>`;
     const items={[t.sym]:ist,['chart:'+t.sym]:blocked?S.NA:histSt(e)};ce.forEach(c=>{items['chart:'+c.sym]=histSt(c.e);});
     if(['ma20','ma50','ma200','bb','rsi'].some(k=>st.ind[k]))items['ind:'+t.sym]=S.DERIVED;setProv(win,items);
+    const gpAlt=body.querySelector('.gp-alt');if(gpAlt)gpAlt.onclick=()=>openSearch(gpAlt.dataset.q);
     $$('[data-tf]',body).forEach(b=>b.onclick=()=>{st.tf=b.dataset.tf;paintWin(win);});
     $$('[data-ct]',body).forEach(b=>b.onclick=()=>{st.ct=b.dataset.ct;paintWin(win);});
     $$('[data-ind]',body).forEach(b=>b.onclick=()=>{const k=b.dataset.ind;st.ind={...st.ind,[k]:!st.ind[k]};paintWin(win);});
