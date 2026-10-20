@@ -21,6 +21,7 @@ import { iso, fetchText } from "./lib.mjs";
 import { loadCnbcQuotes, FUTURES } from "./cnbc.mjs";
 import { INDICES } from "./indices.mjs";
 import { NQ_CAL, NQ_HEADERS, parseNqCalendar } from "./nasdaq.mjs";
+import { cnbcCodeFor } from "./intl.mjs";
 
 export const ALERT_CRON = "*/5 * * * *";
 export const ALERTS_KEY = "ud/alerts", LOG_KEY = "ud/alertlog", TG_KEY = "ud/telegram";
@@ -55,9 +56,9 @@ export function alertCnbcSym(sym) {
     return FX_CCY.has(b) && FX_CCY.has(q) ? `${b}${q}=` : null;
   }
   if (/^[A-Z]{1,5}(\.[A-Z])?$/.test(s)) return s; // U.S. stocks and ETFs (BRK.B)
-  return null;
+  return cnbcCodeFor(s); // listings outside the U.S.: ISP:XMIL → ISP-IT, C:700-HK → 700-HK
 }
-export const SYM_HELP = "a U.S. stock or ETF (AAPL), an FX pair (EUR/USD), crypto (BTC/USD), a metal (XAU/USD), an index (IDX:SPX) or a future (FUT:CL)";
+export const SYM_HELP = "a U.S. stock or ETF (AAPL), a listing elsewhere (ISP:XMIL, C:700-HK), an FX pair (EUR/USD), crypto (BTC/USD), a metal (XAU/USD), an index (IDX:SPX) or a future (FUT:CL)";
 
 // ---------- markets for open / close alerts: the main index, the exchange's time zone and regular hours ----------
 export const SESSIONS = {

@@ -12,7 +12,7 @@
 import { finnhubKey } from "./earnings.mjs";
 import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
-import { loadCnbcQuotes } from "./cnbc.mjs";
+import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 
 export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views" };
 // quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
@@ -113,9 +113,11 @@ export async function handleUserData(url, env, ctx, H, json, req) {
         const watched = new Set(list.filter((x) => isActive(x) && x.sym).map((x) => x.sym));
         if (!watched.has(v.sym) && watched.size >= LIMITS.alertSyms) return send({ error: "bad_request", message: `alerts can watch at most ${LIMITS.alertSyms} different symbols` }, 400);
         // the symbol must have a CNBC quote now (the feed the server checks it on)
-        const cs = alertCnbcSym(v.sym), q = await loadCnbcQuotes([cs]);
-        if (!q.data || !q.data[cs]) return send({ error: "bad_request", message: `no CNBC quote for ${v.sym}${q.err && q.err !== "no_data" ? " (" + q.err + ")" : ""}` }, 400);
-        v.name = q.data[cs].name || null;
+        const cs = alertCnbcSym(v.sym), raw = await loadCnbcRaw([cs]), rec = cnbcIntlRec(v.sym, raw.data[cs]);
+        if (!rec) return send({ error: "bad_request", message: `no CNBC quote for ${v.sym}${raw.err && raw.err !== "no_data" ? " (" + raw.err + ")" : ""}` }, 400);
+        // a quote CNBC dates without a time (some Asian exchanges) cannot tell a live price from an old one
+        if (rec.dateOnly) return send({ error: "bad_request", message: `CNBC gives ${v.sym}'s quotes without a time, so an alert could not tell a live price from an old one` }, 400);
+        v.name = rec.name || null;
       }
       const a = { id: crypto.randomUUID(), ...v, created: iso(Date.now()), hit: null };
       await save(env, kind, [...list, a]); return send({ added: a.id, alerts: [...list, a] }, 201);

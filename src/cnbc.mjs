@@ -6,6 +6,7 @@
 //   GET /api/cnbc/futures                 latest quote of every contract below (front month, CNBC's continuous symbol)
 //   GET /api/cnbc/returns?syms=@CL.1,…    1W / 1M / 3M / YTD / 1Y reference closes and a 3-month line (≤ 16 symbols)
 //   GET /api/cnbc/curve?root=CL           contract months 1…N now, and the same positions 1 week / 1 month earlier
+//   GET /api/cnbc/lookup?q=tencent        CNBC's symbol lookup: listings by name or ticker, with CNBC's code (opened as C:<code>)
 //   GET /api/cnbc/implied                 index futures vs the cash index's last print: implied opening move
 //   GET /api/cnbc/history?sym=@GC.1       daily closes (5 years)
 import { fetchText, cachedSource, iso } from "./lib.mjs";
@@ -53,6 +54,18 @@ export const FX_CNBC = { EUR: "EUR=", GBP: "GBP=", JPY: "JPY=", CHF: "CHF=", CAD
 export const EXTRA_SYMS = [".DXY", ".SPX", ".NDX", ".DJI", ".RUT", ".N225", ...Object.values(FX_CNBC)];
 
 // numbers as CNBC writes them: "10,733.00", "-0.4738%", "+0.005", "UNCH" (= 0 change)
+// CNBC's symbol lookup (the search box of cnbc.com): [meta, {symbolName, companyName, exchangeName, countryCode, issueType}, …]
+export const cnbcLookupUrl = (q) => `https://symlookup.cnbc.com/symservice/symlookup.do?prefix=${encodeURIComponent(q)}&partnerid=20064&fund=1&output=json`;
+export function parseCnbcLookup(j) {
+  const out = [], seen = new Set();
+  for (const x of Array.isArray(j) ? j : []) {
+    const code = String((x && x.symbolName) || "").trim().toUpperCase();
+    if (!x || !x.companyName || !/^[A-Z0-9][A-Z0-9.\-]{0,15}$/.test(code) || seen.has(code)) continue;
+    seen.add(code);
+    out.push({ code, id: "C:" + code, name: String(x.companyName).trim(), exchange: x.exchangeName ? String(x.exchangeName).trim() : null, country: x.countryCode ? String(x.countryCode).trim() : null, type: x.issueType ? String(x.issueType).trim() : null });
+  }
+  return out;
+}
 export const cnbcNum = (s) => { const t = String(s == null ? "" : s).replace(/,/g, "").replace(/%$/, "").trim(); return /^[-+]?\d+(\.\d+)?$/.test(t) ? Number(t) : null; };
 export const cnbcTime = (s) => { const t = Date.parse(String(s || "").replace(/([+-]\d{2})(\d{2})$/, "$1:$2")); return Number.isFinite(t) ? t : null; };
 export const contractOf = (name) => { const m = /\(([A-Z][a-z]{2})'(\d{2})\)/.exec(String(name || "")); return m ? `${m[1]} 20${m[2]}` : null; };
@@ -175,6 +188,18 @@ export async function handleCnbc(url, env, ctx, H, json) {
       return { label, future: f, cash: c, contract: fq ? fq.contract : null, futLast: fq ? fq.last : null, futTime: fq ? iso(fq.time) : null, cashLast: cq ? cq.last : null, cashTime: cq ? iso(cq.time) : null, cashChgPct: cq ? cq.chgPct : null, ...(im || { error: "no_quote" }) };
     });
     return send({ rows, ...SRC, basis: "implied move = futures price now ÷ the futures price at the minute of the cash index's last print − 1 (five-minute bars), applied to that print; it ignores the futures' fair-value basis — DERIVED", fetchedAt: iso(q.fetchedAt) });
+  }
+  if (p === "/api/cnbc/lookup") {
+    const q = String(url.searchParams.get("q") || "").trim().replace(/\s+/g, " ");
+    if (!/^[\p{L}\p{N} .&'\-]{1,40}$/u.test(q)) return send({ error: "bad_request", message: "q: 1-40 letters, digits, spaces or . & ' -" }, 400);
+    const r = await cachedSource({ origin: url.origin, key: `cnbc/lk/${encodeURIComponent(q.toLowerCase())}`, ttlMs: 86400_000, staleMaxMs: 30 * 86400_000, failTtlMs: 5 * 60_000, ctx, load: async () => {
+      const f = await fetchText(cnbcLookupUrl(q), { timeoutMs: 10000, headers: { accept: "application/json" } });
+      if (f.err) return { err: f.err };
+      let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+      return { data: parseCnbcLookup(j) };
+    } });
+    if (!r.data) return send({ q, results: [], status: "N/A", error: r.err, ...SRC }, 502);
+    return send({ q, results: r.data, count: r.data.length, source: "CNBC symbol lookup", sourceUrl: CNBC_PAGE, basis: "listings as CNBC's symbol lookup returns them (name, exchange, country, type); opened as C:<CNBC code>", status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
   }
   if (p === "/api/cnbc/history") {
     const sym = String(url.searchParams.get("sym") || "");

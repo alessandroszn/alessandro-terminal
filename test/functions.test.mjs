@@ -201,12 +201,17 @@ r = await call("/api/user/alerts", undefined, envU);
 ok("alerts / notes / boards start empty", r.status === 200 && r.j.alerts.length === 0 && (await call("/api/user/notes", undefined, envU)).j.notes.length === 0 && (await call("/api/user/board", undefined, envU)).j.boards.length === 0);
 // the server saves a symbol only if CNBC (the feed alerts are checked on) quotes it now
 const SX = (i) => "S" + String.fromCharCode(65 + i), CN_KNOWN = new Set(["NVDA", ...Array.from({ length: 26 }, (_, i) => SX(i))]), fetch0 = globalThis.fetch;
-globalThis.fetch = async (u, o) => { const s = String(u); if (s.startsWith("https://quote.cnbc.com/")) { const syms = new URL(s).searchParams.get("symbols").split("|"); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.filter((x) => CN_KNOWN.has(x)).map((x) => ({ code: 0, symbol: x, name: x + " Corp", last: "100.00", last_time: "2026-10-20T15:00:00.000-0400", previous_day_closing: "99.00", change: "+1.00", change_pct: "+1.01%" })) } }), { status: 200 }); } return fetch0(u, o); };
+globalThis.fetch = async (u, o) => { const s = String(u); if (s.startsWith("https://quote.cnbc.com/")) { const syms = new URL(s).searchParams.get("symbols").split("|"); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.filter((x) => CN_KNOWN.has(x) || x === "700-HK" || x === "ISP-IT").map((x) => ({ code: 0, symbol: x, name: x + " Corp", last: "100.00", last_time: x === "700-HK" ? "2026-10-20" : "2026-10-20T15:00:00.000-0400", previous_day_closing: "99.00", change: "+1.00", change_pct: "+1.01%" })) } }), { status: 200 }); } return fetch0(u, o); };
 r = await call("/api/user/alerts", J("POST", { sym: "NVDA", op: ">=", price: 200, note: "breakout" }), envU);
 const aid = r.j && r.j.added;
 ok("alert stored (KV ud/alerts), not fired, with CNBC's name", r.status === 201 && JSON.parse(kv.get("ud/alerts"))[0].hit === null && r.j.alerts[0].name === "NVDA Corp" && r.j.alerts[0].kind === "price");
 r = await call("/api/user/alerts", J("POST", { sym: "ZZZZ", op: ">=", price: 1 }), envU);
 ok("a symbol CNBC does not quote is refused", r.status === 400 && /no CNBC quote for ZZZZ/.test(r.j.message));
+r = await call("/api/user/alerts", J("POST", { sym: "C:700-HK", op: ">=", price: 1 }), envU);
+ok("an alert on a listing CNBC dates without a time is refused (it could not tell a live price from an old one)", r.status === 400 && /without a time/.test(r.j.message));
+r = await call("/api/user/alerts", J("POST", { sym: "ISP:XMIL", op: "<=", price: 90 }), envU);
+ok("an alert on a listing outside the U.S. (Milan, through CNBC) is accepted", r.status === 201 && r.j.alerts.at(-1).sym === "ISP:XMIL");
+await call(`/api/user/alerts?id=${r.j.added}`, { method: "DELETE" }, envU);
 r = await call(`/api/user/alerts/rearm?id=${aid}`, J("POST", {}), envU);
 ok("an alert that has not fired cannot be re-armed", r.status === 400);
 { const l = JSON.parse(kv.get("ud/alerts")); l[0].hit = { at: "2026-10-20T19:00:00.000Z", price: 201.5, source: "CNBC" }; kv.set("ud/alerts", JSON.stringify(l)); }

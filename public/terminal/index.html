@@ -2108,6 +2108,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const k=q.toLowerCase(),seq=++srchSeq,done=j=>{st.res=j;st.err=null;(j.results||[]).forEach(x=>{META[x.id]=x;});
       // a ticker typed in the command line opens directly when the provider has exactly that symbol on the current plan
       const top=j.results&&j.results[0];if(auto&&top&&top.symbol.toUpperCase()===q.toUpperCase()&&top.quotable)openSecurity(top.id);};
+    // CNBC's own lookup in parallel: listings the symbol master does not reach (opened as C:<code>, no credit)
+    st.cn=CN_LK[k]||null;if(!CN_LK[k])fetch(`${CONFIG.proxyBase}/api/cnbc/lookup?q=${encodeURIComponent(q)}`,{cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&Array.isArray(c.results)){CN_LK[k]=c;c.results.forEach(x=>{META[x.id]={id:x.id,symbol:x.code,name:x.name,exchange:x.exchange,country:x.country,type:x.type,quotable:true,via:'CNBC',cnbc:x.code};});if(st.q.toLowerCase()===k){st.cn=c;liveRepaint(win);}}}).catch(()=>{});
     if(SRCH_CACHE[k]){done(SRCH_CACHE[k]);return liveRepaint(win);}
     st.loading=true;st.err=null;st.res=null;liveRepaint(win);
     try{const r=await fetch(`${CONFIG.proxyBase}/api/search?q=${encodeURIComponent(q)}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
@@ -2117,10 +2119,15 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(j.error||!Array.isArray(j.results)){st.err=j.error||'provider_error';st.res=null;}else{SRCH_CACHE[k]=j;done(j);}}
     catch(e){if(seq===srchSeq){st.err='network';st.res=null;}}
     finally{if(seq===srchSeq){st.loading=false;liveRepaint(win);}}}
+  const CN_LK={};
   const TYPE_ABBR={"Common Stock":"Stock","American Depositary Receipt":"ADR","Depositary Receipt":"DR","Global Depositary Receipt":"GDR","Physical Currency":"FX","Digital Currency":"Crypto","Precious Metal":"Metal","Mutual Fund":"Fund","Preferred Stock":"Pref."};
   function planChip(x){if(x.via==='CNBC')return`<span class="pl ok" title="${tl('not in the Twelve Data plan: quote and history from the CNBC quote service','fuori dal piano Twelve Data: quotazione e storico dal servizio quotazioni CNBC')} (${esc(x.cnbc||'')})">CNBC</span>`;if(x.quotable===true)return`<span class="pl ok" title="quote and history included in the current data plan (Twelve Data ${PLAN})">${PLAN.toUpperCase()}</span>`;
     if(x.planRequired)return`<span class="pl" title="needs the Twelve Data ${esc(x.planRequired)} plan or higher: quote and history are N/A on the current plan (${PLAN})">${esc(x.planRequired.toUpperCase())}+</span>`;
     return'<span class="pl" title="the provider did not say which plan covers this listing">?</span>';}
+  // CNBC listings for the same query that the symbol master did not already give as quotable (non-U.S.)
+  function srchCnbc(st,list){const c=st.cn;if(!c||!Array.isArray(c.results))return'';const have=new Set(list.filter(x=>x.quotable).map(x=>x.cnbc||x.symbol));
+    const rows=c.results.filter(x=>x.country!=='US'&&!have.has(x.code)).map(x=>{const inWl=WATCH.includes(x.id);return`<tr><td class="l"><b class="notranslate">${esc(x.id)}</b></td><td class="l nm" title="${esc(x.name)}">${esc(x.name)}</td><td class="l">${esc(x.exchange||'—')}</td><td class="l">${esc(x.country||'—')}</td><td class="l">${esc((x.type||'—').toLowerCase())}</td><td>—</td><td><span class="pl ok" title="${tl('quote and history from the CNBC quote service','quotazione e storico dal servizio quotazioni CNBC')}">CNBC</span></td><td><button class="sr-b" data-open="${esc(x.id)}">${tl('OPEN','APRI')}</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl?'disabled':''}>${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
+    return rows?`<div class="set-grp" style="margin:10px 8px 4px">${tl('MORE LISTINGS · CNBC SYMBOL LOOKUP','ALTRI TITOLI · RICERCA SIMBOLI CNBC')}</div><table class="pf sr"><tbody>${rows}</tbody></table><div class="scr-count">${tl('Listings from CNBC\'s symbol lookup, opened with CNBC\'s quotes and history (real-time or delayed as CNBC marks it).','Titoli dalla ricerca simboli di CNBC, aperti con quotazioni e storico CNBC (in tempo reale o ritardati come indica CNBC).')}</div>`:'';}
   function renderSearch(body,win){const st=win.state,j=st.res;body.style.padding='0';
     const list=j&&j.results?j.results:[],shown=st.all?list:list.slice(0,40);
     const rows=shown.map(x=>{const inWl=WATCH.includes(x.id),blocked=x.quotable===false;
@@ -2132,7 +2139,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       'Search any listed instrument by company name or ticker: US, Europe (UK, CH, DE, FR, IT, NL, ES), Canada, Japan, Hong Kong, ETFs, FX and crypto. Indices are not in the provider\'s search.';
     body.innerHTML=`<div class="wl-add"><input class="sr-in" value="${esc(st.q||'')}" placeholder="company or ticker — e.g. Apple, Novartis, NESN, EUR/USD" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Search instruments"><button class="wl-btn sr-go">SEARCH</button></div>
       <div class="wl-msg">${msg}</div>${rows?`<table class="pf sr"><thead><tr><th class="l">SYMBOL</th><th class="l">NAME</th><th class="l">EXCHANGE</th><th class="l">COUNTRY</th><th class="l">TYPE</th><th>CCY</th><th>PLAN</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:(j&&!list.length?'<div class="empty">No listing found at the provider.</div>':'')}
-      ${list.length>shown.length?`<div class="scr-count"><button class="sr-b sr-all">SHOW ALL ${list.length}</button></div>`:''}`;
+      ${list.length>shown.length?`<div class="scr-count"><button class="sr-b sr-all">SHOW ALL ${list.length}</button></div>`:''}${srchCnbc(st,list)}`;
     setProv(win,j?{'ds:search':j.status==='STALE'?S.STALE:S.LIVE}:st.err?{'ds:search':S.NA}:{},'symbol master (reference data) — no prices in this window');
     const inp=body.querySelector('.sr-in'),go=()=>{st.msg='';runSearch(win,inp.value);};
     body.querySelector('.sr-go').onclick=go;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};
@@ -2963,7 +2970,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         :a.fired&&a.fired.count?`<span class="up">${a.fired.count}×</span> ${tl('last','ultimo')} ${fmtDT(a.fired.last.at)}`:`<span class="k">${tl('watching','in attesa')} · ${ak==='move'?tl('once a session','una volta per seduta'):ak==='session'?tl('daily','ogni giorno'):tl('each release','a ogni pubblicazione')}</span>`;
       return`<tr><td class="l k">${esc((alrKinds().find(x=>x[0]===ak)||[,ak])[1])}</td><td class="l">${alrtWhat(a,d)}</td><td class="num">${last}</td><td class="num ${cls(dist)}" title="${tl('move needed to reach the level','movimento necessario per il livello')}">${dist==null?'':pctN(dist)}</td><td class="l k">${esc(a.note||'')}</td><td class="l">${stat}</td><td class="k">${fmtDay(a.created)}</td><td>${ALR.confirm===a.id?`<button class="tf al-yes" data-id="${esc(a.id)}">${tl('CONFIRM','CONFERMA')}</button>`:`<button class="tf al-del" data-id="${esc(a.id)}" title="${tl('delete','elimina')}">✕</button>`}</td></tr>`;}).join('');
     const lr=d.engine&&d.engine.lastRecorded,logRows=(d.log||[]).slice(0,10).map(e=>{const m=e.msg&&(e.msg[I18N.lang()==='it'?'it':'en']||e.msg.en)||{title:'',text:''};return`<tr><td class="k">${fmtDT(e.at)}</td><td class="l"><b class="notranslate">${esc(m.title)}</b></td><td class="l k notranslate" style="white-space:pre-line">${esc(m.text)}</td><td class="l">${e.telegram==='sent'?`<span class="up">✓ Telegram</span>`:`<span class="k" title="${esc(P.errorText(e.telegram))}">${e.telegram==='not_configured'?tl('page only','solo pagina'):'✗ '+esc(e.telegram||'')}</span>`}</td></tr>`;}).join('');
-    const sugg=[...new Set([...WATCH,'IDX:SPX','IDX:NDX','IDX:DAX','IDX:FTSEMIB','IDX:SX5E','IDX:N225','FUT:CL','FUT:GC','FUT:SP','EUR/USD','USD/JPY','GBP/USD','EUR/CHF','BTC/USD','ETH/USD','XAU/USD'])];
+    const sugg=[...new Set([...WATCH,'IDX:SPX','IDX:NDX','IDX:DAX','IDX:FTSEMIB','IDX:SX5E','IDX:N225','FUT:CL','FUT:GC','FUT:SP','ISP:XMIL','ENI:XMIL','EUR/USD','USD/JPY','GBP/USD','EUR/CHF','BTC/USD','ETH/USD','XAU/USD'])];
     body.innerHTML=`<div class="tfbar" style="margin:0 0 4px">${tb7('ak',alrKinds(),k)}</div>
       <form class="pf-form al-f" autocomplete="off">${alrtForm(k,f,d)}<button type="submit" class="set-reset" ${ALR.busy?'disabled':''}>${tl('ADD ALERT','AGGIUNGI AVVISO')}</button></form>
       <datalist id="al-syms">${sugg.map(s=>`<option value="${esc(s)}">`).join('')}</datalist><datalist id="al-rel">${ALR_REL.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>

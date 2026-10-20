@@ -11,9 +11,9 @@ globalThis.caches = { default: { match: async () => undefined, put: async () => 
 
 // ---------- symbols ----------
 const MAP = [["EUR/USD", "EUR="], ["GBP/USD", "GBP="], ["USD/JPY", "JPY="], ["USD/CHF", "CHF="], ["USD/EUR", null], ["JPY/USD", null], ["EUR/JPY", "EURJPY="], ["BTC/USD", "BTC.CM="], ["DOGE/USD", "DOGE.CM="],
-  ["XAU/USD", "XAU="], ["AAPL", "AAPL"], ["BRK.B", "BRK.B"], ["IDX:SPX", ".SPX"], ["IDX:FTSEMIB", ".FTMIB"], ["IDX:DAX", ".GDAXI"], ["IDX:NOPE", null], ["FUT:CL", "@CL.1"], ["FUT:ZZ", null], ["ISP:XMIL", null]];
+  ["XAU/USD", "XAU="], ["AAPL", "AAPL"], ["BRK.B", "BRK.B"], ["IDX:SPX", ".SPX"], ["IDX:FTSEMIB", ".FTMIB"], ["IDX:DAX", ".GDAXI"], ["IDX:NOPE", null], ["FUT:CL", "@CL.1"], ["FUT:ZZ", null], ["ISP:XMIL", "ISP-IT"], ["C:700-HK", "700-HK"], ["005930:XXXX", null]];
 const bad = MAP.filter(([s, e]) => A.alertCnbcSym(s) !== e);
-ok("symbols → CNBC: FX by the dollar convention (EUR= is EUR/USD, JPY= is USD/JPY), crosses, crypto, metals, U.S. stocks, IDX: and FUT:", bad.length === 0, JSON.stringify(bad));
+ok("symbols → CNBC: FX by the dollar convention (EUR= is EUR/USD, JPY= is USD/JPY), crosses, crypto, metals, U.S. stocks, IDX:, FUT:, listings elsewhere (ISP:XMIL, C:700-HK)", bad.length === 0, JSON.stringify(bad));
 ok("every market of open / close alerts has an index, a time zone and hours", Object.values(A.SESSIONS).every((m) => m.sym.startsWith(".") && m.tz.includes("/") && /^\d\d:\d\d$/.test(m.open) && m.close > m.open && m.nameIt));
 
 // ---------- kinds ----------
