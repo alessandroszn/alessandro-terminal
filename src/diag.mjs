@@ -10,6 +10,12 @@ const URLS = {
   reutRss: "https://www.reuters.com/arc/outboundfeeds/v3/all/?outputType=xml",
   reutBiz: "https://www.reuters.com/arc/outboundfeeds/v3/business/?outputType=xml",
 };
+const FINRA = {
+  shvol: "https://cdn.finra.org/equity/regsho/daily/CNMSshvol20261020.txt",
+  apiGet: "https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest?limit=3",
+  apiMeta: "https://api.finra.org/metadata/group/otcMarket/name/consolidatedShortInterest",
+  biweekly: "https://cdn.finra.org/equity/otcmarket/biweekly/shrt20260930.csv",
+};
 const cnbcUrl = (syms) => `https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${syms.map(encodeURIComponent).join("%7C")}&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json&events=1`;
 export async function handleDiag(url, env, ctx, H, json) {
   const send = (o) => { const r = json(o, H); r.headers.set("cache-control", "no-store"); return r; };
@@ -29,6 +35,17 @@ export async function handleDiag(url, env, ctx, H, json) {
     const u = `https://ts-api.cnbc.com/harmony/app/bars/${encodeURIComponent(bars)}/${iv}/${ymd(new Date(now - 30 * 864e5))}000000/${ymd(now)}235900/adjusted/EST5EDT.json`;
     const r = await fetch(u, { headers: { "user-agent": UA, accept: "application/json" } }); const t = await r.text();
     return send({ status: r.status, size: t.length, head: t.slice(0, 900) });
+  }
+  if (url.searchParams.get("finra")) {
+    const out = {};
+    for (const [k, u] of Object.entries(FINRA)) {
+      try { const r = await fetch(u, { headers: { "user-agent": UA, accept: "application/json, text/plain, */*" } }); const t = await r.text(); out[k] = { status: r.status, type: r.headers.get("content-type"), size: t.length, head: t.slice(0, 1200) }; } catch (e) { out[k] = { error: String(e && e.message) }; }
+    }
+    try {
+      const r = await fetch("https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest", { method: "POST", headers: { "user-agent": UA, accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ limit: 3, sortFields: ["-currentShortPositionQuantity"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: "2026-09-30" }] }) });
+      const t = await r.text(); out.apiPost = { status: r.status, size: t.length, head: t.slice(0, 1500) };
+    } catch (e) { out.apiPost = { error: String(e && e.message) }; }
+    return send(out);
   }
   const lk = url.searchParams.get("lookup");
   if (lk) {
