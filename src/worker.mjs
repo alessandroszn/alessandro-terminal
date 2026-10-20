@@ -375,7 +375,8 @@ async function handleQuote(url, env, ctx, H) {
     }
   }
   // CNBC: the direct ones, and the plan-refused ones it can name
-  const fallback = Object.keys(errors).filter(s => errors[s].error === "plan_required" && cnbcCodeFor(s));
+  // Twelve Data answers venue ids outside the plan with plan_required, or for some exchanges "error in the query"
+  const fallback = Object.keys(errors).filter(s => ["plan_required", "provider_error", "symbol_not_found"].includes(errors[s].error) && cnbcCodeFor(s));
   const cn = [...viaCnbc, ...fallback];
   if (cn.length) {
     const cEntries = await Promise.all(cn.map(s => cacheGet(cache, `${url.origin}/__cache/quote-cnbc/${encodeURIComponent(s)}`)));
@@ -393,7 +394,7 @@ async function handleQuote(url, env, ctx, H) {
         return;
       }
       if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS) { quotes[s] = cnbcInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: raw.err || "no_data", fieldKeys: Object.keys(QUOTE_FIELDS) }); delete errors[s]; stat.stale++; return; }
-      errors[s] = isCnbcId(s) ? { error: raw.err && !Object.keys(raw.data).length ? raw.err : "symbol_not_found", status: STATUS.NA } : { error: "plan_required", status: STATUS.NA, detail: [errors[s] && errors[s].detail, "CNBC does not quote this listing either"].filter(Boolean).join(" · ") };
+      errors[s] = isCnbcId(s) ? { error: raw.err && !Object.keys(raw.data).length ? raw.err : "symbol_not_found", status: STATUS.NA } : { error: (errors[s] && errors[s].error) || "plan_required", status: STATUS.NA, detail: [errors[s] && errors[s].detail, "CNBC does not quote this listing either"].filter(Boolean).join(" · ") };
     });
   }
   const xc = stat.stale ? "STALE" : stat.miss && stat.hit ? "PARTIAL-HIT" : stat.miss ? "MISS" : stat.hit ? "HIT" : "NONE";
@@ -499,7 +500,7 @@ export function exchangeToday(tz, now = new Date(Date.now())) {
 }
 
 // history of a listing outside the Twelve Data plan: CNBC's bars (intl.mjs), in the same contract
-async function cnbcHistoryResponse(url, ctx, H, built, planDetail) {
+async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "plan_required") {
   const { id, range, interval, intraday, ttl } = built, cache = cacheFor(), now = Date.now(), code = cnbcCodeFor(id);
   const key = `${url.origin}/__cache/history-cnbc?${new URLSearchParams({ symbol: id, range, interval })}`, entry = await cacheGet(cache, key);
   const envelope = (points, fetchedAt, stale, staleReason) => {
@@ -514,8 +515,8 @@ async function cnbcHistoryResponse(url, ctx, H, built, planDetail) {
   const r = await cnbcHistory(code, { range, interval, now });
   if (r.data) { const fetchedAt = Date.now(); cachePut(cache, key, { points: r.data, fetchedAt }, ctx); return respond(envelope(r.data, fetchedAt, false), "MISS"); }
   if (entry && entry.points && now - entry.fetchedAt < STALE_MAX_MS) return respond(envelope(entry.points, entry.fetchedAt, true, r.err), "STALE");
-  const error = isCnbcId(id) ? (r.err === "no_data" ? "no_data" : r.err) : "plan_required";
-  const out = json({ error, symbol: id, status: STATUS.NA, ...(error === "plan_required" ? { detail: [planDetail, "CNBC has no bars for this listing either"].filter(Boolean).join(" · ") } : {}) }, H, error === "no_data" ? 404 : ERROR_HTTP[error] || 502);
+  const error = isCnbcId(id) ? (r.err === "no_data" ? "no_data" : r.err) : tdError;
+  const out = json({ error, symbol: id, status: STATUS.NA, ...(!isCnbcId(id) ? { detail: [planDetail, "CNBC has no bars for this listing either"].filter(Boolean).join(" · ") } : {}) }, H, error === "no_data" ? 404 : ERROR_HTTP[error] || 502);
   out.headers.set("x-cache", "MISS");
   return out;
 }
@@ -574,7 +575,7 @@ async function handleHistory(url, env, ctx, H) {
   if (entry && entry.n && now - entry.fetchedAt < STALE_MAX_MS && error !== "symbol_not_found" && error !== "plan_required") {
     return respond(envelope(entry.n, entry.fetchedAt, true, error), "STALE");
   }
-  if (error === "plan_required" && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail);
+  if (["plan_required", "provider_error", "symbol_not_found"].includes(error) && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail, error);
   const status = error === "no_data" ? 404 : ERROR_HTTP[error] || 502;
   const r = json({ error, symbol: id, status: STATUS.NA, ...(detail ? { detail } : {}) }, H, status);
   r.headers.set("x-cache", "MISS");

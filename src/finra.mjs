@@ -53,6 +53,20 @@ export function shvolLine(text, date, sym) {
   const short = n(line[2]), exempt = n(line[3]), total = n(line[4]);
   return short == null || !total ? null : { date, short: Math.round(short), exempt: exempt == null ? null : Math.round(exempt), total: Math.round(total), pct: Math.round(short / total * 10000) / 100, markets: line[5] || null };
 }
+// FINRA's settlement dates fall in the middle and at the end of each month (the 15th and the last business day, or the
+// weekday before when that is a weekend or holiday). FINRA sorts only within one settlement date, so the latest published
+// one is found by asking candidate dates, newest first: each half-month boundary and up to 3 weekdays before it.
+export function settlementCandidates(now, months = 2) {
+  const out = [], d0 = new Date(now), wk = (t) => { const d = new Date(t); while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1); return d; };
+  for (let m = 0; m <= months; m++) {
+    const y = d0.getUTCFullYear(), mo = d0.getUTCMonth() - m;
+    for (const base of [new Date(Date.UTC(y, mo + 1, 0)), new Date(Date.UTC(y, mo, 15))]) {
+      let d = wk(base);
+      for (let k = 0; k < 4; k++) { if (d.getTime() <= now) out.push(d.toISOString().slice(0, 10)); d = wk(new Date(d.getTime() - DAY)); }
+    }
+  }
+  return [...new Set(out)].sort().reverse();
+}
 // weekdays before `now` (New York date), newest first
 export function recentWeekdays(now, count) {
   const out = []; let t = Date.parse(new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) + "T12:00:00Z");
@@ -74,11 +88,14 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
   const f = deps.fetch || fetch, now = deps.now || Date.now(), p = url.pathname;
   if (p === "/api/finra/shorts") {
     let detail = null;
-    const r = await cachedSource({ origin: url.origin, key: "finra/si/top2", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
-      const last = await finraQuery({ limit: 1, fields: ["settlementDate"], sortFields: ["-settlementDate"] }, f);
-      if (last.err || !last.data.length) { detail = last.detail || null; return { err: last.err || "no_data" }; }
-      const date = String(last.data[0].settlementDate || "").slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { err: "provider_error" };
+    const r = await cachedSource({ origin: url.origin, key: "finra/si/top3", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+      let date = null;
+      for (const c of settlementCandidates(now).slice(0, 10)) {
+        const one = await finraQuery({ limit: 1, fields: ["settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: c }] }, f);
+        if (one.err) { detail = one.detail || null; return { err: one.err }; }
+        if (one.data.length) { date = c; break; }
+      }
+      if (!date) return { err: "no_data" };
       const q = await finraQuery({ limit: 2500, fields: FIELDS, sortFields: ["-currentShortPositionQuantity"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: date }] }, f);
       if (q.err) { detail = q.detail || null; return { err: q.err }; }
       const rows = q.data.map(compactSi).filter((x) => x[0] && x[2] != null && isListed(x[7]));
@@ -92,10 +109,10 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
     const sym = String(url.searchParams.get("sym") || "").trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
     let detail = null;
-    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym2/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
-      const q = await finraQuery({ limit: 26, fields: FIELDS, sortFields: ["-settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "symbolCode", fieldValue: sym }] }, f);
+    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym3/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+      const q = await finraQuery({ limit: 40, fields: FIELDS, compareFilters: [{ compareType: "EQUAL", fieldName: "symbolCode", fieldValue: sym }] }, f);
       if (q.err) { detail = q.detail || null; return { err: q.err }; }
-      const rows = q.data.map((x) => ({ date: String(x.settlementDate || "").slice(0, 10), short: n(x.currentShortPositionQuantity), previous: n(x.previousShortPositionQuantity), changePct: n(x.changePercent), adv: n(x.averageDailyVolumeQuantity), days: n(x.daysToCoverQuantity) === DAYS_UNDEFINED ? null : n(x.daysToCoverQuantity) })).filter((x) => x.date && x.short != null);
+      const rows = q.data.slice().sort((a, b) => (String(a.settlementDate) < String(b.settlementDate) ? 1 : -1)).map((x) => ({ date: String(x.settlementDate || "").slice(0, 10), short: n(x.currentShortPositionQuantity), previous: n(x.previousShortPositionQuantity), changePct: n(x.changePercent), adv: n(x.averageDailyVolumeQuantity), days: n(x.daysToCoverQuantity) === DAYS_UNDEFINED ? null : n(x.daysToCoverQuantity) })).filter((x) => x.date && x.short != null);
       return rows.length ? { data: rows } : { err: "no_data" };
     } });
     // short sale volume: the last 5 published sessions among the last 8 weekdays (a day not yet published is skipped)

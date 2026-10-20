@@ -4,7 +4,7 @@
 //   node test/intl.test.mjs
 import { app as worker, __resetForTests } from "../src/worker.mjs";
 import * as I from "../src/intl.mjs";
-import { compactSi, shvolLine, recentWeekdays, isListed } from "../src/finra.mjs";
+import { compactSi, shvolLine, recentWeekdays, isListed, settlementCandidates } from "../src/finra.mjs";
 import { parseNqRatings, parseNqTarget, parseNqForecast, parseNqHolders } from "../src/nasdaq.mjs";
 
 let pass = 0, fail = 0;
@@ -63,10 +63,11 @@ const FINRA_ROWS = [
   { symbolCode: "NVDA", issueName: "NVIDIA Corporation Common Stoc", marketClassCode: "NNM", currentShortPositionQuantity: 311389688, previousShortPositionQuantity: 294225803, averageDailyVolumeQuantity: 110290688, daysToCoverQuantity: 2.82, changePercent: 5.83, settlementDate: "2026-09-30" },
   { symbolCode: "RIG", issueName: "Transocean LTD.", marketClassCode: "NYSE", currentShortPositionQuantity: 299021155, previousShortPositionQuantity: 277763921, averageDailyVolumeQuantity: 43475753, daysToCoverQuantity: 6.88, changePercent: 7.65, settlementDate: "2026-09-30" },
   { symbolCode: "XOTC", issueName: "Some OTC Co", marketClassCode: "OTC", currentShortPositionQuantity: 1000, previousShortPositionQuantity: 900, averageDailyVolumeQuantity: 0, daysToCoverQuantity: 999.99, changePercent: 11.1, settlementDate: "2026-09-30" }];
-const finraBodies = [];
+const finraBodies = [], PUBLISHED = new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10), LATEST = settlementCandidates(Date.now()).find((c) => c <= PUBLISHED);
 function finraAnswer(b) {
   finraBodies.push(b);
-  if (b.limit === 1) return new Response(JSON.stringify([{ settlementDate: "2026-09-30" }]));
+  // a settlement date is "published" once it is 14 days old (FINRA publishes about 8 business days later)
+  if (b.limit === 1) { const d = b.compareFilters[0].fieldValue; return new Response(JSON.stringify(d <= PUBLISHED ? [{ settlementDate: d }] : [])); }
   if ((b.compareFilters || []).some((f) => f.fieldName === "symbolCode")) return new Response(JSON.stringify([{ ...FINRA_ROWS[0], symbolCode: "AAPL", currentShortPositionQuantity: 120763539, daysToCoverQuantity: 3.03 }, { ...FINRA_ROWS[0], symbolCode: "AAPL", settlementDate: "2026-09-15", currentShortPositionQuantity: 128753092, daysToCoverQuantity: 2.85 }]));
   return new Response(JSON.stringify(FINRA_ROWS));
 }
@@ -96,6 +97,10 @@ r = await call("/api/history?symbol=C:700-HK&range=1D&interval=5min");
 ok("history: intraday from CNBC's 5-minute bars, the last session, UTC instants", r.status === 200 && r.j.points.length === 12 && r.j.points[0].t === "2026-10-20T07:00:00.000Z" && r.j.timeBasis === "utc");
 r = await call("/api/history?symbol=C:700-HK&range=5D&interval=15min");
 ok("history: 5D in 15-minute bars aggregated from CNBC's 5-minute bars", r.status === 200 && r.j.points.length === 4);
+{ const f0 = globalThis.fetch, QERR = { code: 400, message: "There is an error in the query. Please check your query and try again.", status: "error" };
+  globalThis.fetch = async (u, o) => /^https:\/\/api\.twelvedata\.com\/(quote|time_series)/.test(String(u)) ? new Response(JSON.stringify(QERR)) : f0(u, o);
+  store = new Map(); r = await call("/api/quote?symbols=ISP:XMIL"); const h = await call("/api/history?symbol=ISP:XMIL&range=1Y&interval=1day"); globalThis.fetch = f0;
+  ok("Twelve Data's 'error in the query' for a venue id (Milan, Tokyo on this plan) also falls back to CNBC — quote and history", r.status === 200 && r.j.quotes["ISP:XMIL"].source === "cnbc" && h.status === 200 && h.j.source === "cnbc", r.text.slice(0, 200) + " | " + h.text.slice(0, 200)); }
 r = await call("/api/history?symbol=AAPL:XNGS&range=1Y");
 ok("history: ids CNBC cannot name keep the plan error", r.status === 403 && r.j.error === "plan_required");
 
@@ -105,7 +110,8 @@ const SHV = "Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n20261
 ok("Reg SHO line for one symbol (exact symbol, not a prefix): short / total volume and its share", JSON.stringify(shvolLine(SHV, "2026-10-20", "AAPL")) === JSON.stringify({ date: "2026-10-20", short: 4000001, exempt: 1200, total: 10000000, pct: 40, markets: "B,Q,N" }) && shvolLine(SHV, "2026-10-20", "AAP") === null);
 ok("recent weekdays in New York, newest first", JSON.stringify(recentWeekdays(Date.parse("2026-10-20T03:00:00Z"), 3)) === JSON.stringify(["2026-10-19", "2026-10-16", "2026-10-15"]));
 r = await call("/api/finra/shorts");
-ok("/api/finra/shorts: the latest settlement date, the largest positions sorted by FINRA, exchange-listed only", r.status === 200 && r.j.settlementDate === "2026-09-30" && r.j.rows.length === 2 && r.j.rows[0][0] === "NVDA" && r.j.source === "FINRA" && finraBodies.some((b) => b.sortFields && b.sortFields[0] === "-currentShortPositionQuantity" && b.compareFilters[0].fieldValue === "2026-09-30" && b.limit === 2500));
+ok("FINRA settlement candidates: the 15th and the month's last business day (or the weekdays before), newest first, none in the future", JSON.stringify(settlementCandidates(Date.parse("2026-10-21T00:00:00Z")).slice(0, 6)) === JSON.stringify(["2026-10-15", "2026-10-14", "2026-10-13", "2026-10-12", "2026-09-30", "2026-09-29"]) && settlementCandidates(Date.parse("2026-11-16T00:00:00Z")).includes("2026-11-13"));
+ok("/api/finra/shorts: the latest published settlement date (asked date by date — FINRA sorts only within one date), the largest positions sorted by FINRA, exchange-listed only", r.status === 200 && r.j.settlementDate === LATEST && r.j.rows.length === 2 && r.j.rows[0][0] === "NVDA" && r.j.source === "FINRA" && finraBodies.some((b) => b.sortFields && b.sortFields[0] === "-currentShortPositionQuantity" && b.compareFilters[0].fieldValue === LATEST && b.limit === 2500) && !finraBodies.some((b) => b.sortFields && !(b.compareFilters || []).some((f) => f.fieldName === "settlementDate")), r.text.slice(0, 200));
 r = await call("/api/finra/symbol?sym=AAPL");
 ok("/api/finra/symbol: short interest by settlement date and the short volume of the last published sessions (a day not published skipped)", r.status === 200 && r.j.shortInterest.length === 2 && r.j.shortInterest[0].short === 120763539 && r.j.shortVolume.length === 5 && r.j.shortVolume.every((x) => x.pct === 40) && !r.j.shortVolume.some((x) => x.date.endsWith("-17")), r.text.slice(0, 300));
 r = await call("/api/finra/symbol?sym=bad%20sym");
