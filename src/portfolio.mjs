@@ -125,6 +125,17 @@ export async function handlePortfolio(url, env, ctx, H, json, req) {
   if (!env.BRIEFS) return send({ error: "storage_not_configured", status: "N/A" }, 503);
   const sub = url.pathname.replace(/^\/api\/portfolio\/?/, ""), method = req ? req.method : "GET";
   if (sub === "" && method === "GET") return send(await view(url.origin, env, ctx, await loadTx(env)));
+  // the ECB daily rates the analytics value each day with (the portfolio's currencies and the benchmark's), from a date
+  if (sub === "fx" && method === "GET") {
+    const ccys = [...new Set(String(url.searchParams.get("ccys") || "").split(",").map((c) => majorCcy(c.trim())).filter((c) => /^[A-Z]{3}$/.test(c) && c !== "EUR"))].sort().slice(0, 12);
+    const from = String(url.searchParams.get("from") || "");
+    if (!DATE_RE.test(from) || from < "1999-01-04" || !Number.isFinite(Date.parse(from + "T00:00:00Z"))) return send({ error: "bad_request", message: "from must be YYYY-MM-DD (1999 or later)" }, 400);
+    const st = new Date(Date.parse(from + "T00:00:00Z") - 10 * 86400_000).toISOString().slice(0, 10); // a fixing before a weekend / holiday trade
+    const fx = await ecbRates(url.origin, ctx, ccys, st);
+    if (!fx.data) return send({ error: fx.err || "no_data", status: "N/A" }, 502);
+    return send({ base: BASE_CCY, basis: "units of each currency per 1 euro, daily fixing around 16:00 CET", series: fx.data, from: st, currencies: ccys, missing: ccys.filter((c) => !fx.data[c]),
+      source: "ECB euro reference rates (ECB Data Portal, EXR)", sourceUrl: "https://data.ecb.europa.eu/data/datasets/EXR", fetchedAt: fx.fetchedAt ? iso(fx.fetchedAt) : iso(Date.now()), status: fx.cache === "STALE" ? "STALE" : "LIVE" });
+  }
   if (sub !== "tx") return send({ error: "not found" }, 404);
   // writes: same-origin JSON only (a cross-site form cannot send application/json without a preflight)
   const origin = req.headers.get("origin");

@@ -727,7 +727,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "FUT,RDT", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "FUT,RDT", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -899,6 +899,63 @@ const OK_API = {
   await cmd(page, "BOND"); await page.waitForTimeout(700);
   const bd = await winOf(page, "WORLD GOVERNMENT BONDS");
   ok("[I] no FRED key → inflation and credit NO DATA naming FRED_KEY; countries still shown", /NO DATA — U\.S\. inflation and credit \(FRED\): the API key is not set in the Worker \(FRED_KEY/.test(bd.text) && /Germany/.test(bd.text) && errors.length === 0, bd.text.slice(-400));
+  await page.close();
+}
+
+// =============== J. portfolio analytics: time-weighted return vs a benchmark, drawdown, risk of the holdings ===============
+// business days ending yesterday; the holdings trade on the last 80, the benchmark on all 85 (it starts before the first trade)
+const BDJ = (() => { const out = []; let t = Date.now() - 864e5; while (out.length < 85) { const d = new Date(t); if (d.getUTCDay() % 6) out.unshift(d.toISOString().slice(0, 10)); t -= 864e5; } return out; })();
+const PXA = (i) => 100 + i - (i >= 50 && i < 55 ? 15 : 0), PXS = (i) => 197 + (i % 7);
+const histJ = (sym, range) => { const f = sym === "AAPL" ? PXA : sym === "SAP:XETR" ? PXS : null; if (!f) return { status: 404, body: { error: "symbol_not_found", status: "N/A" } };
+  const pts = BDJ.slice(5).map((d, i) => ({ t: d, o: f(i), h: f(i), l: f(i), c: f(i), v: 1000 }));
+  return { body: { symbol: sym, range, interval: "1day", adjust: "splits", count: pts.length, points: pts, status: "LIVE", source: "twelvedata", fetchedAt: new Date().toISOString(), asOf: new Date().toISOString(), staleAt: new Date(Date.now() + 864e5).toISOString() } }; };
+const pfJ = (tx, calls) => (u) => {
+  if (u.pathname === "/api/portfolio/fx") { calls.push(u.search); return { body: { base: "EUR", series: { USD: BDJ.map((d) => [d, 1.1]) }, currencies: ["USD"], missing: [], status: "LIVE", source: "ECB euro reference rates (ECB Data Portal, EXR)" } }; }
+  const b = buildPositions(tx, { USD: [["2020-01-01", 1.1]] });
+  return { body: { baseCurrency: "EUR", transactions: tx.slice().reverse(), positions: b.positions, realized: b.realized, error: null, costBasis: { method: "average cost", currencies: ["USD"], fx: { source: "ECB euro reference rates (ECB Data Portal, EXR)", status: "LIVE", missing: [] } } } };
+};
+const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.searchParams.get("id"), name: "S&P 500", source: "Cboe (daily history)", sourceUrl: "https://www.cboe.com/", fields: "close", points: BDJ.map((d, i) => [d, 1000 + 2 * (i - 5)]), count: 85, status: "LIVE" } } : { body: IDX_FIX(u.searchParams.get("g")) };
+{
+  const fxCalls = [], tx = [{ id: "a1", date: BDJ[5], side: "BUY", sym: "AAPL", qty: 10, price: 100, ccy: "USD", fees: 0, created: 1 }, { id: "a2", date: BDJ[35], side: "BUY", sym: "AAPL", qty: 10, price: 130, ccy: "USD", fees: 0, created: 2 }, { id: "a3", date: BDJ[65], side: "SELL", sym: "AAPL", qty: 5, price: 160, ccy: "USD", fees: 0, created: 3 }];
+  const { page, errors, requests } = await openTerminal({ ...OK_API, history: histJ, portfolio: pfJ(tx, fxCalls), indices: idxJ });
+  await cmd(page, "PF"); await page.waitForTimeout(500);
+  await page.click(".pf-an"); await page.waitForTimeout(1500);
+  let pa = await winOf(page, "PORTFOLIO ANALYTICS");
+  ok("[J] PFA opens from the portfolio's ANALYTICS button; the ECB rates asked for the portfolio's and the benchmark's currency from the first trade", !!pa && fxCalls.some((q) => /ccys=USD&from=/.test(q) && q.includes(BDJ[5])), JSON.stringify(fxCalls));
+  ok("[J] time-weighted return: a second purchase and a partial sale at the day's price do not change it — the price return from the first trade price (+79.00%)", /RETURN \(TWR\)\s*\+79\.00%/.test(pa.text), JSON.stringify(pa.text.slice(0, 900)));
+  ok("[J] benchmark in EUR over the same days, from its close before the first trade (+16.03%); excess +62.97%", /S&P 500 \(EUR\)\s*\+16\.03%/.test(pa.text) && /EXCESS\s*\+62\.97%/.test(pa.text));
+  ok("[J] max drawdown of the return index with its peak, trough and recovery (−9.40%)", /MAX DRAWDOWN\s*-9\.40%/.test(pa.text) && /recovered/.test(pa.text));
+  ok("[J] gain since the first trade in EUR: value + sales − purchases (ECB 1.10)", /GAIN SINCE THE FIRST TRADE\s*€1,077\.27/.test(pa.text) && /value €2,440\.91 \+ sales €727\.27 − purchases €2,090\.91/.test(pa.text));
+  ok("[J] risk of the current holding: weight and share of risk 100%, one effective holding, all in USD", /AAPL\s*100\.0%/.test(pa.text) && /EFFECTIVE HOLDINGS\s*1\.0/.test(pa.text) && /USD 100%/.test(pa.text) && /100\.0%\s*$/m.test(pa.text.split("SHARE OF RISK")[1] || ""));
+  ok("[J] the method is stated: purchases and sales at their trade price, last close, ECB fixing, dividends not included", /Time-weighted return: each purchase counts from its trade price/.test(pa.text) && /dividends are not included/.test(pa.text) && /DERIVED|DRV/.test(pa.text + pa.pill));
+  ok("[J] two charts: the return index vs the benchmark, and the drawdown", (await page.$$eval(".win .pfa-box canvas, .win .pfa-dd canvas", (c) => c.length)) >= 2);
+  const before = pa.text;
+  await page.click('[data-prng="1M"]'); await page.waitForTimeout(400);
+  pa = await winOf(page, "PORTFOLIO ANALYTICS");
+  ok("[J] a shorter period re-bases the figures on its first day (no new request)", pa.text !== before && /RETURN \(TWR\)\s*[+-]\d/.test(pa.text) && requests.filter((u) => u.includes("/api/history?symbol=AAPL")).length === 1);
+  await page.click('[data-pcur="LOCAL"]'); await page.waitForTimeout(400);
+  pa = await winOf(page, "PORTFOLIO ANALYTICS");
+  ok("[J] benchmark in its own currency on request", /S&P 500\s*[+-]\d/.test(pa.text) && !/S&P 500 \(EUR\)/.test(pa.text));
+  const body = await page.evaluate(() => document.body.innerText);
+  ok("[J] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+{
+  const tx = [{ id: "b1", date: BDJ[5], side: "BUY", sym: "AAPL", qty: 10, price: 100, ccy: "USD", fees: 0, created: 1 }, { id: "b2", date: BDJ[5], side: "BUY", sym: "SAP:XETR", qty: 5, price: 197, ccy: "EUR", fees: 0, created: 2 }];
+  const { page, errors } = await openTerminal({ ...OK_API, history: histJ, portfolio: pfJ(tx, []), indices: idxJ });
+  await cmd(page, "PFA"); await page.waitForTimeout(1500);
+  const pa = await winOf(page, "PORTFOLIO ANALYTICS"), risk = pa.text.split("RISK OF THE CURRENT HOLDINGS")[1] || "";
+  const shares = [...risk.matchAll(/(\d+\.\d)%\s*$/gm)].map((m) => Number(m[1]));
+  ok("[J] two holdings in two currencies: weights at the last close, shares of risk adding up to 100%, currency split, correlation grid with 1.00 on the diagonal",
+    /AAPL\s*(\d+\.\d)%/.test(risk) && /SAP:XETR\s*(\d+\.\d)%/.test(risk) && Math.abs(shares.reduce((a, b) => a + b, 0) - 100) < 0.3 && /USD \d+% · EUR \d+%|EUR \d+% · USD \d+%/.test(risk) && (risk.match(/1\.00/g) || []).length >= 2, JSON.stringify(pa.text).slice(0, 1600));
+  ok("[J] no JavaScript errors with two holdings", errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+{
+  const { page, errors } = await openTerminal({ ...OK_API, portfolio: pfJ([], []) });
+  await cmd(page, "PFA"); await page.waitForTimeout(600);
+  const pa = await winOf(page, "PORTFOLIO ANALYTICS");
+  ok("[J] no trades: the analytics say so and point to PORTFOLIO (nothing invented)", /No trades yet/.test(pa.text) && errors.length === 0, JSON.stringify(pa).slice(0, 300) + errors.join("|"));
   await page.close();
 }
 

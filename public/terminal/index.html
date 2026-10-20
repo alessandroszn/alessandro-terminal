@@ -414,6 +414,7 @@
 tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
 .pf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
 .pf-k{border:1px solid var(--line);padding:6px 8px;display:flex;flex-direction:column;gap:2px}.pf-k span{font-size:10px;letter-spacing:.06em;color:var(--muted)}.pf-k b{font-size:16px;font-variant-numeric:tabular-nums}.pf-k b small{font-size:11px}.pf-k i{font-style:normal;font-size:10px;color:var(--dim)}
+.rc-bar{display:inline-block;height:6px;background:var(--amber);opacity:.55;margin-left:6px;vertical-align:middle}
 .pf-form{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 0}.pf-form input,.pf-form select{background:var(--panel-2);color:var(--fg);border:1px solid var(--line-2);font:inherit;font-size:12px;padding:3px 5px}
 .pf-empty{padding:24px 8px}
 .cal-ccy{margin-top:4px}.cal-ccy .tf{min-width:34px}
@@ -1465,7 +1466,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   async function pfLoad(force){if(PF.loading)return;if(!force&&PF.at&&Date.now()-PF.at<300000)return;PF.loading=true;
     try{const r=await fetch(CONFIG.proxyBase+'/api/portfolio',{cache:'no-store'});const j=await r.json();if(j&&!j.error&&Array.isArray(j.transactions)){PF.data=j;PF.err=null;}else PF.err=(j&&j.error)||('http '+r.status);}
     catch(e){PF.err='network';}finally{PF.loading=false;PF.at=Date.now();pfRepaint();}}
-  function pfRepaint(){wins.forEach(w=>{if(!w.min&&w.type==='PF')liveRepaint(w);});}
+  function pfRepaint(){wins.forEach(w=>{if(!w.min&&(w.type==='PF'||w.type==='PFA'))liveRepaint(w);});}
   const pfMajor=c=>({GBp:'GBP',GBX:'GBP',ZAc:'ZAR',ILA:'ILS'})[c]||c, pfMinor=c=>({GBp:.01,GBX:.01,ZAc:.01,ILA:.01})[c]||1;
   // symbols whose live quotes the portfolio needs: open positions + one EUR/<currency> rate per currency
   function pfNeeded(){const d=PF.data;if(!d)return[];const pos=d.positions.filter(p=>p.open);const fx=[...new Set(pos.map(p=>pfMajor(p.ccy)).filter(c=>c!=='EUR'))].map(c=>'EUR/'+c);return[...new Set(pos.map(p=>p.sym).concat(fx))];}
@@ -1521,7 +1522,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const foot=`<div class="scr-count" style="margin-top:10px">Average-cost method. Cost in EUR: ${fx?`${esc(fx.source)}${fx.status&&fx.status!=='LIVE'?` — ${esc(fx.status)}${fx.missing&&fx.missing.length?' (no ECB rate for '+esc(fx.missing.join(', '))+')':''}`:''}`:'ECB'}; market value: live quotes; nothing is estimated — a position without a live price is N/A. Stored privately on your server (Cloudflare Access).</div>${d.error?`<div class="banner warn"><b>CHECK</b> — ${esc(d.error)}</div>`:''}`;
     // keep the field being typed in focused across live repaints (quotes arriving every few minutes)
     const act=document.activeElement,focusName=act&&body.contains(act)&&act.name?act.name:null;let caret=null;try{caret=act&&act.selectionStart;}catch(e){}
-    body.innerHTML=`${head}${form}${ptab}${ctab}${ttab}${foot}`;
+    const an=`<div class="tfbar" style="margin:0 0 8px;gap:8px"><button class="tf pf-an" type="button">${tl('ANALYTICS ▸','ANALISI ▸')}</button><span class="k">${tl('return vs a benchmark, drawdown, volatility, risk by holding','rendimento contro un benchmark, drawdown, volatilità, rischio per posizione')}</span></div>`;
+    body.innerHTML=`${head}${an}${form}${ptab}${ctab}${ttab}${foot}`;
     const pst=!rows.length?S.LIVE:allVal?(rows.some(r=>r.st===S.STALE)?S.STALE:S.DERIVED):S.PARTIAL;
     setProv(win,{'ds:pf-tx':S.LIVE,'ds:pf-value':pst},'Portfolio: your transactions; value from live quotes (DERIVED)');
     const fm=body.querySelector('.pf-form'),get=n=>fm.elements[n];
@@ -1537,7 +1539,143 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.pf-del-no',body).forEach(b=>b.onclick=()=>{PF.confirm=null;pfRepaint();});
     $$('.pf-del-yes',body).forEach(b=>b.onclick=async()=>{const id=b.dataset.id;PF.confirm=null;await pfSend('DELETE','/api/portfolio/tx?id='+encodeURIComponent(id));});
     $$('tr[data-open]',body).forEach(tr=>tr.onclick=()=>openSecurity(tr.dataset.open));
+    const anb=body.querySelector('.pf-an');if(anb)anb.onclick=()=>openOrFocus('PFA',{});
     if(focusName&&fm.elements[focusName]){const el=fm.elements[focusName];el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}
+
+  // ---- PORTFOLIO ANALYTICS (PFA): performance and risk of the portfolio you entered — DERIVED from real daily closes ----
+  //  Time-weighted return: a purchase counts from its trade price, a sale up to its trade price; each day is valued at
+  //  every listing's last close on or before it, in EUR at the ECB fixing of that day. Price return: dividends are not
+  //  included (no dividend source is connected). Benchmark: an index's published daily history, in EUR through the same
+  //  ECB rates or in its own currency. Risk: the current holdings over the days they all traded (no carried prices).
+  const PFA_BENCH=[['SPX','S&P 500','USD'],['NDX','Nasdaq-100','USD'],['DJI','Dow Jones','USD'],['COMP','Nasdaq Composite','USD'],['RUT','Russell 2000','USD'],['MXEA','MSCI EAFE','USD'],['MXEF','MSCI Emerging Markets','USD'],['N225','Nikkei 225','JPY'],['SX5E','EURO STOXX 50','EUR'],['SXXP','STOXX Europe 600','EUR'],['DAX','DAX','EUR']];
+  const PFA_YEAR=1461/4; // days in an average year (leap years included)
+  const PFA_RNG=[['ALL',0],['1Y',12],['YTD','ytd'],['6M',6],['3M',3],['1M',1]];
+  // the last value of a dated series [[date,value]] (ascending) on or before a date
+  function lastOn(s,d){let lo=0,hi=s.length-1,b=-1;while(lo<=hi){const m=(lo+hi)>>1;if(s[m][0]<=d){b=m;lo=m+1;}else hi=m-1;}return b<0?null:s[b][1];}
+  function pfaEurPer(fx,c,d){if(c==='EUR')return 1;const maj=pfMajor(c),k=pfMinor(c);if(maj==='EUR')return k;const s=fx&&fx[maj],v=s?lastOn(s,d):null;return fin(v)&&v>0?k/v:null;}
+  const pfaCov=(a,b)=>{const n=Math.min(a.length,b.length);if(n<2)return null;let ma=0,mb=0;for(let i=0;i<n;i++){ma+=a[i];mb+=b[i];}ma/=n;mb/=n;let c=0;for(let i=0;i<n;i++)c+=(a[i]-ma)*(b[i]-mb);return c/(n-1);};
+  const pfaSd=a=>{const v=pfaCov(a,a);return fin(v)?Math.sqrt(v):null;};
+  // the portfolio day by day: value in EUR, and the purchases / sales of the day in EUR at the ECB rate of the trade date
+  function pfaModel(tx,H,fx){
+    const T=tx.slice().sort((a,b)=>a.date===b.date?(a.created||0)-(b.created||0):a.date<b.date?-1:1),first=T[0].date,ccy={};T.forEach(t=>{ccy[t.sym]=t.ccy;});
+    const grid=[...new Set(Object.values(H).flatMap(s=>s.map(p=>p[0])).concat(T.map(t=>t.date)))].filter(d=>d>=first).sort();
+    const qty={},rows=[];let ti=0;
+    const valueOf=d=>{let v=0;for(const s in qty){if(!(qty[s]>1e-9))continue;const p=H[s]?lastOn(H[s],d):null,k=pfaEurPer(fx,ccy[s],d);if(!fin(p)||!fin(k))return null;v+=qty[s]*p*k;}return v;};
+    for(const d of grid){let buy=0,sell=0,ok=true;const v1=valueOf(d); // what was held before the day's trades, at the day's close
+      while(ti<T.length&&T[ti].date<=d){const t=T[ti++],k=pfaEurPer(fx,t.ccy,t.date);if(!fin(k))ok=false;else if(t.side==='BUY')buy+=(t.qty*t.price+(t.fees||0))*k;else sell+=(t.qty*t.price-(t.fees||0))*k;qty[t.sym]=(qty[t.sym]||0)+(t.side==='BUY'?t.qty:-t.qty);}
+      const v=valueOf(d);rows.push({d,v:ok&&v!=null&&v1!=null?v:null,v1,buy,sell});}
+    // valued from the first day after which every day has a value (a history that does not reach back starts later)
+    let s0=rows.length;for(let i=rows.length-1;i>=0&&rows[i].v!=null;i--)s0=i;
+    const R=rows.slice(s0);if(R.length<2)return{err:'short'};
+    const fromStart=s0===0,pts=[];let I=100;
+    // a day in two steps: what was already held, from the previous close to this close; then the day's trades at their
+    // prices — money put in counts from the purchase price, money taken out up to the sale price
+    if(fromStart)pts.push({d:isoShift(R[0].d,0,0,1),I:100,r:null,base:true});
+    R.forEach((x,i)=>{if(i===0&&!fromStart){pts.push({d:x.d,I:100,r:null,v:x.v,base:true});return;}
+      const prev=i?R[i-1].v:0;let g=1,any=false;
+      if(prev>0){g*=x.v1/prev;any=true;}
+      const den=x.v1+x.buy;if(den>0&&(x.buy>0||x.sell>0)){g*=(x.v+x.sell)/den;any=true;}
+      const r=any?g-1:null;if(r!=null)I*=1+r;pts.push({d:x.d,I,r,v:x.v});});
+    return{pts,fromStart,start:R[0].d,first,value:R[R.length-1].v,lastDate:R[R.length-1].d,buys:rows.reduce((a,x)=>a+x.buy,0),sells:rows.reduce((a,x)=>a+x.sell,0)};}
+  // the benchmark on the same days (its last close on or before each, in EUR at that day's ECB rate when asked)
+  function pfaBench(pts,bs,fx,bccy,eurMode){return pts.map(p=>{const c=lastOn(bs,p.d),k=eurMode?pfaEurPer(fx,bccy,p.d):1;return fin(c)&&fin(k)?c*k:null;});}
+  // the figures of one period: its base is the last day on or before its start
+  function pfaStats(M,bv,from){const pts=M.pts;let kb=0;pts.forEach((p,i)=>{if(p.d<=from)kb=i;});
+    const P=pts.slice(kb),B=bv.slice(kb);if(P.length<2)return null;
+    const ret=P[P.length-1].I/P[0].I-1,bret=fin(B[0])&&fin(B[B.length-1])&&B[0]>0?B[B.length-1]/B[0]-1:null;
+    const rAll=[],rp=[],rb=[];let best=null,worst=null;
+    for(let i=1;i<P.length;i++){const r=P[i].r;if(r==null)continue;rAll.push(r);if(!best||r>best.r)best={r,d:P[i].d};if(!worst||r<worst.r)worst={r,d:P[i].d};const b0=B[i-1],b1=B[i];if(fin(b0)&&fin(b1)&&b0>0){rp.push(r);rb.push(b1/b0-1);}}
+    const days=(Date.parse(P[P.length-1].d)-Date.parse(P[0].d))/864e5,years=days/PFA_YEAR,ppy=years>0?(P.length-1)/years:null;
+    const vol=pfaSd(rAll),vb=pfaCov(rb,rb),dif=rp.map((x,i)=>x-rb[i]);
+    let peak=P[0].I,pd=P[0].d,mdd=0,mPeak=null,mTrough=null;
+    const dd=P.map(p=>{if(p.I>peak){peak=p.I;pd=p.d;}const x=p.I/peak-1;if(x<mdd){mdd=x;mPeak=pd;mTrough=p.d;}return{time:p.d,value:x*100};});
+    let rec=null;if(mTrough){const pk=P.find(p=>p.d===mPeak).I,r=P.find(p=>p.d>mTrough&&p.I>=pk);rec=r?r.d:null;}
+    return{P,B,ret,bret,ann:days>=365?Math.pow(1+ret,PFA_YEAR/days)-1:null,bann:days>=365&&fin(bret)?Math.pow(1+bret,PFA_YEAR/days)-1:null,
+      vol:fin(vol)&&ppy?vol*Math.sqrt(ppy):null,mdd,mPeak,mTrough,rec,cur:dd[dd.length-1].value/100,dd,best,worst,
+      beta:fin(vb)&&vb>0&&rp.length>2?pfaCov(rp,rb)/vb:null,corr:rp.length>2?pearson7(rp,rb):null,te:rp.length>2&&ppy?pfaSd(dif)*Math.sqrt(ppy):null,n:rAll.length,nb:rp.length,from:P[0].d,to:P[P.length-1].d};}
+  // risk of the current holdings: daily EUR returns over the last year of days on which every holding traded
+  function pfaRisk(open,H,fx,bs,bccy,eurMode){const sets=open.map(p=>H[p.sym]);if(!open.length||sets.some(s=>!s))return null;
+    let common=new Set(sets[0].map(p=>p[0]));sets.slice(1).forEach(s=>{const m=new Set(s.map(p=>p[0]));common=new Set([...common].filter(d=>m.has(d)));});
+    const dates=[...common].sort().slice(-253);if(dates.length<31)return{err:'short',n:dates.length};
+    const val=open.map((p,i)=>{const m=new Map(sets[i]);return dates.map(d=>{const k=pfaEurPer(fx,p.ccy,d),c=m.get(d);return fin(k)&&fin(c)?c*k:null;});});
+    if(val.some(v=>v.some(x=>!fin(x))))return{err:'fx'};
+    const R=val.map(v=>v.slice(1).map((x,i)=>x/v[i]-1)),T=R[0].length,years=(Date.parse(dates[dates.length-1])-Date.parse(dates[0]))/864e5/PFA_YEAR,ppy=years>0?T/years:null;
+    const lastV=open.map((p,i)=>p.qty*val[i][val[i].length-1]),tot=lastV.reduce((a,b)=>a+b,0),w=lastV.map(v=>v/tot);
+    const Cm=R.map(a=>R.map(b=>pfaCov(a,b))),Cw=Cm.map(row=>row.reduce((a,c,j)=>a+c*w[j],0)),pv=w.reduce((a,x,i)=>a+x*Cw[i],0);
+    const bv=bs?dates.map(d=>{const c=lastOn(bs,d),k=eurMode?pfaEurPer(fx,bccy,d):1;return fin(c)&&fin(k)?c*k:null;}):null;
+    const rb=bv&&bv.every(fin)?bv.slice(1).map((x,i)=>x/bv[i]-1):null,vb=rb?pfaCov(rb,rb):null;
+    const rows=open.map((p,i)=>({sym:p.sym,ccy:p.ccy,w:w[i],value:lastV[i],vol:Math.sqrt(Cm[i][i]*ppy),rc:pv>0?w[i]*Cw[i]/pv:null,corrP:pv>0&&Cm[i][i]>0?Cw[i]/Math.sqrt(Cm[i][i]*pv):null,beta:rb&&vb>0?pfaCov(R[i],rb)/vb:null}));
+    const ccy={};open.forEach((p,i)=>{const c=pfMajor(p.ccy);ccy[c]=(ccy[c]||0)+w[i];});
+    return{rows,corr:Cm.map((row,i)=>row.map((c,j)=>c/Math.sqrt(Cm[i][i]*Cm[j][j]))),vol:Math.sqrt(pv*ppy),beta:rows.every(r=>fin(r.beta))?rows.reduce((a,r)=>a+r.w*r.beta,0):null,
+      effN:1/w.reduce((a,x)=>a+x*x,0),ccy,from:dates[0],to:dates[dates.length-1],n:T,total:tot};}
+  const pfaP=(v,d=2)=>fin(v)?pctN(v*100,d):'—',pfaU=v=>fin(v)?(v*100).toFixed(2)+'%':'—'; // signed change · unsigned level (volatility)
+  function renderPfa(body,win){pfLoad();const st=win.state;if(!PFA_BENCH.some(b=>b[0]===st.b))st.b='SPX';if(!PFA_RNG.some(r=>r[0]===st.rng))st.rng='ALL';if(st.cur!=='LOCAL')st.cur='EUR';
+    const d=PF.data;
+    if(!d&&!PF.err){setProv(win,{'ds:PF':S.LOADING});body.innerHTML=`<div class="empty">${tl('Loading your portfolio…','Carico il portafoglio…')}</div>`;return;}
+    if(!d){setProv(win,{'ds:PF':S.NA});body.innerHTML=`<div class="banner warn"><b>N/A</b> — ${tl('portfolio storage unavailable','archivio del portafoglio non disponibile')} (${esc(P.errorText(PF.err))}).</div>`;return;}
+    const tx=d.transactions||[];
+    if(!tx.length){setProv(win,{'ds:pf-tx':S.LIVE});body.innerHTML=`<div class="empty">${tl('No trades yet. Add them in PORTFOLIO: performance and risk are computed here from their real daily closes.','Nessuna operazione. Aggiungile in PORTAFOGLIO: qui rendimento e rischio vengono calcolati dalle loro chiusure giornaliere reali.')}<br><br><button class="tf pfa-pf" type="button">PORTFOLIO</button></div>`;body.querySelector('.pfa-pf').onclick=()=>openOrFocus('PF',{});return;}
+    const today=new Date().toISOString().slice(0,10),first=tx.reduce((m,t)=>t.date<m?t.date:m,today),range=first>=isoShift(today,11)?'1Y':'5Y';
+    // each symbol's daily closes (1 Twelve Data credit each, cached), the ECB rates, the benchmark's history
+    const syms=[...new Set(tx.map(t=>t.sym))],H={},items={},wait=[],fail=[];
+    syms.forEach(s=>{const e=hist7(s,range,'splits',['PFA']),pts=e.data&&Array.isArray(e.data.points)?e.data.points.filter(p=>p&&fin(p.c)).map(p=>[String(p.t).slice(0,10),p.c]):null;
+      if(pts&&pts.length>1){H[s]=pts;items['h:'+s]=e.data.status==='STALE'?S.STALE:S.LIVE;}else if(e.err){fail.push([s,e.err]);items['h:'+s]=S.NA;}else{wait.push(s);items['h:'+s]=S.LOADING;}});
+    const bd=PFA_BENCH.find(b=>b[0]===st.b),eurMode=st.cur==='EUR'&&bd[2]!=='EUR';
+    const ccys=[...new Set(tx.map(t=>pfMajor(t.ccy)).concat(eurMode?[bd[2]]:[]).filter(c=>c!=='EUR'))].sort();
+    const FXe=ccys.length?get7(`/api/portfolio/fx?ccys=${ccys.join(',')}&from=${first}`,3600000,['PFA']):{data:{series:{},status:'LIVE'}};
+    const fx=FXe.data&&!FXe.err&&FXe.data.series?FXe.data.series:null;items['ds:ecb']=!ccys.length?S.LIVE:fx?(FXe.data.status==='STALE'?S.STALE:S.LIVE):FXe.err?S.NA:S.LOADING;
+    const BHe=get7('/api/indices/history?id='+bd[0],1800000,['PFA']),bh=BHe.data&&!BHe.err&&Array.isArray(BHe.data.points)?BHe.data.points.map(p=>[p[0],p[p.length-1]]):null;
+    items['ds:bench']=bh?(BHe.data.status==='STALE'?S.STALE:S.LIVE):BHe.err?S.NA:S.LOADING;
+    const ready=!wait.length&&!fail.length&&fx,M=ready?pfaModel(tx,H,fx):null,ok=M&&!M.err;
+    const bv=ok&&bh?pfaBench(M.pts,bh,fx,bd[2],eurMode):null;
+    const lastD=ok?M.lastDate:today,rv=PFA_RNG.find(r=>r[0]===st.rng)[1],from=rv==='ytd'?(Number(lastD.slice(0,4))-1)+'-12-31':rv?isoShift(lastD,rv):'0000';
+    const X=ok?pfaStats(M,bv||M.pts.map(()=>null),from):null;
+    const open=(d.positions||[]).filter(p=>p.open),Rk=ready?pfaRisk(open,H,fx,bh,bd[2],eurMode):null;
+    // ---- what is missing, said plainly ----
+    const notes=[];
+    if(wait.length)notes.push(`${tl('Loading the daily history of','Carico lo storico giornaliero di')} ${esc(wait.join(', '))}${wait.length>1?' — '+tl('one credit each, a few per minute','un credito ciascuno, alcuni al minuto'):''}…`);
+    if(fail.length)notes.push(`<span class="na">N/A</span> — ${tl('no daily history for','nessuno storico giornaliero per')} ${fail.map(([s,e])=>`${esc(s)} (${esc(P.errorText(e))})`).join(', ')}: ${tl('the portfolio cannot be valued day by day without it','senza di esso il portafoglio non si può valorizzare giorno per giorno')}.`);
+    if(ccys.length&&!fx)notes.push(FXe.err?`<span class="na">N/A</span> — ${tl('ECB rates unavailable','cambi BCE non disponibili')} (${esc(P.errorText(FXe.err))}).`:tl('Loading the ECB rates…','Carico i cambi BCE…'));
+    if(M&&M.err)notes.push(`<span class="na">N/A</span> — ${tl('fewer than two days can be valued yet','non ci sono ancora almeno due giorni valorizzabili')}.`);
+    if(ok&&!M.fromStart)notes.push(`${chip(S.PARTIAL)} ${tl('The history available starts on','Lo storico disponibile inizia il')} ${fmtDay(M.start)}, ${tl('after the first trade','dopo la prima operazione')} (${fmtDay(M.first)}): ${tl('figures from that day; gain since inception N/A','dati da quel giorno; guadagno dall\'inizio N/A')}.`);
+    if(!bh)notes.push(BHe.err?`${tl('Benchmark','Benchmark')} ${esc(bd[1])}: <span class="na">N/A</span> (${esc(P.errorText(BHe.err))}).`:tl('Loading the benchmark…','Carico il benchmark…'));
+    const kpi=(l,v,c,note)=>`<div class="pf-k"><span>${l}</span><b class="${c||''}">${v}</b>${note?`<i>${note}</i>`:''}</div>`;
+    const bn=`${bd[1]}${eurMode?' (EUR)':''}`;
+    const k=X?[kpi(tl('RETURN (TWR)','RENDIMENTO (TWR)'),pfaP(X.ret),cls(X.ret),`${fmtDay(X.from)} → ${fmtDay(X.to)}`),
+      kpi(tl('ANNUALISED','ANNUALIZZATO'),fin(X.ann)?pfaP(X.ann):'—',cls(X.ann),fin(X.ann)?'':tl('under a year','meno di un anno')),
+      kpi(esc(bn),pfaP(X.bret),cls(X.bret),tl('price index','indice di prezzo')),kpi(tl('EXCESS','EXTRA-RENDIMENTO'),fin(X.bret)?pfaP(X.ret-X.bret):'—',cls(X.ret-X.bret),tl('portfolio minus benchmark','portafoglio meno benchmark')),
+      kpi(tl('VOLATILITY','VOLATILITÀ'),pfaU(X.vol),'',tl('annualised, daily returns','annualizzata, rendimenti giornalieri')),kpi(tl('MAX DRAWDOWN','MAX DRAWDOWN'),pfaP(X.mdd),cls(X.mdd),X.mTrough?`${fmtDay(X.mPeak)} → ${fmtDay(X.mTrough)}${X.rec?' · '+tl('recovered','recuperato')+' '+fmtDay(X.rec):''}`:tl('none','nessuno')),
+      kpi(tl('BETA','BETA'),fin(X.beta)?X.beta.toFixed(2):'—','',`${tl('vs','vs')} ${esc(bd[1])} · ${X.nb} ${tl('days','giorni')}`),kpi(tl('CORRELATION','CORRELAZIONE'),fin(X.corr)?X.corr.toFixed(2):'—','',tl('daily returns','rendimenti giornalieri')),
+      kpi(tl('TRACKING ERROR','TRACKING ERROR'),pfaU(X.te),'',tl('annualised','annualizzato')),
+      kpi(tl('BEST / WORST DAY','GIORNO MIGLIORE / PEGGIORE'),`<span class="up">${X.best?pfaP(X.best.r):'—'}</span> / <span class="down">${X.worst?pfaP(X.worst.r):'—'}</span>`,'',X.best?`${fmtDay(X.best.d)} · ${fmtDay(X.worst.d)}`:''),
+      M.fromStart?kpi(tl('GAIN SINCE THE FIRST TRADE','GUADAGNO DALLA PRIMA OPERAZIONE'),eur(M.value+M.sells-M.buys),cls(M.value+M.sells-M.buys),`${tl('value','valore')} ${eur(M.value)} + ${tl('sales','vendite')} ${eur(M.sells)} − ${tl('purchases','acquisti')} ${eur(M.buys)}`):''].join(''):'';
+    // ---- risk of the current holdings ----
+    let risk='';
+    if(Rk&&!Rk.err){const rc=fin(Rk.vol);
+      risk=`<div class="set-grp" style="margin-top:12px">${tl('RISK OF THE CURRENT HOLDINGS','RISCHIO DELLE POSIZIONI ATTUALI')} · ${fmtDay(Rk.from)} → ${fmtDay(Rk.to)} · ${Rk.n} ${tl('common trading days','giorni di borsa comuni')}</div>
+      <div class="pf-kpis">${kpi(tl('VOLATILITY (CURRENT WEIGHTS)','VOLATILITÀ (PESI ATTUALI)'),rc?pfaU(Rk.vol):'—','',tl('annualised, in EUR','annualizzata, in EUR'))}${kpi(tl('PORTFOLIO BETA','BETA DEL PORTAFOGLIO'),fin(Rk.beta)?Rk.beta.toFixed(2):'—','',`${tl('vs','vs')} ${esc(bn)}`)}${kpi(tl('EFFECTIVE HOLDINGS','POSIZIONI EFFETTIVE'),Rk.effN.toFixed(1),'',`${open.length} ${tl('held','detenute')} · 1/Σw²`)}${kpi(tl('CURRENCIES','VALUTE'),Object.entries(Rk.ccy).sort((a,b)=>b[1]-a[1]).map(([c,w])=>`${c} ${(w*100).toFixed(0)}%`).join(' · '),'',tl('share of value','quota del valore'))}</div>
+      <table class="pf"><thead><tr><th>SYM</th><th>${tl('WEIGHT','PESO')}</th><th>${tl('VALUE €','VALORE €')}</th><th>${tl('VOLATILITY','VOLATILITÀ')}</th><th>${tl('BETA','BETA')}</th><th>${tl('CORR. WITH PORTFOLIO','CORR. COL PORTAFOGLIO')}</th><th>${tl('SHARE OF RISK','QUOTA DI RISCHIO')}</th></tr></thead><tbody>${Rk.rows.slice().sort((a,b)=>(b.rc||0)-(a.rc||0)).map(r=>`<tr data-open="${esc(r.sym)}" tabindex="0" role="button"><td>${esc(r.sym)}</td><td class="num">${(r.w*100).toFixed(1)}%</td><td class="num">${eur(r.value)}</td><td class="num">${pfaU(r.vol)}</td><td class="num">${fin(r.beta)?r.beta.toFixed(2):'—'}</td><td class="num">${fin(r.corrP)?r.corrP.toFixed(2):'—'}</td><td class="num"><b>${fin(r.rc)?(r.rc*100).toFixed(1)+'%':'—'}</b><span class="rc-bar" style="width:${fin(r.rc)?Math.max(0,Math.min(100,r.rc*100)).toFixed(0):0}px"></span></td></tr>`).join('')}</tbody></table>
+      ${Rk.rows.length>1?`<div class="corr-wrap" style="margin-top:8px"><div class="corr" style="grid-template-columns:64px repeat(${Rk.rows.length},1fr)"><div class="hc"></div>${Rk.rows.map(r=>`<div class="hc">${esc(r.sym)}</div>`).join('')}${Rk.rows.map((r,i)=>`<div class="rl">${esc(r.sym)}</div>${Rk.corr[i].map(c=>`<div class="cc num" style="background:${corrColor(c)}" title="${tl('correlation of daily EUR returns','correlazione dei rendimenti giornalieri in EUR')}">${fin(c)?c.toFixed(2):'—'}</div>`).join('')}`).join('')}</div></div>`:''}`;}
+    else if(Rk&&Rk.err)risk=`<div class="set-grp" style="margin-top:12px">${tl('RISK OF THE CURRENT HOLDINGS','RISCHIO DELLE POSIZIONI ATTUALI')}</div><div class="src-line"><span class="na">N/A</span> — ${Rk.err==='short'?tl('fewer than 30 days on which every holding traded','meno di 30 giorni in cui hanno quotato tutte le posizioni'):tl('an ECB rate is missing','manca un cambio BCE')}.</div>`;
+    else if(ready&&!open.length)risk=`<div class="src-line">${tl('No open positions: the risk figures need current holdings.','Nessuna posizione aperta: le misure di rischio richiedono posizioni attuali.')}</div>`;
+    body.innerHTML=`<div class="tfbar" style="margin:0 0 6px;flex-wrap:wrap;gap:4px"><label class="k">${tl('BENCHMARK','BENCHMARK')} <select class="pfa-b" aria-label="benchmark">${PFA_BENCH.map(([id,n])=>`<option value="${id}" ${id===st.b?'selected':''}>${esc(n)}</option>`).join('')}</select></label>
+        ${bd[2]!=='EUR'?tb7('pcur',[['EUR',tl('IN EUR','IN EUR')],['LOCAL',tl('IN ','IN ')+bd[2]]],st.cur):''}<span style="flex:1"></span>${tb7('prng',PFA_RNG.map(([k2])=>[k2,k2==='ALL'?tl('SINCE START','DALL\'INIZIO'):k2]),st.rng)}<button class="tf pfa-pf" type="button" title="${tl('your trades and positions','le tue operazioni e posizioni')}">PORTFOLIO</button></div>
+      ${notes.length?`<div class="src-line">${notes.join('<br>')}</div>`:''}
+      ${k?`<div class="pf-kpis">${k}</div>`:''}
+      <div class="chart-box pfa-box" style="height:240px" aria-label="${tl('portfolio vs benchmark','portafoglio vs benchmark')}"></div>
+      <div class="chart-box pfa-dd" style="height:110px" aria-label="drawdown"></div>
+      ${risk}
+      <div class="src-line" style="margin-top:10px">${chip(S.DERIVED)} ${tl('Time-weighted return: each purchase counts from its trade price and each sale up to its trade price, so adding or withdrawing money does not change it. Every day is valued at each listing\'s last close on or before it (Twelve Data daily closes, split-adjusted), in EUR at that day\'s ECB fixing. Price return: dividends are not included (no dividend source connected). The benchmark is the index\'s published price history','Rendimento ponderato per il tempo: ogni acquisto conta dal suo prezzo e ogni vendita fino al suo prezzo, quindi versare o prelevare denaro non lo cambia. Ogni giorno è valorizzato all\'ultima chiusura di ciascun titolo in quella data o prima (chiusure giornaliere Twelve Data, rettificate per gli split), in EUR al fixing BCE di quel giorno. Rendimento di prezzo: i dividendi non sono inclusi (nessuna fonte di dividendi collegata). Il benchmark è lo storico pubblicato dell\'indice')}${eurMode?tl(', in EUR at the same ECB rates',', in EUR agli stessi cambi BCE'):''}${bh&&BHe.data.source?` (${esc(BHe.data.source)})`:''}. ${tl('Risk: daily EUR returns of the current holdings over the last year of days on which all of them traded, weights at the last close.','Rischio: rendimenti giornalieri in EUR delle posizioni attuali nell\'ultimo anno di giorni in cui hanno quotato tutte, pesi all\'ultima chiusura.')}</div>`;
+    setProv(win,{...items,'pfa:calc':S.DERIVED},'Portfolio analytics: your trades, Twelve Data daily closes, ECB rates, index history (DERIVED)');
+    if(ok&&X){const pts=M.pts.filter(p=>p.d>=X.from),base=X.P[0].I,b0=X.B[0];
+      lwLines(win,body.querySelector('.pfa-box'),'pfa:'+st.b+':'+st.cur+':'+st.rng,[{name:tl('Portfolio (TWR)','Portafoglio (TWR)'),col:C.amber,pts:pts.map(p=>({time:p.d,value:p.I/base*100}))},{name:bn,col:CMPCOL[1],pts:fin(b0)&&b0>0?X.B.map((v,i)=>({time:X.P[i].d,value:fin(v)?v/b0*100:null})):[]}],{fmt:v=>v.toFixed(2),ref:100});
+      lwLines(win,body.querySelector('.pfa-dd'),'pfadd:'+st.rng,[{name:tl('Drawdown','Drawdown'),col:C.down,base:0,pts:X.dd}],{fmt:v=>v.toFixed(2)+'%',pf:{type:'price',precision:2,minMove:0.01}});}
+    else{lwLines(win,body.querySelector('.pfa-box'),'pfa:none',[],{empty:wait.length||(!fx&&!FXe.err)?tl('Loading real history…','Carico lo storico reale…'):'N/A'});lwLines(win,body.querySelector('.pfa-dd'),'pfadd:none',[],{empty:''});}
+    const sel=body.querySelector('.pfa-b');if(sel)sel.onchange=()=>{st.b=sel.value;paintWin(win);};
+    $$('[data-pcur]',body).forEach(b=>b.onclick=()=>{st.cur=b.dataset.pcur;paintWin(win);});
+    $$('[data-prng]',body).forEach(b=>b.onclick=()=>{st.rng=b.dataset.prng;paintWin(win);});
+    $$('.pfa-pf',body).forEach(b=>b.onclick=()=>openOrFocus('PF',{}));
+    $$('tr[data-open]',body).forEach(tr=>tr.onclick=()=>openSecurity(tr.dataset.open));}
 
   // ---- NEWS: top publishers and central banks (their own feeds) + SEC filings — headline, source, time, link only ----
   function renderNews(body,win){const st=win.state;if(!st.src||st.src==='WIRE')st.src='ALL';const e=EXT.news;loadExt('news');loadPress();
@@ -2005,7 +2143,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali')],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['ETF',tl('ETFs by asset class','ETF per asset class')],['FUT',tl('Futures prices','Prezzi dei futures'),'na'],['COT',tl('Futures positioning (CFTC)','Posizionamento futures (CFTC)')],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit sentiment','Sentiment Reddit'),'na'],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
     ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['SPRD',tl('Spreads (2s10s)','Spread (2s10s)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves (energy)','Curve dei futures (energia)')]]],
     ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')]]],
-    ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['ALRT',tl('Price alerts','Avvisi di prezzo')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
+    ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['PFA',tl('Portfolio analytics — performance and risk','Analisi del portafoglio — rendimento e rischio')],['ALRT',tl('Price alerts','Avvisi di prezzo')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
     ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
   const MN={q:'',sel:0};
   function menuItems(){const q=MN.q.trim().toUpperCase();const out=[];menuDef().forEach(([id,label,items])=>items.forEach(([code,name,na])=>{if(!q||code.includes(q)||name.toUpperCase().includes(q))out.push({cat:id,label,code,name,na});}));return out;}
@@ -2487,6 +2625,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     BRF:{tag:'BRF',w:860,h:620,title:w=>`BRIEFING · ${(w.state.period||'daily').toUpperCase()}`,render:renderBriefing},
     EXCH:{tag:'EXCH',w:980,h:600,title:()=>'WORLD MARKETS',render:renderExchanges},
     PF:{tag:'PF',w:980,h:640,title:()=>'PORTFOLIO · EUR',render:renderPortfolio},
+    PFA:{tag:'PFA',w:1020,h:720,title:()=>'PORTFOLIO ANALYTICS · EUR',render:renderPfa},
     SET:{tag:'SET',w:460,h:430,title:()=>'SETTINGS',render:renderSettings},
     EQ:{tag:'EQ',w:920,h:620,title:w=>`EQUITIES · ${(EQU.find(x=>x[0]===(w.state.u||'SPX'))||[])[1]||''}`,render:renderEq},
     FXB:{tag:'FX',w:860,h:380,title:()=>'CURRENCIES',render:renderFxBoard},
@@ -2588,7 +2727,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
   /* ---------- command line ---------- */
-  const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
+  const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
   const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP"]);
   function applyFunc(f,ticker){
