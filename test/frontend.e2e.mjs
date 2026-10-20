@@ -48,6 +48,27 @@ const YIELDS = { curves: {
 // /api/yields?ids=…: the countries asked for, with past curves and spreads (the same shapes the Worker returns)
 const IT_M = { id: "IT", name: "Italy — 10-year government bond", kind: "10-year yield, MONTHLY AVERAGE (OECD Main Economic Indicators)", source: "FRED · OECD", sourceUrl: "https://fred.stlouisfed.org/series/IRLTLT01ITM156N", status: "LIVE", timestamp: "2026-08-01", previousDate: "2026-07-01", fetchedAt: new Date().toISOString(), staleAt: new Date(Date.now() + 30 * 864e5).toISOString(), freq: "M", histTenor: "10Y",
   points: [{ tenor: "10Y", months: 120, value: 3.98, status: "LIVE", changeBp: 6 }], past: { "1M": { date: "2026-07-01", points: [{ tenor: "10Y", months: 120, value: 3.92 }] } }, spreads: { DE: { bp: 80.6, date: "2026-08-01" }, US: { bp: -25, date: "2026-08-01" } } };
+// /api/yields/market (CNBC quote service through the Worker): a few countries; one maturity with an old quote (STALE)
+const qt = (m) => new Date(Date.now() - m * 60e3).toISOString();
+const MP = (tenor, months, value, prev, mins = 30) => ({ tenor, months, value, prev, changeBp: Math.round((value - prev) * 1000) / 10, time: qt(mins), status: mins > 5760 ? "STALE" : "LIVE", venue: "Tradeweb", name: tenor + " benchmark", maturity: "2036-08-01", coupon: 3.85 });
+const MKT_FIX = () => ({ countries: {
+  US: { id: "US", points: [MP("3M", 3, 3.99, 4.01), MP("2Y", 24, 3.512, 3.53), MP("5Y", 60, 3.71, 3.72), MP("10Y", 120, 4.012, 4.03), MP("30Y", 360, 4.61, 4.62)], asOf: qt(30), status: "LIVE" },
+  DE: { id: "DE", points: [MP("1Y", 12, 2.31, 2.3), MP("2Y", 24, 2.41, 2.4), MP("10Y", 120, 2.654, 2.66), MP("30Y", 360, 3.21, 3.2)], asOf: qt(30), status: "LIVE" },
+  IT: { id: "IT", points: [MP("2Y", 24, 2.7, 2.72), MP("5Y", 60, 3.2, 3.25), MP("10Y", 120, 3.912, 3.95), MP("30Y", 360, 4.6, 4.62)], asOf: qt(30), status: "LIVE" },
+  IN: { id: "IN", points: [MP("10Y", 120, 7.392, 7.4), MP("30Y", 360, 7.779, 7.78, 9000)], asOf: qt(30), status: "LIVE" },
+}, missing: ["TH"], regions: [["Americas", ["US"]], ["Europe", ["DE", "IT"]], ["Asia-Pacific", ["IN", "TH"]]], catalog: { US: ["3M", "2Y", "5Y", "10Y", "30Y"], DE: ["1Y", "2Y", "10Y", "30Y"], IT: ["2Y", "5Y", "10Y", "30Y"], IN: ["10Y", "30Y"], TH: ["10Y"] },
+  source: "CNBC quote service", sourceUrl: "https://www.cnbc.com/bonds/", kind: "market data: last traded / indicative yield as CNBC shows it (intraday), not an official fixing", status: "LIVE", fetchedAt: new Date().toISOString() });
+function mktApi(u) {
+  const C = MKT_FIX().countries;
+  if (u.pathname === "/api/yields/market/past") {
+    const one = u.searchParams.get("id"), ids = one ? [one] : (u.searchParams.get("ids") || "").split(","), past = {};
+    for (const id of ids) { const c = C[id]; if (!c) continue; const pts = one ? c.points : c.points.filter((p) => p.tenor === "10Y");
+      past[id] = { "1W": { date: "2026-10-13", points: pts.map((p) => ({ tenor: p.tenor, months: p.months, value: +(p.value - 0.1).toFixed(3), date: "2026-10-13" })) }, "1M": { date: "2026-09-18", points: pts.map((p) => ({ tenor: p.tenor, months: p.months, value: +(p.value + 0.2).toFixed(3), date: "2026-09-18" })) } }; }
+    return { body: { past, errors: {}, source: "CNBC quote service" } };
+  }
+  if (u.pathname === "/api/yields/market/history") { const pts = []; for (let i = 300; i >= 0; i--) { const d = dShift(today, -i); if (new Date(d + "T12:00:00Z").getUTCDay() % 6) pts.push([d, +(3.5 + i / 1000).toFixed(4)]); } return { body: { id: u.searchParams.get("id"), tenor: u.searchParams.get("tenor"), freq: "D", points: pts, source: "CNBC quote service", status: "LIVE", fetchedAt: new Date().toISOString() } }; }
+  return { body: MKT_FIX() };
+}
 function yieldsIds(u) {
   const ids = (u.searchParams.get("ids") || "").split(","), curves = {}, errors = {};
   for (const id of ids) {
@@ -237,9 +258,18 @@ const MKT_CMDTY_FIX = () => ({ status: "LIVE", source: "IMF Primary Commodity Pr
   { id: "PWHEAMTUSDM", name: "Wheat", unit: "$/t", group: "Agriculture", freq: "M", date: "2026-07-01", value: 228.74, prevDate: "2026-06-01", prev: 199.65, chgPct: 14.5709, yoyPct: null },
   { id: "PCOCOUSDM", name: "Cocoa", unit: "$/t", group: "Agriculture", status: "N/A", error: "no_data" }] });
 const marketsApi = (u) => u.pathname === "/api/markets/fx" ? { body: MKT_FX_FIX() } : { body: MKT_CMDTY_FIX() };
+const CBW_FIX = () => ({ banks: [
+  { id: "US", name: "Federal Reserve", region: "Americas", ccy: "USD", mkt: "US", date: "2026-10-13", value: 3.875, move: { date: "2026-09-17", from: 4.125, bp: -25 }, chg12: { bp: -50, from: 4.375, date: "2025-10-13" }, moves12: 2, note: "mid-point of the FOMC target range", status: "LIVE", next: { date: dShift(today, 8), time: "14:00 Washington", source: "Federal Reserve — FOMC meeting calendar", url: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm", checked: "2026-10-20" } },
+  { id: "XM", name: "European Central Bank", region: "Europe", ccy: "EUR", mkt: "DE", date: "2026-10-13", value: 2.5, move: { date: "2026-09-16", from: 2.25, bp: 25 }, chg12: { bp: 50, from: 2, date: "2025-10-13" }, moves12: 2, note: "deposit facility rate", status: "LIVE", next: { date: null, source: "European Central Bank", url: "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html", checked: "2026-10-20", note: "no later date in the calendar published by the bank" } },
+  { id: "HR", name: "Croatian National Bank", region: "Europe", ccy: "HRK", mkt: null, value: 2.5, date: "2022-12", freq: "M", status: "STALE", note: "end-of-month series only (no recent daily data from the BIS)", next: null },
+  { id: "NO", name: "Norges Bank", region: "Europe", ccy: "NOK", mkt: null, status: "N/A", error: "no_data", next: null },
+  { id: "JP", name: "Bank of Japan", region: "Asia-Pacific", ccy: "JPY", mkt: "JP", date: "2026-10-13", value: 1.25, move: { month: "2026-07", from: 1, bp: 25 }, status: "LIVE", next: null },
+], source: "BIS — central bank policy rates (WS_CBPOL)", sourceUrl: "https://data.bis.org/topics/CBPOL", fetchedAt: new Date().toISOString() });
 const t07Api = (u, method, body, st) => {
   const p = u.pathname; st.calls.push(method + " " + p + u.search);
   if (p === "/api/cb") return { body: CB_FIX() };
+  if (p === "/api/cb/world") return { body: CBW_FIX() };
+  if (p === "/api/cb/history") return { body: { series: Object.fromEntries((u.searchParams.get("ids") || "").split(",").filter((id) => ["US", "XM", "GB", "JP"].includes(id)).map((id, k) => [id, ["2006-01", "2006-02", "2020-03", "2025-09", "2025-10", "2026-09"].map((m, i) => [m, +(k + 4.5 - i * 0.5).toFixed(2)])])), freq: "M", source: "BIS — central bank policy rates (WS_CBPOL)", sourceUrl: "https://data.bis.org/topics/CBPOL", status: "LIVE", fetchedAt: new Date().toISOString() } };
   if (p === "/api/sprd") return { body: SPRD_FIX() };
   if (p === "/api/energy") return st.noEia ? { status: 503, body: { error: "eia_not_configured", status: "N/A" } } : { body: ENERGY_FIX() };
   if (p === "/api/earnings") return { body: ERN_FIX() };
@@ -293,6 +323,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/markets/")) return send(api.markets ? api.markets(u) : marketsApi(u));
     if (u.origin === ORIGIN && (u.pathname === "/api/indices" || u.pathname === "/api/indices/history")) return send(api.indices ? api.indices(u) : indicesApi(u));
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/yields/market")) return send(api.mkt ? api.mkt(u) : mktApi(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
@@ -388,9 +419,22 @@ const OK_API = {
   await cmd(page, "IDX N225");
   await page.waitForTimeout(500);
   ok("[A] indices: IDX N225 selects the Nikkei", /NIKKEI 225 N225 70,035\.71/.test((await winOf(page, "WORLD INDICES")).text));
-  // yields
+  // yields: MARKET (intraday quotes) by default, then the official curves
   await page.waitForTimeout(600);
   let yl = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[A] yields MARKET (default): countries by region with intraday quotes; Δ vs the previous close and past closes, 2s10s and spreads DERIVED; a country without a quote N/A; labelled market data", /MARKET · INTRADAY/.test(yl.text) && /IT Italy[^\n]*?2\.70\s+3\.20\s+3\.912\s+4\.60\s+-3\.8\s+\+10\.0\s+-20\.0\s+\+121\.2\s+\+125\.8\s+-10\.0/.test(yl.text) && /TH Thailand\s+N\/A no quote/.test(yl.text) && /market data:\s+CNBC quote service/.test(yl.text) && /ASIA-PACIFIC/.test(yl.text), [/MARKET · INTRADAY/.test(yl.text), /IT Italy[^\n]*?2\.70\s+3\.20\s+3\.912\s+4\.60\s+-3\.8\s+\+10\.0\s+-20\.0\s+\+121\.2\s+\+125\.8\s+-10\.0/.test(yl.text), /TH Thailand\s+N\/A no quote/.test(yl.text), /market data:\s+CNBC quote service/.test(yl.text)].join() + " " + yl.text.slice(-300));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="IT"]').click(); });
+  await page.waitForTimeout(800);
+  yl = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[A] yields MARKET · IT: every quoted maturity with Δ 1D / 1W / 1M, last quote, bond and venue; curve and history charts", /ITALY · MARKET YIELDS/.test(yl.text) && /10Y\s+3\.912\s+-3\.8\s+\+10\.0\s+-20\.0/.test(yl.text) && /Tradeweb/.test(yl.text) && /3\.85%/.test(yl.text) && /daily closes/.test(yl.text) && (await page.$$eval(".yc-box canvas, .yh-box canvas", (c) => c.length)) >= 2, yl.text.slice(0, 700));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="IN"]').click(); });
+  await page.waitForTimeout(500);
+  ok("[A] yields MARKET · IN: a quote older than 4 days is marked STALE, not replaced", /30Y\s+7\.779[\s\S]{0,120}STALE/.test((await winOf(page, "GOVERNMENT YIELDS")).text), (await winOf(page, "GOVERNMENT YIELDS")).text.slice(0, 600));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-ysrc="OFF"]').click(); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="WORLD"]').click(); });
+  await page.waitForTimeout(800);
+  yl = await winOf(page, "GOVERNMENT YIELDS");
   ok("[A] yields WORLD: every country by region with 2Y / 5Y / 10Y / 30Y, changes, 2s10s and spreads; a failed source N/A with its reason", /AMERICAS\s+US United States/.test(yl.text) && /US United States[^\n]*\s4\.84\s/.test(yl.text) && /vs BUND/.test(yl.text) && /\+184\.0/.test(yl.text) && /DE Germany\s+N\/A provider timed out/.test(yl.text) && /Not connected \(no free official source found\): Brazil, Turkey, India/.test(yl.text), yl.text.slice(0, 900));
   ok("[A] yields WORLD: Italy = monthly average, marked M, month-dated, its spread vs the Bund of the same month", /IT Italy[^\n]*\bM\b[\s\S]*?Aug 2026 \(avg\)[\s\S]*?3\.98[\s\S]*?\+80\.6/.test(yl.text), (yl.text.match(/IT Italy[^\n]*/) || [])[0]);
   await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-yc="US"]').click(); });
@@ -528,6 +572,7 @@ const OK_API = {
   const DOWN = {
     yieldsIds: () => ({ status: 502, body: { curves: {}, errors: { US: { error: "provider_timeout", status: "N/A" }, EA: { error: "provider_error", status: "N/A" } } } }),
     indices: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
+    mkt: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
     markets: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
     spx: () => ({ status: 502, body: { error: "provider_unreachable", status: "N/A" } }),
     noEia: true,
@@ -542,7 +587,10 @@ const OK_API = {
   await page.waitForTimeout(1200);
   const body = await page.evaluate(() => document.body.innerText);
   ok("[B] no price anywhere (no fallback value)", !/\$\d/.test(body) && !/\d\.\d{3,}/.test(body), (body.match(/.{20}(\$\d|\d\.\d{3,}).{10}/) || [])[0]);
-  ok("[B] yields: N/A with the provider reason, no curve", /US United States\s+N\/A provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text), (await winOf(page, "GOVERNMENT YIELDS")).text.slice(0, 300));
+  const ymk = await winOf(page, "GOVERNMENT YIELDS");
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "GOVERNMENT YIELDS"); w.querySelector('[data-ysrc="OFF"]').click(); });
+  await page.waitForTimeout(600);
+  ok("[B] yields: market quotes N/A with the reason; official curves N/A with the provider reason; no curve", /N\/A — market yields unavailable \(provider unreachable\)/.test(ymk.text) && /US United States\s+N\/A provider timed out/.test((await winOf(page, "GOVERNMENT YIELDS")).text), ymk.text.slice(0, 300) + " | " + (await winOf(page, "GOVERNMENT YIELDS")).text.slice(0, 300));
   ok("[B] indices: every group N/A with the reason, no level", /UNITED STATES\s+N\/A — provider unreachable[\s\S]*EUROPE\s+N\/A — provider unreachable/.test((await winOf(page, "WORLD INDICES")).text) && !/\d,\d{3}\.\d\d/.test((await winOf(page, "WORLD INDICES")).text), (await winOf(page, "WORLD INDICES")).text.slice(0, 300));
   ok("[B] calendar and news: NO DATA with the reason", /NO DATA/.test((await winOf(page, "ECONOMIC CALENDAR")).text) && /provider unreachable/.test((await winOf(page, "NEWS")).text));
   ok("[B] briefing: N/A, no text produced", /briefing archive unavailable/.test((await winOf(page, "BRIEFING")).text) && (await winOf(page, "BRIEFING")).pill === "N/A" && !(await page.$(".brf-art")));
@@ -754,9 +802,18 @@ const OK_API = {
   des = await winOf(page, "DES · ZZQ");
   ok("[H] DES: a non-SEC symbol is N/A with the reason (no profile invented)", /N\/A — not an SEC registrant/.test(des.text) && des.pill === "N/A", des.text.slice(0, 300));
   // CB
-  await cmd(page, "CB"); await page.waitForTimeout(800);
+  await cmd(page, "CB"); await page.waitForTimeout(900);
+  const cbw = await winOf(page, "CENTRAL BANKS");
+  ok("[H] CB COMPARE: BIS policy rate with its date, last move (effective day, bp, level before), 12-month change, moves, next decision from the bank's calendar; priced = market yield − policy rate (DERIVED)", /Federal Reserve\s+USD\s*ⓘ?\s+3\.88%\s+13 Oct 2026\s+17 Sept? 2026\s+−25\s+4\.13%\s+−50\s+2\s+\w{3},? \d{2} \w{3,4}\s+in 8d\s+\+11\.5\s+—\s+-36\.3/.test(cbw.text) && /European Central Bank\s+EUR\s*ⓘ?\s+2\.50%[\s\S]{0,120}not yet published\s+—\s+-19\.0\s+-9\.0/.test(cbw.text), cbw.text.slice(0, 900));
+  ok("[H] CB COMPARE: a stopped BIS series shows its last month (STALE); an area with no data N/A; a move known only by month", /Croatian National Bank\s+HRK\s*ⓘ?\s+2\.50%\s+Dec 2022/.test(cbw.text) && /Norges Bank\s+NOK\s+N\/A — no recent figure from the BIS/.test(cbw.text) && /Bank of Japan\s+JPY\s+1\.25%\s+13 Oct 2026\s+Jul 2026\s+\+25\s+1\.00%/.test(cbw.text), cbw.text.slice(0, 1200));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "CENTRAL BANKS"); w.querySelector('[data-cbv="HIST"]').click(); });
+  await page.waitForTimeout(800);
+  const cbh = await winOf(page, "CENTRAL BANKS");
+  ok("[H] CB HISTORY: end-of-month BIS rates since 2006 on one chart, with latest / 1 and 5 years earlier / high / low per bank", (await page.$$eval(".cbh-box canvas", (c) => c.length)) >= 1 && /Fed\s+USD\s+4\.00%\s+Sept? 2026\s+5\.00%\s+Sept? 2025\s+5\.50%\s+Mar 2020\s+6\.50%\s+Jan 2006/.test(cbh.text) && /HIGH SINCE 2006/.test(cbh.text) && /BIS/.test(cbh.text), cbh.text.slice(0, 900));
+  await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent === "CENTRAL BANKS"); w.querySelector('[data-cbv="OFF"]').click(); });
+  await page.waitForTimeout(800);
   const cb = await winOf(page, "CENTRAL BANKS");
-  ok("[H] CB: published policy rates; the level before the last change with its date; Fed target range and its last move; failed / missing sources N/A", /European Central Bank\s+EUR\s+Deposit facility rate\s+2\.00%\s+2\.25%\s+\(-25 bp\)\s+changed 11 Jun 2026/.test(cb.text) && /FOMC target range\s+3\.58%\s+3\.50–3\.75%\s+daily\s+3\.75–4\.00% changed 18 Sept? 2026/.test(cb.text) && /Bank Rate\s+3\.75%\s+4\.00%\s+\(-25 bp\)\s+changed 07 Aug 2026/.test(cb.text) && /2\.50%\s+no change since 06 Oct 2023/.test(cb.text) && /Swiss National Bank\s+CHF\s+N\/A/.test(cb.text) && /Bank of Japan\s+JPY\s+N\/A/.test(cb.text), cb.text.slice(0, 900));
+  ok("[H] CB: published policy rates; the level before the last change with its date; Fed target range and its last move; failed / missing sources N/A", /European Central Bank\s+EUR\s+Deposit facility rate\s+2\.00%\s+2\.25%\s+\(-25 bp\)\s+changed 11 Jun 2026/.test(cb.text) && /FOMC target range\s+3\.58%\s+3\.50–3\.75%\s+daily\s+3\.75–4\.00% changed 18 Sept? 2026/.test(cb.text) && /Bank Rate\s+3\.75%\s+4\.00%\s+\(-25 bp\)\s+changed 07 Aug 2026/.test(cb.text) && /2\.50%\s+no change since 06 Oct 2023/.test(cb.text) && /Swiss National Bank\s+CHF\s+N\/A/.test(cb.text) && /Bank of Japan\s+JPY\s+no same-day official source connected/.test(cb.text), cb.text.slice(0, 900));
   await shotWin(page, "CENTRAL BANKS", "t07-cb");
   // SPRD
   await cmd(page, "SPRD"); await page.waitForTimeout(800);
@@ -848,7 +905,7 @@ const OK_API = {
   const mi = await page.evaluate(() => [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|") + " " + document.querySelector('.fm-i[data-fn="OMON"]')?.innerText);
   await page.keyboard.press("Escape");
   await cmd(page, "CB"); await page.waitForTimeout(400);
-  ok("[H] Italian: menu and new windows in Italian, codes and data unchanged", /^MERCATI\|TASSI E MACRO\|ANALISI\|PERSONALE\|LAYOUT OMON\s+Monitor delle opzioni/.test(mi) && !!(await winOf(page, "BANCHE CENTRALI")) && /BANCA CENTRALE\s+TASSO\s+LIVELLO/.test((await winOf(page, "BANCHE CENTRALI")).text), mi);
+  ok("[H] Italian: menu and new windows in Italian, codes and data unchanged", /^MERCATI\|TASSI E MACRO\|ANALISI\|PERSONALE\|LAYOUT OMON\s+Monitor delle opzioni/.test(mi) && !!(await winOf(page, "BANCHE CENTRALI")) && /BANCA CENTRALE\s+TASSO\s+AL\s+ULTIMA MOSSA/.test((await winOf(page, "BANCHE CENTRALI")).text), mi + " || " + ((await winOf(page, "BANCHE CENTRALI")) || {}).text?.slice(0, 400));
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(400);
   const body = await page.evaluate(() => document.body.innerText);
   ok("[H] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | ") + (body.match(/.{0,40}(NaN|undefined).{0,40}/) || [""])[0]);

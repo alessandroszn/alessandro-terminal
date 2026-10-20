@@ -8,7 +8,7 @@
 //   ZA: South African Reserve Bank · PE: Banco Central de Reserva del Perú (all daily, no key; approved 7 Oct 2026)
 //   IT, FR, NL, … : 10-year yield, MONTHLY average (OECD via FRED) where no free official daily source exists
 // No interpolation, no estimated points: a maturity the source does not publish is null → N/A.
-import { fetchText, cachedSource, parseCsv, num, iso, easternDate, daysBetween, UA } from "./lib.mjs";
+import { fetchText, fetchBinary, unzipEntry, zipNames, cachedSource, parseCsv, num, iso, easternDate, daysBetween, UA } from "./lib.mjs";
 
 export const TREASURY_TENORS = [
   ["BC_1MONTH", "1M", 1], ["BC_1_5MONTH", "1.5M", 1.5], ["BC_2MONTH", "2M", 2], ["BC_3MONTH", "3M", 3],
@@ -481,10 +481,39 @@ export function parseBcrp(j) {
   return rowsFrom(byDate, [["10Y", 120]]);
 }
 
+// Italy — Banca d'Italia, table BMK0200: gross yields of the benchmark BTPs at 3, 5, 10 and 30 years (daily; the file is
+// refreshed with a lag of one to three weeks). A zipped CSV, newest day first: "DATA_OSS";"MFN_BMK.D.020.922.0.EUR.210";…
+export const IT_URL = "https://a2a.bancaditalia.it/infostat/dataservices/export/EN/CSV/DATA/CUBE/BANKITALIA/DIFF/BMK0200";
+export const IT_SERIES = [["203", "3Y", 36], ["205", "5Y", 60], ["210", "10Y", 120], ["230", "30Y", 360]];
+export function parseBdi(text, n = HIST) {
+  const t = String(text || ""), lines = []; let i = 0;
+  // only the newest rows are read (the file goes back decades)
+  while (i < t.length && lines.length < n * 2 + 40) { let j = t.indexOf("\n", i); if (j < 0) j = t.length; lines.push(t.slice(i, j).replace(/\r$/, "")); i = j + 1; }
+  if (!lines.length) return [];
+  const cells = (l) => l.split(";").map((x) => x.replace(/^"|"$/g, "").trim());
+  const head = cells(lines[0]), cols = IT_SERIES.map(([code, t]) => [head.findIndex((h) => new RegExp(`^MFN_BMK\\.D\\.\\w+\\.922\\.0\\.EUR\\.${code}$`).test(h)), t]).filter(([k]) => k > 0);
+  if (!cols.length) return [];
+  const byDate = {};
+  for (const l of lines.slice(1)) {
+    const c = cells(l), m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(c[0] || ""); if (!m) continue;
+    for (const [k, t] of cols) put(byDate, `${m[1]}-${m[2]}-${m[3]}`, t, numOrNull(c[k]));
+  }
+  return rowsFrom(byDate, byTenor(IT_SERIES)).slice(-n);
+}
+async function loadIt() {
+  const f = await fetchBinary(IT_URL, { timeoutMs: 25000, headers: { accept: "application/zip,*/*" } });
+  if (f.err) return { err: f.err };
+  const name = zipNames(f.buf).find((x) => /\.csv$/i.test(x));
+  const text = name ? await unzipEntry(f.buf, name) : null;
+  if (!text) return { err: "provider_error" };
+  const rows = parseBdi(text);
+  return rows.length ? { data: rows } : { err: "no_data" };
+}
+
 // ---------- 10-year yield, monthly average (OECD Main Economic Indicators, via FRED) for countries without a free official daily source ----------
 // approved 7 Oct 2026: FRED is an approved source; the series is a monthly average and is always labelled as such
 export const OECD_10Y = {
-  IT: ["Italy", "Europe"], FR: ["France", "Europe"], NL: ["Netherlands", "Europe"], IE: ["Ireland", "Europe"], GR: ["Greece", "Europe"], FI: ["Finland", "Europe"],
+  FR: ["France", "Europe"], NL: ["Netherlands", "Europe"], IE: ["Ireland", "Europe"], GR: ["Greece", "Europe"], FI: ["Finland", "Europe"],
   DK: ["Denmark", "Europe"], PL: ["Poland", "Europe"], CZ: ["Czech Republic", "Europe"], HU: ["Hungary", "Europe"], SK: ["Slovakia", "Europe"], SI: ["Slovenia", "Europe"],
   LU: ["Luxembourg", "Europe"], KR: ["South Korea", "Asia-Pacific"], IL: ["Israel", "Middle East & Africa"], MX: ["Mexico", "Americas"], CL: ["Chile", "Americas"],
   // checked 7 Oct 2026: no such series on FRED for Latvia, Lithuania, India, Colombia; Iceland's stopped in 2022 — left out
@@ -517,6 +546,7 @@ export const CURVES = {
   HK: { name: "Hong Kong — Exchange Fund Bills and Notes", kind: "indicative yield, latest day only (up to 2 years)", source: "Hong Kong Monetary Authority", sourceUrl: "https://apidocs.hkma.gov.hk/documentation/market-data-and-statistics/daily-monetary-statistics/efbn-indicative-price/", maxAgeDays: 4, key: "yields/hk", histTenor: "2Y", load: () => jsonLoad(HK_URL, parseHkma) },
   MY: { name: "Malaysia — Malaysian Government Securities", kind: "benchmark closing yield, latest trading day (daily change as published)", source: "Bank Negara Malaysia", sourceUrl: "https://www.bnm.gov.my/government-securities-yield", maxAgeDays: 5, key: "yields/my", load: () => csvLoad(MY_URL, parseBnm, 20000, "text/html,*/*") },
   ZA: { name: "South Africa — government bonds", kind: "closing yield of benchmark bonds R2030 and R209, daily", source: "South African Reserve Bank", sourceUrl: "https://www.resbank.co.za/en/home/what-we-do/statistics/key-statistics/current-market-rates", maxAgeDays: 5, key: "yields/za", load: (now) => loadZa(now) },
+  IT: { name: "Italy — BTP benchmarks", kind: "gross yield of the benchmark BTPs, daily (Banca d'Italia refreshes the file with a lag of one to three weeks)", source: "Banca d'Italia", sourceUrl: "https://infostat.bancaditalia.it/inquiry/home?spyglass/taxo:CUBESET=/BMK0200", maxAgeDays: 35, key: "yields/it", ttlMs: 6 * 3600_000, load: () => loadIt() },
   PE: { name: "Peru — government bonds", kind: "10-year government bond yield in soles, daily", source: "Banco Central de Reserva del Perú", sourceUrl: "https://estadisticas.bcrp.gob.pe/estadisticas/series/diarias/resultados/PD31893DD/html", maxAgeDays: 6, key: "yields/pe", load: (now) => jsonLoad(peUrl(now), parseBcrp, 20000) },
 };
 for (const [cc, [country]] of Object.entries(OECD_10Y)) CURVES[cc] = { name: `${country} — 10-year government bond`, kind: "10-year yield, MONTHLY AVERAGE (OECD Main Economic Indicators)", source: "FRED · OECD", sourceUrl: `https://fred.stlouisfed.org/series/${oecdId(cc)}`, maxAgeDays: 100, key: `yields/oecd/${cc}`, freq: "M", ttlMs: 12 * 3600_000, oecd: cc };

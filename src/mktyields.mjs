@@ -153,5 +153,5 @@ export async function handleMarketYields(url, env, ctx, H, json) {
   if (!r.data) return send({ status: "N/A", error: r.err, ...src }, 502);
   const countries = {}, missing = [];
   for (const id of MKT_IDS) { const c = countryOf(id, r.data, now); if (c) countries[id] = c; else missing.push(id); }
-  return send({ countries, missing, regions: MKT_REGIONS, ...src, status: r.cache === "STALE" ? "STALE" : "LIVE", staleReason: r.staleReason || null, fetchedAt: iso(r.fetchedAt), meta: { generatedAt: iso(now), symbols: MKT_SYMBOLS.length } });
+  return send({ countries, missing, regions: MKT_REGIONS, catalog: MKT_TENORS, ...src, status: r.cache === "STALE" ? "STALE" : "LIVE", staleReason: r.staleReason || null, fetchedAt: iso(r.fetchedAt), meta: { generatedAt: iso(now), symbols: MKT_SYMBOLS.length } });
 }

@@ -1,8 +1,9 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
 //   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
+//   GET /api/yields/market[/past|/history]  intraday market yields (src/mktyields.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
-//   GET /api/cb | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
+//   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
 //   GET /api/health
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
@@ -13,6 +14,8 @@
 // Every /api request must carry a valid Cloudflare Access token for this app (src/access.mjs).
 
 import { handleYields } from "./yields.mjs";
+import { handleMarketYields } from "./mktyields.mjs";
+import { handleCbWorld } from "./cbworld.mjs";
 import { handleCalendar } from "./calendar.mjs";
 import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
@@ -536,6 +539,7 @@ export const app = {
     if (url.pathname === "/api/health") return json({ ok: true, ts: Date.now() }, H);
     if (url.pathname === "/api/quote") return handleQuote(url, env, ctx, H);
     if (url.pathname === "/api/history") return handleHistory(url, env, ctx, H);
+    if (url.pathname === "/api/yields/market" || url.pathname.startsWith("/api/yields/market/")) return handleMarketYields(url, env, ctx, H, json);
     if (url.pathname === "/api/yields" || url.pathname.startsWith("/api/yields/")) return handleYields(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar") return handleCalendar(url, env, ctx, H, json);
     if (url.pathname === "/api/calendar/history") return handleCalendarHistory(url, env, ctx, H, json);
@@ -549,6 +553,7 @@ export const app = {
     if (url.pathname === "/api/headlines") return handleHeadlines(url, env, ctx, H, json);
     if (url.pathname === "/api/briefs" || url.pathname.startsWith("/api/briefs/")) return handleBriefs(url, env, ctx, H, json, req);
     if (url.pathname === "/api/cb") return handleCentralBanks(url, env, ctx, H, json);
+    if (url.pathname === "/api/cb/world" || url.pathname === "/api/cb/history") return handleCbWorld(url, env, ctx, H, json);
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
@@ -556,7 +561,6 @@ export const app = {
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
-    if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/bonds") return handleBonds(url, env, ctx, H, json);
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);

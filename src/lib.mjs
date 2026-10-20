@@ -65,6 +65,23 @@ export async function unzipEntry(buf, name) {
   return null;
 }
 
+// the names of the files in a ZIP archive (central directory order)
+export function zipNames(buf) {
+  const dv = new DataView(buf), n = buf.byteLength, out = [];
+  let eocd = -1;
+  for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) return out;
+  const count = dv.getUint16(eocd + 10, true), dec = new TextDecoder();
+  let p = dv.getUint32(eocd + 16, true);
+  for (let k = 0; k < count && p + 46 <= n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    out.push(dec.decode(new Uint8Array(buf, p + 46, nlen)));
+    p += 46 + nlen + xlen + clen;
+  }
+  return out;
+}
+
 // first worksheet of an .xlsx as rows of cell strings (shared strings, inline strings, numbers)
 export async function xlsxRows(buf) {
   const [ss, sheet] = await Promise.all([unzipEntry(buf, "xl/sharedStrings.xml"), unzipEntry(buf, "xl/worksheets/sheet1.xml")]);

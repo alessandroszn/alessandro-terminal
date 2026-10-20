@@ -4,7 +4,7 @@
 //   node test/yields-world.test.mjs
 import { deflateRawSync } from "node:zlib";
 import { app as worker } from "../src/worker.mjs";
-import { parseMofTail, parseBde, parseNbbCsv, parseBpstat, parseNorgesBank, parseOenb, parseRbaF2, parseRbnzB2, unzipText, parseChinaBond, parseHkma, parseBnm, parseSarb, parseBcrp, bondTenor, pastCurves, spreadVs, yieldCatalog, YIELD_IDS, CURVES, oecdId } from "../src/yields.mjs";
+import { parseBdi, parseMofTail, parseBde, parseNbbCsv, parseBpstat, parseNorgesBank, parseOenb, parseRbaF2, parseRbnzB2, unzipText, parseChinaBond, parseHkma, parseBnm, parseSarb, parseBcrp, bondTenor, pastCurves, spreadVs, yieldCatalog, YIELD_IDS, CURVES, oecdId } from "../src/yields.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -109,8 +109,13 @@ ok("10Y spread: on the latest day both published (never across two days)", sp.bp
 
 // ---------- catalog ----------
 const cat = yieldCatalog({});
-ok("catalog: every id once, with region, frequency and the series used for its history", cat.length === YIELD_IDS.length && new Set(cat.map((c) => c.id)).size === cat.length && cat.find((c) => c.id === "IT").freq === "M" && cat.find((c) => c.id === "ES").freq === "D" && cat.find((c) => c.id === "AT").histTenor === "AVG" && cat.find((c) => c.id === "ZA").region === "Middle East & Africa");
-ok("monthly series: Italy is the OECD 10-year average on FRED, labelled MONTHLY AVERAGE", oecdId("IT") === "IRLTLT01ITM156N" && /MONTHLY AVERAGE/.test(CURVES.IT.kind));
+ok("catalog: every id once, with region, frequency and the series used for its history", cat.length === YIELD_IDS.length && new Set(cat.map((c) => c.id)).size === cat.length && cat.find((c) => c.id === "FR").freq === "M" && cat.find((c) => c.id === "IT").freq === "D" && cat.find((c) => c.id === "ES").freq === "D" && cat.find((c) => c.id === "AT").histTenor === "AVG" && cat.find((c) => c.id === "ZA").region === "Middle East & Africa");
+ok("monthly series: France is the OECD 10-year average on FRED, labelled MONTHLY AVERAGE; Italy is now Banca d'Italia's daily BTP benchmarks", oecdId("FR") === "IRLTLT01FRM156N" && /MONTHLY AVERAGE/.test(CURVES.FR.kind) && CURVES.IT.source === "Banca d'Italia" && !CURVES.IT.oecd);
+// Banca d'Italia BMK0200: zipped CSV, newest day first, ";"-separated and quoted; weekend rows are empty
+const BDI_HEAD = '"DATA_OSS";"MFN_BMK.D.001A.922.0.EUR.9";"MFN_BMK.D.020.922.0.EUR.203";"MFN_BMK.D.020.922.0.EUR.205";"MFN_BMK.D.020.922.0.EUR.210";"MFN_BMK.D.020.922.0.EUR.230";"MFN_BMK.D.035A.922.0.EUR.9"';
+const bdiRows = parseBdi(BDI_HEAD + '\n"2026/09/30";"";"3.72762";"3.983";"4.58875";"5.15389";"3.42154"\n"2026/09/27";"";"";"";"";"";""\n"2026/09/25";"";"3.75759";"3.99998";"4.54664";"5.07412";"3.36477"\n');
+ok("Banca d'Italia: 3/5/10/30-year BTP benchmarks by day, oldest first, empty weekend rows skipped, other columns ignored", bdiRows.length === 2 && bdiRows[0].date === "2026-09-25" && bdiRows[1].points.map((p) => p.tenor + "=" + p.value).join() === "3Y=3.72762,5Y=3.983,10Y=4.58875,30Y=5.15389", JSON.stringify(bdiRows));
+ok("Banca d'Italia: a file without the benchmark columns gives nothing (no guessing)", parseBdi('"DATA_OSS";"OTHER"\n"2026/09/30";"1.0"\n').length === 0);
 
 // ---------- endpoint with mocked providers ----------
 let store = new Map();
@@ -120,6 +125,16 @@ const KEYF = "fred-test-key-111";
 // weekdays only, like a market calendar, ending Tuesday 6 Oct 2026
 const days = (n) => { const out = []; for (let k = 0; out.length < n; k++) { const t = new Date(Date.UTC(2026, 9, 6) - k * 86400_000); if (t.getUTCDay() % 6) out.push(t.toISOString().slice(0, 10)); } return out.reverse(); };
 const D = days(400);
+// a ZIP archive with one stored (uncompressed) file, as the bank's endpoint serves it
+function zipStored(name, text) {
+  const nb = new TextEncoder().encode(name), data = new TextEncoder().encode(text), lh = new Uint8Array(30 + nb.length), cd = new Uint8Array(46 + nb.length), eo = new Uint8Array(22);
+  const L = new DataView(lh.buffer), Cd = new DataView(cd.buffer), E = new DataView(eo.buffer);
+  L.setUint32(0, 0x04034b50, true); L.setUint32(18, data.length, true); L.setUint32(22, data.length, true); L.setUint16(26, nb.length, true); lh.set(nb, 30);
+  Cd.setUint32(0, 0x02014b50, true); Cd.setUint32(20, data.length, true); Cd.setUint32(24, data.length, true); Cd.setUint16(28, nb.length, true); Cd.setUint32(42, 0, true); cd.set(nb, 46);
+  E.setUint32(0, 0x06054b50, true); E.setUint16(8, 1, true); E.setUint16(10, 1, true); E.setUint32(12, cd.length, true); E.setUint32(16, lh.length + data.length, true);
+  const out = new Uint8Array(lh.length + data.length + cd.length + eo.length); out.set(lh, 0); out.set(data, lh.length); out.set(cd, lh.length + data.length); out.set(eo, lh.length + data.length + cd.length);
+  return out;
+}
 let calls = [];
 globalThis.fetch = async (u, init) => {
   u = String(u); calls.push({ u, accept: init && init.headers && init.headers.accept });
@@ -127,35 +142,39 @@ globalThis.fetch = async (u, init) => {
   if (u.startsWith("https://nsidisseminate-stat.nbb.be/")) return new Response("DATAFLOW,FREQ,IROLOBE2_MATUR,IROLOBE2_TYPE,TIME_PERIOD,OBS_VALUE\n" + D.map((d, i) => `BE2:DF_IROLOBE2(1.0),D,10Y,F,${d},${(3 + i / 1000).toFixed(3)}`).join("\n"));
   if (u.startsWith("https://api.stlouisfed.org/")) {
     const p = new URL(u).searchParams; if (p.get("api_key") !== KEYF) return new Response("{}", { status: 400 });
-    const id = p.get("series_id"), base = { IRLTLT01ITM156N: 3.6, IRLTLT01DEM156N: 2.7, IRLTLT01USM156N: 4.3, DGS10: 4.1 }[id];
+    const id = p.get("series_id"), base = { IRLTLT01FRM156N: 3.6, IRLTLT01DEM156N: 2.7, IRLTLT01USM156N: 4.3, DGS10: 4.1 }[id];
     if (id === "IRLTLT01XXM156N" || base == null) return new Response(JSON.stringify({ observations: [] }));
     const mon = id.startsWith("IRLTLT"), obs = mon ? ["2026-06-01", "2026-07-01", "2026-08-01"].map((d, i) => ({ date: d, value: (base + i / 10).toFixed(2) })) : D.slice(-30).map((d) => ({ date: d, value: String(base) }));
     return new Response(JSON.stringify({ observations: obs.reverse() }));
   }
+  if (u.startsWith("https://a2a.bancaditalia.it/")) return new Response(zipStored("20261009_165410-TIMESERIES-MULTICUBE.csv", BDI_HEAD + "\n" + D.slice(-60).reverse().map((d) => `"${d.replace(/-/g, "/")}";"";"3.70";"4.00";"4.50";"5.10";"3.40"`).join("\n") + "\n"));
   if (u.startsWith("https://api.statistiken.bundesbank.de/")) return new Response("x," + "BBSIS.D.I.ZAR.ZI.EUR.S1311.B.A604.R10XX.R.A.A._Z._Z.A\n" + D.map((d) => `${d},2.70`).join("\n"));
   return new Response("", { status: 404 });
 };
 const call = async (path, env) => { const r = await worker.fetch(new Request("https://alessandrozanichelli.com" + path), env, ctx); const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch {} return { status: r.status, j, text }; };
 const env = { ALLOWED_ORIGIN: "https://alessandrozanichelli.com", FRED_KEY: KEYF };
-let r = await call("/api/yields?ids=ES,BE,IT,ZZ", env);
-const ES = r.j && r.j.curves.ES, BEc = r.j && r.j.curves.BE, IT = r.j && r.j.curves.IT;
+let r = await call("/api/yields?ids=ES,BE,FR,ZZ", env);
+const ES = r.j && r.j.curves.ES, BEc = r.j && r.j.curves.BE, FR = r.j && r.j.curves.FR;
 ok("/api/yields?ids=: Spain and Belgium daily with past curves; unknown ids dropped", r.status === 200 && ES && BEc && !r.j.curves.ZZ && ES.timestamp === "2026-10-06" && ES.past["1W"] && ES.past["1Y"] && BEc.points.find((p) => p.tenor === "10Y").value === 3.399, JSON.stringify(r.j).slice(0, 400));
 ok("/api/yields?ids=: Spain's 10Y spread vs the Bund on the same day (Bundesbank) and vs the U.S. (FRED)", ES.spreads.DE && ES.spreads.DE.date === "2026-10-06" && ES.spreads.DE.bp === Math.round((4.399 - 2.7) * 1000) / 10 && ES.spreads.US && ES.spreads.US.bp === Math.round((4.399 - 4.1) * 1000) / 10, JSON.stringify(ES.spreads));
-ok("/api/yields?ids=: Italy = OECD monthly average via FRED, month-dated, spread vs the German and U.S. averages of the same month; no 'a week ago' for a monthly series", IT.freq === "M" && IT.timestamp === "2026-08-01" && IT.points[0].value === 3.8 && !IT.past["1W"] && IT.past["1M"].date === "2026-07-01" && IT.spreads.DE.bp === 90 && IT.spreads.DE.date === "2026-08-01" && IT.spreads.US.bp === -70 && /MONTHLY AVERAGE/.test(IT.kind), JSON.stringify(IT));
+ok("/api/yields?ids=: France = OECD monthly average via FRED, month-dated, spread vs the German and U.S. averages of the same month; no 'a week ago' for a monthly series", FR.freq === "M" && FR.timestamp === "2026-08-01" && FR.points[0].value === 3.8 && !FR.past["1W"] && FR.past["1M"].date === "2026-07-01" && FR.spreads.DE.bp === 90 && FR.spreads.DE.date === "2026-08-01" && FR.spreads.US.bp === -70 && /MONTHLY AVERAGE/.test(FR.kind), JSON.stringify(FR));
 ok("/api/yields?ids=: Belgium asked for SDMX CSV; the FRED key only in requests to FRED, never in the response", calls.some((c) => c.u.includes("nbb.be") && /sdmx\.data\+csv/.test(c.accept || "")) && calls.some((c) => c.u.includes(KEYF) && c.u.includes("api.stlouisfed.org")) && !r.text.includes(KEYF));
 r = await call("/api/yields?ids=", env);
 ok("/api/yields?ids= with nothing valid → 400", r.status === 400);
 r = await call("/api/yields/history?id=ES&tenor=10Y", env);
 ok("/api/yields/history: Spain 10Y about a year of daily publications, oldest first", r.status === 200 && r.j.points.length >= 250 && r.j.points[0][0] < r.j.points[r.j.points.length - 1][0] && r.j.freq === "D", JSON.stringify(r.j).slice(0, 200));
-r = await call("/api/yields/history?id=IT", env);
-ok("/api/yields/history: Italy monthly averages", r.status === 200 && r.j.freq === "M" && r.j.points.length === 3 && r.j.tenor === "10Y");
+r = await call("/api/yields/history?id=FR", env);
+ok("/api/yields/history: France monthly averages", r.status === 200 && r.j.freq === "M" && r.j.points.length === 3 && r.j.tenor === "10Y");
+r = await call("/api/yields?ids=IT", env);
+const IT = r.j && r.j.curves.IT;
+ok("/api/yields?ids=IT: Banca d'Italia's zipped file → daily 3/5/10/30Y, dated, past curves, 10Y spread vs the Bund on the same day", r.status === 200 && IT && IT.freq === "D" && IT.timestamp === "2026-10-06" && IT.points.map((p) => p.tenor).join() === "3Y,5Y,10Y,30Y" && IT.points.find((p) => p.tenor === "10Y").value === 4.5 && IT.past["1W"] && IT.spreads.DE && IT.spreads.DE.bp === 180 && IT.spreads.DE.date === "2026-10-06" && IT.source === "Banca d'Italia", JSON.stringify(r.j).slice(0, 500));
 r = await call("/api/yields/history?id=XX", env);
 ok("/api/yields/history: unknown id → 400", r.status === 400);
 r = await call("/api/yields/catalog", env);
 ok("/api/yields/catalog: the full list without contacting any source", r.status === 200 && r.j.catalog.length === YIELD_IDS.length);
 calls = []; store = new Map();
-r = await call("/api/yields?ids=IT", { ALLOWED_ORIGIN: env.ALLOWED_ORIGIN });
-ok("/api/yields?ids=IT without FRED_KEY → N/A naming the missing secret", r.status === 502 && r.j.errors.IT.error === "fred_not_configured");
+r = await call("/api/yields?ids=FR", { ALLOWED_ORIGIN: env.ALLOWED_ORIGIN });
+ok("/api/yields?ids=FR without FRED_KEY → N/A naming the missing secret", r.status === 502 && r.j.errors.FR.error === "fred_not_configured");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
