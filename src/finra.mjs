@@ -21,15 +21,23 @@ const n = (v) => { const x = Number(v); return v == null || v === "" || !Number.
 // OTC securities are left out of the market-wide list (exchange-listed only)
 export const isListed = (m) => !!m && !/^(OTC|PINX|OTCBB|OTHER|U)$/i.test(String(m));
 
+// a query with a field list is retried once without it (the full rows), should FINRA refuse the list
 async function finraQuery(body, fetchImpl = fetch) {
+  const r = await finraQuery1(body, fetchImpl);
+  if (r.err && body.fields && r.err !== "provider_timeout" && r.err !== "provider_unreachable") { const { fields, ...rest } = body; const r2 = await finraQuery1(rest, fetchImpl); return r2.err ? { ...r2, detail: r2.detail || r.detail } : r2; }
+  return r;
+}
+async function finraQuery1(body, fetchImpl = fetch) {
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), 20000);
   try {
     const r = await fetchImpl(FINRA_SI, { method: "POST", signal: ac.signal, headers: { "user-agent": UA, accept: "application/json", "content-type": "application/json" }, body: JSON.stringify(body) });
     const t = await r.text();
     if (r.status === 429) return { err: "rate_limited" };
-    if (!r.ok) return { err: r.status === 404 ? "no_data" : "provider_error", http: r.status };
-    let j; try { j = JSON.parse(t); } catch { return { err: "provider_error" }; }
-    return Array.isArray(j) ? { data: j } : { err: "provider_error" };
+    // FINRA's own reason, shortened (it names the field or filter it refused)
+    const why = () => String(t || "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
+    if (!r.ok) return { err: r.status === 404 ? "no_data" : "provider_error", http: r.status, detail: why() };
+    let j; try { j = JSON.parse(t); } catch { return { err: "provider_error", detail: why() }; }
+    return Array.isArray(j) ? { data: j } : { err: "provider_error", detail: why() };
   } catch { return { err: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" }; } finally { clearTimeout(timer); }
 }
 // FINRA row → [sym, name, short, previous short, change %, avg daily volume, days to cover, market]
@@ -65,33 +73,35 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const f = deps.fetch || fetch, now = deps.now || Date.now(), p = url.pathname;
   if (p === "/api/finra/shorts") {
-    const r = await cachedSource({ origin: url.origin, key: "finra/si/top", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+    let detail = null;
+    const r = await cachedSource({ origin: url.origin, key: "finra/si/top2", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
       const last = await finraQuery({ limit: 1, fields: ["settlementDate"], sortFields: ["-settlementDate"] }, f);
-      if (last.err || !last.data.length) return { err: last.err || "no_data" };
+      if (last.err || !last.data.length) { detail = last.detail || null; return { err: last.err || "no_data" }; }
       const date = String(last.data[0].settlementDate || "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { err: "provider_error" };
       const q = await finraQuery({ limit: 2500, fields: FIELDS, sortFields: ["-currentShortPositionQuantity"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: date }] }, f);
-      if (q.err) return { err: q.err };
+      if (q.err) { detail = q.detail || null; return { err: q.err }; }
       const rows = q.data.map(compactSi).filter((x) => x[0] && x[2] != null && isListed(x[7]));
       return rows.length ? { data: { date, rows } } : { err: "no_data" };
     } });
-    if (!r.data) return send({ status: "N/A", error: r.err, ...SRC }, 502);
+    if (!r.data) return send({ status: "N/A", error: r.err, ...(detail ? { detail } : {}), ...SRC }, 502);
     return send({ settlementDate: r.data.date, cols: ["symbol", "name", "shortInterest", "previous", "changePct", "avgDailyVolume", "daysToCover", "market"], rows: r.data.rows, ...SRC,
       basis: "FINRA consolidated short interest: shares short as of the settlement date (reported by brokers, published about 8 business days later), the previous settlement's figure, FINRA's average daily volume and days to cover; exchange-listed securities, the 2,500 largest positions", status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
   }
   if (p === "/api/finra/symbol") {
     const sym = String(url.searchParams.get("sym") || "").trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
-    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
+    let detail = null;
+    const si = await cachedSource({ origin: url.origin, key: `finra/si/sym2/${sym}`, ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
       const q = await finraQuery({ limit: 26, fields: FIELDS, sortFields: ["-settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "symbolCode", fieldValue: sym }] }, f);
-      if (q.err) return { err: q.err };
+      if (q.err) { detail = q.detail || null; return { err: q.err }; }
       const rows = q.data.map((x) => ({ date: String(x.settlementDate || "").slice(0, 10), short: n(x.currentShortPositionQuantity), previous: n(x.previousShortPositionQuantity), changePct: n(x.changePercent), adv: n(x.averageDailyVolumeQuantity), days: n(x.daysToCoverQuantity) === DAYS_UNDEFINED ? null : n(x.daysToCoverQuantity) })).filter((x) => x.date && x.short != null);
       return rows.length ? { data: rows } : { err: "no_data" };
     } });
     // short sale volume: the last 5 published sessions among the last 8 weekdays (a day not yet published is skipped)
     const days = recentWeekdays(now, 8), vol = [];
     for (const d of days) { if (vol.length >= 5) break; const t = await shvolFile(url.origin, d, f); if (!t) continue; const x = shvolLine(t, d, sym); if (x) vol.push(x); }
-    return send({ sym, shortInterest: si.data || [], shortInterestError: si.data ? null : si.err, shortVolume: vol, ...SRC,
+    return send({ sym, shortInterest: si.data || [], shortInterestError: si.data ? null : si.err, ...(detail ? { shortInterestDetail: detail } : {}), shortVolume: vol, ...SRC,
       basis: "short interest: FINRA consolidated short interest (settlement dates); short volume: FINRA Reg SHO daily files — short sales reported to FINRA's trade reporting facilities as a share of the volume reported there, not of all exchanges' volume",
       status: si.data || vol.length ? (si.cache === "STALE" ? "STALE" : "LIVE") : "N/A" }, si.data || vol.length ? 200 : 502);
   }
