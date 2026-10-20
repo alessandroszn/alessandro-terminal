@@ -36,6 +36,7 @@ async function finraQuery1(body, fetchImpl = fetch) {
     // FINRA's own reason, shortened (it names the field or filter it refused)
     const why = () => String(t || "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
     if (!r.ok) return { err: r.status === 404 ? "no_data" : "provider_error", http: r.status, detail: why() };
+    if (r.status === 204 || !String(t || "").trim()) return { data: [] }; // a date with nothing published: FINRA answers with no content
     let j; try { j = JSON.parse(t); } catch { return { err: "provider_error", detail: why() }; }
     return Array.isArray(j) ? { data: j } : { err: "provider_error", detail: why() };
   } catch { return { err: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" }; } finally { clearTimeout(timer); }
@@ -88,7 +89,7 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
   const f = deps.fetch || fetch, now = deps.now || Date.now(), p = url.pathname;
   if (p === "/api/finra/shorts") {
     let detail = null; const steps = [];
-    const r = await cachedSource({ origin: url.origin, key: "finra/si/top5", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 60_000, ctx, load: async () => {
+    const r = await cachedSource({ origin: url.origin, key: "finra/si/top6", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 15 * 60_000, ctx, load: async () => {
       let date = null;
       for (const c of settlementCandidates(now).slice(0, 10)) {
         const one = await finraQuery({ limit: 1, fields: ["settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: c }] }, f);

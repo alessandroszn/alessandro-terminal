@@ -67,7 +67,7 @@ const finraBodies = [], PUBLISHED = new Date(Date.now() - 14 * 86400_000).toISOS
 function finraAnswer(b) {
   finraBodies.push(b);
   // a settlement date is "published" once it is 14 days old (FINRA publishes about 8 business days later)
-  if (b.limit === 1) { const d = b.compareFilters[0].fieldValue; return new Response(JSON.stringify(d <= PUBLISHED ? [{ settlementDate: d }] : [])); }
+  if (b.limit === 1) { const d = b.compareFilters[0].fieldValue; return d <= PUBLISHED ? new Response(JSON.stringify([{ settlementDate: d }])) : new Response(null, { status: 204 }); } // FINRA: no content for a date not published
   if ((b.compareFilters || []).some((f) => f.fieldName === "symbolCode")) return new Response(JSON.stringify([{ ...FINRA_ROWS[0], symbolCode: "AAPL", currentShortPositionQuantity: 120763539, daysToCoverQuantity: 3.03 }, { ...FINRA_ROWS[0], symbolCode: "AAPL", settlementDate: "2026-09-15", currentShortPositionQuantity: 128753092, daysToCoverQuantity: 2.85 }]));
   return new Response(JSON.stringify(FINRA_ROWS));
 }
