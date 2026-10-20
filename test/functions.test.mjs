@@ -67,7 +67,7 @@ const spOld = spotRow("RWTC", "WTI", "$/bbl", [["2024-04-04", 85], ["2024-04-05"
 ok("spotRow: a spot series that stopped (last price 2024) → N/A with its last date, not a value", spOld.status === "N/A" && spOld.error === "source_discontinued" && spOld.lastDate === "2024-04-05" && spOld.value === undefined);
 
 // ---------- routed handlers with mocked providers ----------
-const seen = []; let eiaWeeklyDown = false;
+const seen = []; let eiaWeeklyDown = false, eiaAllDown = false;
 const ENERGY_ROWS = (series, n) => ({ response: { data: series.flatMap((s, k) => Array.from({ length: n }, (_, i) => ({ period: `2026-${String(8 + Math.floor(i / 28)).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`, series: s, value: 60 + k + i / 100 }))) } });
 globalThis.fetch = async (u, o = {}) => {
   u = String(u); seen.push({ u, h: o.headers || {} });
@@ -77,6 +77,7 @@ globalThis.fetch = async (u, o = {}) => {
   if (u.startsWith("https://data.snb.ch/")) { if (!/fromDate=\d{4}-\d{2}-\d{2}/.test(u)) return new Response("whole cube", { status: 200 }); return new Response("", { status: 503 }); }
   if (u.startsWith("https://www.bankofcanada.ca/")) return new Response(JSON.stringify(BOC));
   if (u.includes("/YC/")) return new Response(sp);
+  if (u.startsWith("https://api.eia.gov/v2/") && eiaAllDown) return new Response("", { status: 500 });
   if (u.startsWith("https://api.eia.gov/v2/") && new URL(u).searchParams.get("frequency") === "weekly") {
     const q = new URL(u).searchParams, ser = q.getAll("facets[series][]"), len = Number(q.get("length"));
     if (eiaWeeklyDown && u.includes("/natural-gas/")) return new Response("", { status: 500 });
@@ -115,11 +116,36 @@ ok("/api/energy/stocks: nine rows in order, LIVE; one request per EIA route (4),
 ok("/api/energy/stocks: crude in M bbl with the week's change, vs a year ago and vs the 5-year average", st0.WCESTUS1.value === 409.2 && st0.WCESTUS1.chgWeek === 3.2 && st0.WCESTUS1.vsYearAgo === 4.2 && st0.WCESTUS1.avg5 === 403 && st0.NW2_EPG0_SWO_R48_BCF.unit === "Bcf" && st0.NW2_EPG0_SWO_R48_BCF.value === 3500 && st0.WPULEUS3.value === 90.1);
 ok("/api/energy/stocks: the response says what is DERIVED and links EIA's report; the key never in it", /DERIVED/.test(r.j.basis) && r.j.sourceUrl.startsWith("https://www.eia.gov/") && !r.text.includes(KEY_EIA) && wk.every((x) => x.u.includes(KEY_EIA)));
 ok("/api/energy/stocks: the cache keeps derived rows (about 60 weeks each), not five years of raw weeks", r.j.rows.every((x) => !x.history || x.history.length <= 60));
-eiaWeeklyDown = true; Date.now = () => NOW_W + 7 * 3600_000; // past the 6-hour TTL: the gas route fails now, the petroleum routes refresh
+eiaWeeklyDown = true; Date.now = () => NOW_W + 9 * 3600_000; // past the 8-hour TTL: the gas route fails now, the petroleum routes refresh
 r = await call("/api/energy/stocks", undefined, envE);
 const gasRow = r.j && r.j.rows.find((x) => x.series === "NW2_EPG0_SWO_R48_BCF");
 ok("/api/energy/stocks: one route failing after a good load → its last copy STALE, the response says STALE", r.status === 200 && r.j.status === "STALE" && gasRow.value === 3500);
-Date.now = realNowS; eiaWeeklyDown = false;
+eiaWeeklyDown = false;
+// ---------- EIA staging: the 5-minute scheduled run fetches one EIA table at a time into KV; pages read KV, never EIA ----------
+const kvE = new Map(), KVE = { get: async (k) => kvE.get(k) ?? null, put: async (k, v) => { kvE.set(k, v); } }, envK = { ...envE, BRIEFS: KVE };
+const eiaCalls = () => seen.filter((x) => x.u.startsWith("https://api.eia.gov/")).length;
+Date.now = () => NOW_W; let n0 = eiaCalls();
+r = await call("/api/energy/stocks", undefined, envK);
+ok("staging: a page with nothing staged yet → N/A not_staged (the page says why), no EIA call", r.status === 502 && r.j.status === "N/A" && r.j.error === "not_staged" && /scheduled run/.test(r.j.note) && eiaCalls() === n0);
+const { refreshEia, EIA_UNITS } = await import("../src/macro.mjs");
+const acts = []; n0 = eiaCalls();
+for (let k = 0; k < EIA_UNITS.length; k++) acts.push((await refreshEia(envK, NOW_W)).action);
+ok("staging: refreshEia fetches one EIA table per run (2 spot + 4 weekly routes) and writes it to KV under stage/", EIA_UNITS.length === 6 && acts.every((a) => a === "refreshed") && EIA_UNITS.every((u) => kvE.has("stage/" + u.key)) && eiaCalls() - n0 === 6);
+ok("staging: what KV keeps is the derived rows for the weekly tables, never the key", JSON.parse(kvE.get("stage/eia/stocks2/petroleum/stoc/wstk")).data.WCESTUS1.value === 409.2 && ![...kvE.values()].some((v) => v.includes(KEY_EIA)));
+ok("staging: every table renewed less than 4 h ago → the run fetches nothing", (await refreshEia(envK, NOW_W + 3600_000)).action === "fresh" && eiaCalls() - n0 === 6);
+n0 = eiaCalls();
+r = await call("/api/energy/stocks", undefined, envK);
+ok("staging: the page serves the staged copy LIVE without calling EIA", r.status === 200 && r.j.status === "LIVE" && r.j.rows[0].value === 409.2 && eiaCalls() === n0);
+r = await call("/api/energy", undefined, envK);
+ok("staging: /api/energy reads the staged EIA spot table too (no EIA call)", r.status === 200 && /EIA\) — daily spot prices/.test(r.j.source) && eiaCalls() === n0);
+eiaAllDown = true; const before = kvE.get("stage/eia/spot/petroleum/pri/spt");
+const fr = await refreshEia(envK, NOW_W + 5 * 3600_000);
+ok("staging: EIA failing → nothing written (the last copy stays), retried at the next run", fr.action === "failed" && fr.key === "eia/spot/petroleum/pri/spt" && kvE.get("stage/eia/spot/petroleum/pri/spt") === before);
+Date.now = () => NOW_W + 9 * 3600_000;
+r = await call("/api/energy/stocks", undefined, envK);
+ok("staging: a staged copy older than 8 h is shown STALE, not LIVE", r.j.status === "STALE" && r.j.rows[0].value === 409.2);
+ok("staging: without EIA_KEY the scheduled run does nothing", (await refreshEia({ BRIEFS: KVE }, NOW_W)).action === "skipped");
+Date.now = realNowS; eiaAllDown = false;
 ok("/api/energy: the EIA key travels only in the server's request to EIA, never in the response", seen.some((x) => x.u.includes("api.eia.gov") && x.u.includes(KEY_EIA)) && !r.text.includes(KEY_EIA));
 
 // ---------- earnings ----------

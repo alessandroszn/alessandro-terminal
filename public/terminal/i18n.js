@@ -234,7 +234,7 @@
     ["Watchlist — add/remove symbols (saved on this device)", "Watchlist — aggiungi/rimuovi simboli (salvata su questo dispositivo)"],
     ["major exchanges open now (Twelve Data market_state)", "borse principali aperte ora (Twelve Data market_state)"], ["next high-impact event (Forex Factory)", "prossimo evento ad alto impatto (Forex Factory)"],
     ["Open now:", "Aperte ora:"], ["edition for", "edizione del"],
-    ["EIA API key not set in the Worker", "chiave API EIA non impostata nel Worker"], ["the source no longer publishes this series", "la fonte non pubblica più questa serie"], ["Finnhub API key not set in the Worker", "chiave API Finnhub non impostata nel Worker"],
+    ["EIA API key not set in the Worker", "chiave API EIA non impostata nel Worker"], ["the source no longer publishes this series", "la fonte non pubblica più questa serie"], ["not fetched yet by the scheduled run", "non ancora scaricato dal processo programmato"], ["Finnhub API key not set in the Worker", "chiave API Finnhub non impostata nel Worker"],
     ["not an SEC registrant", "non registrata alla SEC"], ["no price for the underlying", "nessun prezzo per il sottostante"], ["no listed options", "nessuna opzione quotata"],
     ["server storage not configured", "archivio del server non configurato"], ["request from another site refused", "richiesta da un altro sito rifiutata"], ["invalid request", "richiesta non valida"],
   ];

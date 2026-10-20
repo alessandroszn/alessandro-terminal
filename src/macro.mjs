@@ -10,7 +10,9 @@
 //                        storage), refinery utilization and crude production: latest week, weekly change, vs a year ago and
 //                        vs the 5-year average for that week (DERIVED). Needs EIA_KEY.
 // Every value is the institution's published figure with its date; nothing is filled in between publications.
-import { fetchText, cachedSource, parseCsv, iso } from "./lib.mjs";
+// EIA answers keyed data requests slowly (15–30 s, measured 21 Oct 2026 from the Worker): pages never wait on it. The
+// 5-minute scheduled run (refreshEia) fetches one EIA request at a time into Workers KV; pages read that copy.
+import { fetchText, cachedSource, parseCsv, iso, kvStore } from "./lib.mjs";
 import { fredSeries } from "./yields.mjs";
 
 // a published value or nothing: an empty cell is missing, never zero
@@ -132,9 +134,10 @@ export function parseEia(j) {
   for (const k of Object.keys(out)) out[k].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   return out;
 }
-async function eiaLoad(env, route, series, length, freq = "daily") {
+const EIA_TIMEOUT_MS = 45000; // scheduled runs only: they can wait
+async function eiaLoad(env, route, series, length, freq = "daily", timeoutMs = 15000) {
   if (!env.EIA_KEY) return { err: "eia_not_configured" };
-  const f = await fetchText(eiaUrl(route, series, env.EIA_KEY, length, freq), { timeoutMs: 15000, headers: { accept: "application/json" } });
+  const f = await fetchText(eiaUrl(route, series, env.EIA_KEY, length, freq), { timeoutMs, headers: { accept: "application/json" } });
   if (f.err) return { err: f.http === 403 ? "provider_auth" : f.err };
   let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
   if (j && j.error) return { err: "provider_error" };
@@ -155,26 +158,36 @@ const fredEnergy = (origin, env, ctx) => cachedSource({ origin, key: "fred/energ
     const d = {}; EIA_SPOT.forEach(([, s], i) => { if (res[i].data) d[s] = res[i].data; });
     return Object.keys(d).length ? { data: d } : { err: res.map((x) => x.err).find(Boolean) || "no_data" };
   } });
-const eiaSpot = (origin, env, ctx) => Promise.all([...new Set(EIA_SPOT.map(([r]) => r))].map((route) => cachedSource({ origin, key: `eia/spot/${route}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: () => eiaLoad(env, route, EIA_SPOT.filter(([r]) => r === route).map(([, s]) => s), 600) })));
+const SPOT_ROUTES = [...new Set(EIA_SPOT.map(([r]) => r))];
+const spotLoad = (env, route, timeoutMs) => eiaLoad(env, route, EIA_SPOT.filter(([r]) => r === route).map(([, s]) => s), 600, "daily", timeoutMs);
+// a page reads the copy the scheduled run keeps in KV (never calls EIA); a scheduled run (ctx.store) may load, and wait
+const eiaReadCtx = (env, ctx) => (ctx && ctx.store ? ctx : env.BRIEFS ? { store: kvStore(env.BRIEFS), readOnly: true } : ctx);
+const eiaSpot = (origin, env, ctx) => Promise.all(SPOT_ROUTES.map((route) => cachedSource({ origin, key: `eia/spot/${route}`, ttlMs: EIA_FRESH_MS, staleMaxMs: 10 * 86400_000, ctx: eiaReadCtx(env, ctx), failTtlMs: 15 * 60_000,
+  load: () => spotLoad(env, route, ctx && ctx.store ? EIA_TIMEOUT_MS : 15000) })));
 // the EIA daily spot prices (EIA with EIA_KEY, otherwise the same series on FRED): one row per series, each with its own date
 export async function getEnergySpot(origin, env, ctx) {
   if (env.EIA_KEY) {
     const res = await eiaSpot(origin, env, ctx), d = Object.assign({}, ...res.map((r) => r.data || {}));
-    if (!Object.keys(d).length) return { err: (res.find((r) => r.err) || {}).err || "no_data" };
+    const eiaErr = (res.find((r) => r.err) || {}).err || "no_data";
+    if (!Object.keys(d).length && !env.FRED_KEY) return { err: eiaErr };
+    if (!Object.keys(d).length) { const f = await fredSpot(origin, env, ctx); return f.spot ? { ...f, eiaError: eiaErr } : f; } // EIA unreachable: the same series on FRED
     const ok = res.filter((r) => r.data);
     return { spot: EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, d[s], s)), source: "U.S. Energy Information Administration (EIA) spot prices", sourceUrl: "https://www.eia.gov/opendata/",
       fetchedAt: Math.min(...ok.map((r) => r.fetchedAt)), cache: ok.some((r) => r.cache === "STALE") ? "STALE" : "HIT", partialError: res.find((r) => r.err && !r.data)?.err };
   }
   if (!env.FRED_KEY) return { err: "eia_not_configured" };
+  return fredSpot(origin, env, ctx);
+}
+async function fredSpot(origin, env, ctx) {
   const r = await fredEnergy(origin, env, ctx);
   if (!r.data) return { err: r.err };
   return { spot: EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, r.data[s], EIA_ON_FRED[s])), source: "U.S. Energy Information Administration (EIA) spot prices, via FRED", sourceUrl: "https://fred.stlouisfed.org/",
     fetchedAt: r.fetchedAt, cache: r.cache, viaFred: true };
 }
-async function energyFromFred(url, env, ctx, send) {
-  const e = await getEnergySpot(url.origin, env, ctx);
+async function energyFromFred(url, env, ctx, send, eiaError) {
+  const e = eiaError ? await fredSpot(url.origin, env, ctx) : await getEnergySpot(url.origin, env, ctx);
   if (!e.spot) return send({ error: e.err, status: "N/A" }, 502);
-  return send({ spot: e.spot, futures: EIA_FUTURES_NOTE, source: e.source, sourceUrl: e.sourceUrl, basis: "EIA publishes with a lag of about a week; dates are the price dates",
+  return send({ spot: e.spot, futures: EIA_FUTURES_NOTE, source: e.source, sourceUrl: e.sourceUrl, basis: "EIA publishes with a lag of about a week; dates are the price dates", ...(eiaError ? { eiaError } : {}),
     fetchedAt: iso(e.fetchedAt), status: e.cache === "STALE" ? "STALE" : "LIVE" });
 }
 // ---------- weekly inventories (EIA Weekly Petroleum Status Report, Weekly Natural Gas Storage Report) ----------
@@ -190,6 +203,7 @@ export const EIA_STOCKS = [
   ["petroleum/pnp/wiup", "WPULEUS3", "Refinery utilization", "%", 1, "rate"],
   ["petroleum/sum/sndw", "WCRFPUS2", "Crude oil production", "M b/d", 1000, "rate"],
 ];
+const EIA_FRESH_MS = 8 * 3600_000, EIA_REFRESH_MS = 4 * 3600_000; // a staged copy is LIVE for 8 h; the scheduled run renews it after 4 h
 const DAY_MS = 86400_000, STOCK_WEEKS = 275; // five years of weeks (261) plus a margin: enough for the 5-year average
 // the observation nearest to a date (within 4 days), for "a year ago" and the same week of earlier years
 // (ts holds the observations' times, computed once: a few hundred Date.parse per series, not thousands)
@@ -205,8 +219,8 @@ export function stockRow(series, name, unit, div, kind, x, now = Date.now()) {
     avg5: avg5 == null ? null : v(avg5), vsAvg5Pct: avg5 && kind === "stock" ? Math.round((last / avg5 - 1) * 1000) / 10 : null, history: x.slice(-60).map(([dd, y]) => [dd, v(y)]) };
 }
 // one EIA route → its rows, already derived: the cache keeps ~60 points per series, not five years of raw weeks
-async function loadStockRoute(env, route) {
-  const defs = EIA_STOCKS.filter(([r]) => r === route), r = await eiaLoad(env, route, defs.map(([, s]) => s), STOCK_WEEKS * defs.length, "weekly");
+async function loadStockRoute(env, route, timeoutMs = 15000) {
+  const defs = EIA_STOCKS.filter(([r]) => r === route), r = await eiaLoad(env, route, defs.map(([, s]) => s), STOCK_WEEKS * defs.length, "weekly", timeoutMs);
   if (!r.data) return r;
   const out = {};
   for (const [, s, name, unit, div, kind] of defs) if (r.data[s]) out[s] = stockRow(s, name, unit, div, kind, r.data[s]);
@@ -216,15 +230,34 @@ export async function handleEnergyStocks(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (!env.EIA_KEY) return send({ error: "eia_not_configured", status: "N/A", message: "EIA API key not set in the Worker (EIA_KEY)" }, 503);
   const routes = [...new Set(EIA_STOCKS.map(([r]) => r))];
-  const res = await Promise.all(routes.map((route) => cachedSource({ origin: url.origin, key: `eia/stocks2/${route}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
+  const res = await Promise.all(routes.map((route) => cachedSource({ origin: url.origin, key: `eia/stocks2/${route}`, ttlMs: EIA_FRESH_MS, staleMaxMs: 14 * 86400_000, ctx: eiaReadCtx(env, ctx), failTtlMs: 15 * 60_000,
     load: () => loadStockRoute(env, route) })));
   const d = Object.assign({}, ...res.map((r) => r.data || {})), errors = {};
   routes.forEach((r, i) => { if (!res[i].data) errors[r] = res[i].err; });
   const rows = EIA_STOCKS.map(([, s, name, unit]) => d[s] || { series: s, name, unit, status: "N/A", error: "no_data" });
   const ok = rows.some((r) => r.value != null);
-  return send({ rows, errors, source: "U.S. Energy Information Administration (EIA) — Weekly Petroleum Status Report, Weekly Natural Gas Storage Report", sourceUrl: "https://www.eia.gov/petroleum/supply/weekly/",
+  return send({ rows, errors, ...(ok ? {} : { error: Object.values(errors)[0] || "no_data" }), source: "U.S. Energy Information Administration (EIA) — Weekly Petroleum Status Report, Weekly Natural Gas Storage Report", sourceUrl: "https://www.eia.gov/petroleum/supply/weekly/",
     basis: "levels as EIA publishes them for the week ending on the date shown (released Wednesdays for petroleum, Thursdays for natural gas); weekly change, change from a year earlier and the 5-year average for the same week are DERIVED from EIA's own series",
+    ...(Object.values(errors).includes("not_staged") ? { note: "EIA answers slowly: the scheduled run fetches each EIA table every few minutes until all are in" } : {}),
     status: !ok ? "N/A" : res.some((r) => r.cache === "STALE") ? "STALE" : Object.keys(errors).length ? "PARTIAL" : "LIVE" }, ok ? 200 : 502);
+}
+
+// ---------- scheduled refresh (the 5-minute run): the most overdue EIA table, one request per run ----------
+export const EIA_UNITS = [
+  ...SPOT_ROUTES.map((route) => ({ key: `eia/spot/${route}`, load: (env) => spotLoad(env, route, EIA_TIMEOUT_MS) })),
+  ...[...new Set(EIA_STOCKS.map(([r]) => r))].map((route) => ({ key: `eia/stocks2/${route}`, load: (env) => loadStockRoute(env, route, EIA_TIMEOUT_MS) })),
+];
+// one EIA request per run (CPU: one payload parsed per invocation); a failure writes nothing and is retried next run
+export async function refreshEia(env, now = Date.now()) {
+  if (!env.EIA_KEY || !env.BRIEFS) return { action: "skipped" };
+  const store = kvStore(env.BRIEFS), ent = await Promise.all(EIA_UNITS.map((u) => store.get(u.key)));
+  const ages = ent.map((e) => (e && e.data && Number.isFinite(e.fetchedAt) ? now - e.fetchedAt : Infinity));
+  let i = -1; ages.forEach((a, k) => { if (a >= EIA_REFRESH_MS && (i < 0 || a > ages[i])) i = k; });
+  if (i < 0) return { action: "fresh" };
+  const r = await EIA_UNITS[i].load(env);
+  if (!r || !r.data) return { action: "failed", key: EIA_UNITS[i].key, err: (r && r.err) || "provider_error" };
+  await store.put(EIA_UNITS[i].key, { data: r.data, fetchedAt: Date.now() }, 3 * 86400);
+  return { action: "refreshed", key: EIA_UNITS[i].key };
 }
 
 export async function handleEnergy(url, env, ctx, H, json) {
@@ -233,6 +266,7 @@ export async function handleEnergy(url, env, ctx, H, json) {
   if (!env.EIA_KEY) return send({ error: "eia_not_configured", status: "N/A", message: "EIA API key not set in the Worker (EIA_KEY)" }, 503);
   const spotRes = await eiaSpot(url.origin, env, ctx);
   const spotData = Object.assign({}, ...spotRes.map((r) => r.data || {}));
+  if (!Object.keys(spotData).length && env.FRED_KEY) return energyFromFred(url, env, ctx, send, (spotRes.find((r) => r.err) || {}).err || "no_data"); // EIA unreachable: FRED's copy
   const spot = EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, spotData[s], s));
   const anyErr = spotRes.find((r) => r.err && !r.data), ok = spotRes.filter((r) => r.data);
   return send({ spot, futures: EIA_FUTURES_NOTE, source: "U.S. Energy Information Administration (EIA) — daily spot prices", sourceUrl: "https://www.eia.gov/opendata/", basis: "EIA publishes with a lag of about a week; dates are the price dates",

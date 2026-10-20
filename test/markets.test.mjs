@@ -49,6 +49,15 @@ const realNowM = Date.now; Date.now = () => Date.parse("2026-10-08T12:00:00Z"); 
 r = await call("/api/energy", env);
 Date.now = realNowM;
 ok("/api/energy without EIA_KEY but with FRED: the EIA spot series from FRED (holiday '.' skipped), futures N/A (EIA stopped publishing them)", r.status === 200 && /via FRED/.test(r.j.source) && r.j.spot[0].series === "DCOILWTICO" && r.j.spot[0].value === 96.24 && r.j.spot[0].date === "2026-10-06" && Math.abs(r.j.spot[0].chg1 - (96.24 / 96.13 - 1) * 100) < 1e-9 && r.j.spot.find((x) => x.series === "DJFUELUSGULF").status === "N/A" && r.j.futures.status === "N/A" && r.j.futures.error === "source_discontinued" && !r.j.curves && !r.text.includes(KEYF), r.text.slice(0, 400));
+Date.now = () => Date.parse("2026-10-08T12:00:00Z"); calls = [];
+r = await call("/api/energy", { ...env, EIA_KEY: "eia-k-123" });
+Date.now = realNowM;
+ok("/api/energy with EIA_KEY but EIA not answering: the same series from FRED, the EIA error named, the key in neither response", r.status === 200 && /via FRED/.test(r.j.source) && r.j.eiaError && r.j.spot[0].value === 96.24 && calls.some((u) => u.startsWith("https://api.eia.gov/")) && !r.text.includes("eia-k-123") && !r.text.includes(KEYF));
+Date.now = () => Date.parse("2026-10-08T12:00:00Z"); calls = [];
+const kvM = new Map();
+r = await call("/api/energy", { ...env, EIA_KEY: "eia-k-123", BRIEFS: { get: async (k) => kvM.get(k) ?? null, put: async (k, v) => { kvM.set(k, v); } } });
+Date.now = realNowM;
+ok("/api/energy with EIA_KEY, nothing staged yet: FRED's copy right away (eiaError not_staged), the page never waits on EIA", r.status === 200 && /via FRED/.test(r.j.source) && r.j.eiaError === "not_staged" && !calls.some((u) => u.startsWith("https://api.eia.gov/")));
 r = await call("/api/energy", { ALLOWED_ORIGIN: env.ALLOWED_ORIGIN });
 ok("/api/energy with neither key → 503 eia_not_configured", r.status === 503 && r.j.error === "eia_not_configured");
 
