@@ -13,7 +13,7 @@ import { getUniverse, getCloses, alpacaConfigured, refTarget } from "./spx.mjs";
 import { getYieldCurves, CURVES } from "./yields.mjs";
 import { BRIEF_CURVES } from "./briefs.mjs";
 import { getWorldCalendar, getCalendar, archiveFF, archivedFF } from "./calendar.mjs";
-import { getPress, PRESS } from "./press.mjs";
+import { getPress, PRESS, BRIEF_PRESS } from "./press.mjs";
 import { INDICES, getIndexGroup, getIndexHistory } from "./indices.mjs";
 import { getEcbFx, ecbFxKey, getImf, IMF_KEY } from "./markets.mjs";
 import { getEnergySpot } from "./macro.mjs";
@@ -33,7 +33,7 @@ export function stepsFor(periods) {
   if (has("weekly")) s.push("ref:1W");
   if (has("monthly")) s.push("ref:1M");
   if (long) s.push("fxdaily");
-  s.push("yields", ...BRIEF_CURVES.filter((id) => id !== "US" && id !== "EA").map((id) => "bonds:" + id), "calendar", ...Object.keys(PRESS).map((id) => "press:" + id));
+  s.push("yields", ...BRIEF_CURVES.filter((id) => id !== "US" && id !== "EA").map((id) => "bonds:" + id), "calendar", ...BRIEF_PRESS.map((id) => "press:" + id));
   // markets (20 Oct 2026): world indices, the ECB fixing, energy, crypto pairs; for a week / a month also each U.S. / MSCI
   // index's daily history (one file per minute) and the crypto closes a week / a month ago; IMF prices monthly
   s.push("idx:eu", "idx:sec", "idx:sec2", "idx:asia", "idx:world", "ecbfx", "energy", "crypto");
@@ -66,7 +66,7 @@ const closesKey = (now) => `spx/closes/recent/${easternDate(new Date(now))}`;
 const utcDay = (now) => new Date(now).toISOString().slice(0, 10);
 // the staged copy of one index: its own source, or the FRED close standing in for Cboe
 const idxKeys = (ix) => ({ cboe: [`idx/q/${ix.id}`, ...(ix.fred ? [`idx/fred/${ix.fred}`] : [])], stoxx: [`idx/stoxx/${ix.file}`], nikkei: ["idx/nikkei"], fred: [`idx/fred/${ix.series}`],
-  six: [`idx/six/q/${ix.id}`], sse: [`idx/sse/q/${ix.id}`], b3: [`idx/b3/h/${ix.id}`], asx: [`idx/asx/${ix.id}`] })[ix.src] || [];
+  six: [`idx/six/q/${ix.id}`], sse: [`idx/sse/q/${ix.id}`], b3: [`idx/b3/h/${ix.id}`], asx: [`idx/asx/${ix.id}`], cnbc: [`idx/cnbc/q/${ix.g}`] })[ix.src] || [];
 const anyFresh = async (store, keys, minAt) => (await Promise.all(keys.map((k) => store.get(k)))).some((e) => fresh(e, minAt));
 const fresh = (e, minAt) => !!(e && (e.data || e.rec) && e.fetchedAt >= minAt);
 

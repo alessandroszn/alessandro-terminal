@@ -21,6 +21,7 @@
 // A group stays small (≤ 12 fetches with the FRED stand-ins) so one request keeps within the Worker's limits.
 import { fetchText, cachedSource, parseCsv, iso, easternToUtc } from "./lib.mjs";
 import { fredSeries } from "./yields.mjs";
+import { loadCnbcQuotes, cnbcBarsUrl, cnbcNum } from "./cnbc.mjs";
 
 export const CBOE_Q = (sym) => `https://cdn-api.cboe.com/api/global/delayed_quotes/quotes/${sym}.json`;
 export const CBOE_H = (sym) => `https://cdn-api.cboe.com/api/global/delayed_quotes/charts/historical/${sym}.json`;
@@ -29,12 +30,14 @@ export const NIKKEI_URL = "https://indexes.nikkei.co.jp/nkave/historical/nikkei_
 const HIST_ROWS = 2600; // ten years of sessions
 
 // one request per group: a group stays within the Worker's limits (≤ 12 fetches with the FRED stand-ins, ≤ 50 cache calls)
-export const GROUPS = [["us", "United States"], ["vol", "Volatility (Cboe)"], ["eu", "Europe"],
+export const GROUPS = [["us", "United States"], ["vol", "Volatility (Cboe)"], ["eu", "Europe"], ["eu2", "Europe — more markets"],
   ["sec", "Europe · STOXX 600 sectors — financials, technology, health, staples"], ["sec2", "Europe · STOXX 600 sectors — energy, materials, industrials, cyclicals"],
   ["asia", "Asia-Pacific"], ["world", "Americas & global"]];
 const cb = (id, g, name, sym, ccy, owner, extra = {}) => ({ id, g, name, ccy, src: "cboe", sym, owner, ...extra });
 const sx = (id, g, name, file, owner = "STOXX") => ({ id, g, name, ccy: "EUR", src: "stoxx", file, owner });
 const sec = (g, code, name) => sx(code, g, `STOXX Europe 600 ${name}`, `h_3m${code.toLowerCase()}`);
+// CNBC quote service (approved 20 Oct 2026, "CNBC for markets"): indices without a free official source
+const cn = (id, g, name, sym, ccy, owner) => ({ id, g, name, ccy, src: "cnbc", sym, owner });
 export const INDICES = [
   { id: "SPX", g: "us", name: "S&P 500", ccy: "USD", src: "cboe", sym: "_SPX", fred: "SP500", owner: "S&P Dow Jones Indices" },
   { id: "NDX", g: "us", name: "Nasdaq-100", ccy: "USD", src: "cboe", sym: "_NDX", fred: "NASDAQ100", owner: "Nasdaq" },
@@ -70,14 +73,28 @@ export const INDICES = [
   { id: "XJO", g: "asia", name: "S&P/ASX 200", ccy: "AUD", src: "asx", code: "xjo", owner: "S&P Dow Jones Indices" },
   { id: "SHCOMP", g: "asia", name: "SSE Composite", ccy: "CNY", src: "sse", code: "000001", owner: "China Securities Index Co. (SSE)" },
   { id: "CSI300", g: "asia", name: "CSI 300", ccy: "CNY", src: "sse", code: "000300", owner: "China Securities Index Co." },
+  cn("UKX", "eu", "FTSE 100", ".FTSE", "GBP", "FTSE Russell"), cn("CAC", "eu", "CAC 40", ".FCHI", "EUR", "Euronext"), cn("FTSEMIB", "eu", "FTSE MIB", ".FTMIB", "EUR", "FTSE Russell (Borsa Italiana)"),
+  cn("AEX", "eu", "AEX", ".AEX", "EUR", "Euronext"),
+  cn("MCX", "eu2", "FTSE 250", ".FTMC", "GBP", "FTSE Russell"), cn("ASX", "eu2", "FTSE All-Share", ".FTAS", "GBP", "FTSE Russell"), cn("SBF120", "eu2", "SBF 120", ".SBF120", "EUR", "Euronext"),
+  cn("SDAX", "eu2", "SDAX", ".SDAXI", "EUR", "STOXX (DAX index family)"), cn("BEL20", "eu2", "BEL 20", ".BFX", "EUR", "Euronext"), cn("PSI", "eu2", "PSI", ".PSI20", "EUR", "Euronext"),
+  cn("ISEQ", "eu2", "ISEQ All-Share", ".ISEQ", "EUR", "Euronext Dublin"), cn("OMXS30", "eu2", "OMX Stockholm 30", ".OMXS30", "SEK", "Nasdaq"),
+  cn("OSEBX", "eu2", "Oslo Børs Benchmark", ".OSEBX", "NOK", "Euronext Oslo"), cn("XU100", "eu2", "BIST 100", ".XU100", "TRY", "Borsa Istanbul"),
+  cn("HSI", "asia", "Hang Seng", ".HSI", "HKD", "Hang Seng Indexes"), cn("HSCEI", "asia", "Hang Seng China Enterprises", ".HSCE", "HKD", "Hang Seng Indexes"),
+  cn("KOSPI", "asia", "KOSPI", ".KS11", "KRW", "Korea Exchange"), cn("NIFTY", "asia", "Nifty 50", ".NSEI", "INR", "NSE Indices"),
+  cn("TAIEX", "asia", "TAIEX", ".TWII", "TWD", "Taiwan Stock Exchange"), cn("STI", "asia", "Straits Times", ".STI", "SGD", "FTSE Russell (SPH, SGX)"),
+  cn("KLCI", "asia", "FTSE Bursa Malaysia KLCI", ".KLSE", "MYR", "FTSE Russell (Bursa Malaysia)"), cn("SET", "asia", "SET Index", ".SET", "THB", "Stock Exchange of Thailand"),
+  cn("NZ50", "asia", "S&P/NZX 50", ".NZ50", "NZD", "S&P Dow Jones Indices (NZX)"),
   { id: "IBOV", g: "world", name: "Ibovespa", ccy: "BRL", src: "b3", sym: "IBOV", owner: "B3" },
+  cn("TSX", "world", "S&P/TSX Composite", ".GSPTSE", "CAD", "S&P Dow Jones Indices (TMX)"), cn("IPC", "world", "S&P/BMV IPC", ".MXX", "MXN", "S&P Dow Jones Indices (BMV)"),
+  cn("COLCAP", "world", "MSCI COLCAP", ".COLCAP", "COP", "MSCI (BVC)"), cn("TA125", "world", "TA-125", ".TA125", "ILS", "Tel Aviv Stock Exchange"),
+  cn("DXY", "world", "ICE U.S. Dollar Index (DXY)", ".DXY", "", "ICE"), cn("RUA", "us", "Russell 3000", ".RUA", "USD", "FTSE Russell"),
   cb("MXEA", "world", "MSCI EAFE", "_MXEA", "USD", "MSCI"),
   cb("MXEF", "world", "MSCI Emerging Markets", "_MXEF", "USD", "MSCI"),
   cb("MXACW", "world", "MSCI ACWI", "_MXACW", "USD", "MSCI"),
 ];
 // [id, name, group, reason]
-export const NOT_CONNECTED = [["UKX", "FTSE 100", "eu"], ["CAC", "CAC 40", "eu"], ["FTSEMIB", "FTSE MIB", "eu"], ["HSI", "Hang Seng", "asia"], ["KOSPI", "KOSPI", "asia"],
-  ["NIFTY", "Nifty 50", "asia", "NSE refuses requests from the server (checked 20 Oct 2026)"], ["TSX", "S&P/TSX Composite", "world"]];
+// since 20 Oct 2026 the indices without a free official source come from CNBC's quote service (above); none left out
+export const NOT_CONNECTED = [];
 const NC_REASON = "no free official source";
 const SRC = {
   cboe: { name: "Cboe (15-min delayed)", url: "https://www.cboe.com/us/indices/" },
@@ -88,6 +105,7 @@ const SRC = {
   sse: { name: "Shanghai Stock Exchange (delayed)", url: "https://english.sse.com.cn/" },
   b3: { name: "B3 (daily close)", url: "https://www.b3.com.br/en_us/market-data-and-indices/indices/" },
   asx: { name: "ASX (≥20-min delayed, no time)", url: "https://www.asx.com.au/markets/trade-our-cash-market/overview/indices" },
+  cnbc: { name: "CNBC quote service (market data)", url: "https://www.cnbc.com/world-markets/" },
 };
 // approved 20 Oct 2026 (exchange websites' own data services; not documented APIs — N/A whenever they refuse)
 export const SIX_SNAP = (valor) => `https://www.six-group.com/fqs/snap.json?select=ValorId,ClosingPrice,ClosingPerformance,ClosingDelta,PreviousClosingPrice,MarketDate,MarketTime&where=ValorId=${valor}`;
@@ -298,10 +316,35 @@ const asxRow = (url, ctx, ix) => cache(url, ctx, `idx/asx/${ix.id}`, 60_000, 7 *
   const q = parseAsx(h.j, k.err ? null : k.j); return q ? { data: q } : { err: "no_data" };
 }, 2 * 60_000);
 
+// CNBC: one request for every CNBC index of a group (one cache entry); daily bars with open/high/low/close for the history
+const cnbcGroup = (url, ctx, g) => cache(url, ctx, `idx/cnbc/q/${g}`, 60_000, 7 * DAY, () => loadCnbcQuotes(INDICES.filter((x) => x.g === g && x.src === "cnbc").map((x) => x.sym)), 60_000);
+export function parseCnbcDaily(j) {
+  const bars = j && j.barData && Array.isArray(j.barData.priceBars) ? j.barData.priceBars : [], out = [];
+  for (const b of bars) { const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(b && b.tradeTime || "")), c = cnbcNum(b && b.close); if (m && c != null && c > 0) out.push([`${m[1]}-${m[2]}-${m[3]}`, cnbcNum(b.open), cnbcNum(b.high), cnbcNum(b.low), c]); }
+  out.sort(byDate);
+  return out.filter((x, i) => i === 0 || x[0] !== out[i - 1][0]).slice(-HIST_ROWS);
+}
+const cnbcHist = (url, ctx, ix) => cache(url, ctx, `idx/cnbc/h/${ix.id}`, 6 * 3600_000, 14 * DAY, async () => {
+  const now = Date.now(), f = await fetchText(cnbcBarsUrl(ix.sym, "1D", now - 3653 * DAY, now + DAY), { timeoutMs: 20000, headers: { accept: "application/json" } });
+  if (f.err) return { err: f.err };
+  let rows; try { rows = parseCnbcDaily(JSON.parse(f.text)); } catch { return { err: "provider_error" }; }
+  return rows.length ? { data: rows } : { err: "no_data" };
+});
+export function cnbcIndexRow(q) {
+  if (!q) return null;
+  return { last: q.last, prev: q.prev, chg: q.chg, chgPct: q.chgPct, open: q.open, high: q.high, low: q.low, asOf: iso(q.time), date: nyDate(q.time), realTime: q.realTime, venue: q.venue, note: null };
+}
+
 const base = (ix) => ({ id: ix.id, name: ix.name, group: ix.g, ccy: ix.ccy, owner: ix.owner });
 // one index: its primary source, or for Cboe the FRED close when Cboe does not answer
-async function indexRow(url, env, ctx, ix, now) {
+async function indexRow(url, env, ctx, ix, now, cq) {
   const stale = (r) => r.cache === "STALE";
+  if (ix.src === "cnbc") {
+    const r = cq || { err: "no_data" }, q = r.data && cnbcIndexRow(r.data[ix.sym]);
+    if (!q) return { ...base(ix), source: SRC.cnbc.name, sourceUrl: SRC.cnbc.url, status: "N/A", error: r.err || "no_data" };
+    return { ...base(ix), ...q, kind: q.realTime ? "realtime" : "delayed", delayMin: null, source: SRC.cnbc.name + (q.venue ? ` · ${q.venue}` : ""), sourceUrl: SRC.cnbc.url,
+      status: stale(r) || tooOld(q.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
+  }
   if (ix.src === "cboe") {
     const r = await cboeQuote(url, ctx, ix);
     if (r.data) return { ...base(ix), ...r.data, kind: "delayed", delayMin: 15, source: SRC.cboe.name, sourceUrl: SRC.cboe.url, derived: !!ix.scale,
@@ -331,8 +374,8 @@ async function indexRow(url, env, ctx, ix, now) {
 }
 
 export async function getIndexGroup(url, env, ctx, g, now = Date.now()) {
-  const list = INDICES.filter((x) => x.g === g);
-  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now)));
+  const list = INDICES.filter((x) => x.g === g), cq = list.some((x) => x.src === "cnbc") ? await cnbcGroup(url, ctx, g) : null;
+  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now, cq)));
 }
 
 export async function getIndexHistory(url, env, ctx, ix) {
@@ -346,6 +389,7 @@ export async function getIndexHistory(url, env, ctx, ix) {
   else if (ix.src === "six") { r = await sixHist(url, ctx, ix); source = "SIX (daily closes)"; sourceUrl = SRC.six.url; }
   else if (ix.src === "sse") { r = await sseHist(url, ctx, ix); source = "Shanghai Stock Exchange (daily)"; sourceUrl = SRC.sse.url; }
   else if (ix.src === "b3") { r = await b3Hist(url, ctx, ix); source = "B3 (daily closes)"; sourceUrl = SRC.b3.url; note = "B3 publishes the daily closes one year at a time: this year and the last one are kept"; }
+  else if (ix.src === "cnbc") { r = await cnbcHist(url, ctx, ix); source = "CNBC (daily bars)"; sourceUrl = SRC.cnbc.url; note = "CNBC's daily bars, dated as CNBC dates them"; }
   else if (ix.src === "asx") return { ...base(ix), source: SRC.asx.name, sourceUrl: SRC.asx.url, status: "N/A", error: "no_history", note: "ASX publishes no free history" };
   else { r = await fredIdx(url, env, ctx, ix.series); source = `FRED · ${ix.owner} (daily close)`; sourceUrl = fredUrlOf(ix.series); }
   if (!r.data) return { ...base(ix), source, sourceUrl, status: "N/A", error: r.err || "no_data" };
@@ -374,4 +418,4 @@ export async function handleIndices(url, env, ctx, H, json) {
   const ok = rows.some((r) => r.status !== "N/A");
   return send({ group: g, indices: rows, notConnected: NOT_CONNECTED.filter((x) => x[2] === g).map(([id, name, , why]) => ({ id, name, reason: why || NC_REASON })), basis: BASIS, status: ok ? "LIVE" : "N/A" }, ok ? 200 : 502);
 }
-const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, volatility indices, MSCI EAFE, EM and ACWI), STOXX and Nikkei daily closes, SIX 15-minute delayed (SMI, SPI, IBEX 35), Shanghai Stock Exchange (SSE Composite, CSI 300), B3 daily close (Ibovespa), ASX (S&P/ASX 200, no time published), FRED daily closes; changes against the previous close (DERIVED where computed); the index providers reserve redistribution — shown only in this private terminal";
+const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, volatility indices, MSCI EAFE, EM and ACWI), STOXX and Nikkei daily closes, SIX 15-minute delayed (SMI, SPI, IBEX 35), Shanghai Stock Exchange (SSE Composite, CSI 300), B3 daily close (Ibovespa), ASX (S&P/ASX 200, no time published), CNBC's quote service (FTSE, CAC, FTSE MIB, Hang Seng, KOSPI, Nifty, TSX and the other markets without a free official source; market data with CNBC's time), FRED daily closes; changes against the previous close (DERIVED where computed); the index providers reserve redistribution — shown only in this private terminal";

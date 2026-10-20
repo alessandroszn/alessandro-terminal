@@ -37,6 +37,20 @@ export const PRESS = {
     name: "MarketWatch", home: "https://www.marketwatch.com/",
     feeds: [["Top stories", "https://feeds.content.dowjones.io/public/rss/mw_topstories"]],
   },
+  // added 20 Oct 2026 (approved: "More news RSS"); the NEWS window only — the briefing keeps BRIEF_PRESS below.
+  // Reuters has no public RSS feed any more (its agency feed answers 404 to the Worker, 20 Oct 2026): not listed.
+  CNBC: {
+    name: "CNBC", home: "https://www.cnbc.com/",
+    feeds: [["Top news", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"], ["Finance", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]],
+  },
+  ECONOMIST: {
+    name: "The Economist", home: "https://www.economist.com/",
+    feeds: [["Finance & economics", "https://www.economist.com/finance-and-economics/rss.xml"], ["Business", "https://www.economist.com/business/rss.xml"]],
+  },
+  SOLE: {
+    name: "Il Sole 24 Ore", home: "https://www.ilsole24ore.com/",
+    feeds: [["Finanza", "https://www.ilsole24ore.com/rss/finanza.xml"], ["Economia", "https://www.ilsole24ore.com/rss/economia.xml"], ["Mondo", "https://www.ilsole24ore.com/rss/mondo.xml"]],
+  },
   // official releases: each feed is its own institution (the section names it)
   CB: {
     name: "Central banks", home: null,
@@ -49,6 +63,8 @@ export const PRESS = {
     feedName: { Fed: "Federal Reserve", "Fed speeches": "Federal Reserve", ECB: "European Central Bank", BoE: "Bank of England" },
   },
 };
+// the sources the briefing reads (and the scheduled runs stage): the original five
+export const BRIEF_PRESS = ["FT", "BLOOMBERG", "WSJ", "MARKETWATCH", "CB"];
 // the name to show for one item: the institution for central banks, the publisher otherwise
 export const pressSourceName = (id, section) => (PRESS[id].feedName && PRESS[id].feedName[section]) || PRESS[id].name;
 
@@ -103,7 +119,7 @@ export async function getPress(origin, ctx, id) {
 }
 
 // headlines from every listed source, newest first, each named by its publisher / institution
-export async function topHeadlines(origin, ctx, limit = 40, ids = Object.keys(PRESS)) {
+export async function topHeadlines(origin, ctx, limit = 40, ids = BRIEF_PRESS) {
   const per = await Promise.all(ids.map((id) => getPress(origin, ctx, id).then((feeds) => feeds.filter((f) => f.data).map((f) => f.data.map((x) => ({ ...x, source: pressSourceName(id, x.section), provider: id }))))));
   return mergeHeadlines(per.flat(), limit);
 }

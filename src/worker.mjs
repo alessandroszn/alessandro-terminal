@@ -1,6 +1,8 @@
 // Alessandro Terminal — data proxy (Cloudflare Worker)
 //   GET /api/yields | /api/calendar | /api/news | /api/briefing   (T05, see src/*.mjs)
 //   GET /api/yields/market[/past|/history]  intraday market yields (src/mktyields.mjs)
+//   GET /api/cnbc/futures|returns|curve|implied|history   futures and markets from CNBC (src/cnbc.mjs)
+//   GET /api/nasdaq/calendar|screener|movers   Nasdaq (src/nasdaq.mjs) · GET /api/reddit   ApeWisdom (src/reddit.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
@@ -16,6 +18,9 @@
 import { handleYields } from "./yields.mjs";
 import { handleMarketYields } from "./mktyields.mjs";
 import { handleCbWorld } from "./cbworld.mjs";
+import { handleCnbc } from "./cnbc.mjs";
+import { handleNasdaq } from "./nasdaq.mjs";
+import { handleReddit } from "./reddit.mjs";
 import { handleCalendar } from "./calendar.mjs";
 import { handleNews } from "./news.mjs";
 import { handleBriefing } from "./briefing.mjs";
@@ -554,6 +559,9 @@ export const app = {
     if (url.pathname === "/api/briefs" || url.pathname.startsWith("/api/briefs/")) return handleBriefs(url, env, ctx, H, json, req);
     if (url.pathname === "/api/cb") return handleCentralBanks(url, env, ctx, H, json);
     if (url.pathname === "/api/cb/world" || url.pathname === "/api/cb/history") return handleCbWorld(url, env, ctx, H, json);
+    if (url.pathname.startsWith("/api/cnbc/")) return handleCnbc(url, env, ctx, H, json);
+    if (url.pathname.startsWith("/api/nasdaq/")) return handleNasdaq(url, env, ctx, H, json);
+    if (url.pathname === "/api/reddit") return handleReddit(url, env, ctx, H, json);
     if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);

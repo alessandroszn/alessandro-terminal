@@ -48,7 +48,7 @@ ok("a daily value older than five days is no longer the latest", !tooOld("2026-1
 // files, shared by its indices; a Cboe index with a FRED stand-in: two)
 const FETCHES = { cboe: 1, stoxx: 1, nikkei: 1, fred: 1, six: 1, sse: 1, b3: 2, asx: 2 };
 const budget = (g) => INDICES.filter((x) => x.g === g).reduce((a, x) => a + (FETCHES[x.src] || 0) + (x.fred ? 1 : 0), 0);
-ok("catalog: every index in one group; each group within the Worker's limits (≤ 12 fetches); not-connected ones named", INDICES.every((x) => GROUPS.some(([g]) => g === x.g)) && GROUPS.every(([g]) => budget(g) <= 12) && new Set(INDICES.map((x) => x.id)).size === INDICES.length && NOT_CONNECTED.map((x) => x[1]).join() === "FTSE 100,CAC 40,FTSE MIB,Hang Seng,KOSPI,Nifty 50,S&P/TSX Composite" && /NSE refuses/.test(NOT_CONNECTED.find((x) => x[0] === "NIFTY")[3]), GROUPS.map(([g]) => g + ":" + budget(g)).join());
+ok("catalog: every index in one group; each group within the Worker's limits (≤ 12 fetches); not-connected ones named", INDICES.every((x) => GROUPS.some(([g]) => g === x.g)) && GROUPS.every(([g]) => budget(g) <= 12) && new Set(INDICES.map((x) => x.id)).size === INDICES.length && NOT_CONNECTED.length === 0 && ["UKX", "CAC", "FTSEMIB", "HSI", "KOSPI", "NIFTY", "TSX", "DXY"].every((id) => INDICES.find((x) => x.id === id && x.src === "cnbc")), GROUPS.map(([g]) => g + ":" + budget(g)).join());
 
 // ---------- exchange websites (approved 20 Oct 2026; fixtures in each source's own format, values from real responses) ----------
 const six = parseSixSnap({ colNames: ["ValorId", "ClosingPrice", "ClosingPerformance", "ClosingDelta", "PreviousClosingPrice", "MarketDate", "MarketTime"], rowData: [["CH0009980894CHF9", 14478.37, 0.76, 109.59, 14368.78, 20261020, 194538]] });
@@ -74,8 +74,12 @@ const NOW = new Date(), todayNY = NOW.toLocaleDateString("en-CA", { timeZone: "A
 const ago = (n) => ymd(new Date(Date.now() - n * 86400_000));
 let calls = [], cboeDown = new Set();
 const nyClock = (t) => new Date(t).toLocaleString("sv-SE", { timeZone: "America/New_York" }).replace(" ", "T");
+// CNBC quote service: every symbol answers, except .KS11 (KOSPI) which CNBC reports with code 1 in this test
+const cnbcQ = (sym) => sym === ".KS11" ? { symbol: sym, code: 1 } : { symbol: sym, code: 0, name: sym, last: sym === ".FTSE" ? "10,733.00" : "1,234.50", previous_day_closing: sym === ".FTSE" ? "10,700.00" : "1,230.00", change: sym === ".FTSE" ? "+33.00" : "+4.50", change_pct: sym === ".FTSE" ? "+0.31%" : "+0.37%", open: "10,690.00", high: "10,750.00", low: "10,680.00", last_time: new Date(Date.now() - 3600_000).toISOString().replace("Z", "+0000"), exchange: "FTSE International", realTime: "false", curmktstatus: "POST_MKT" };
 globalThis.fetch = async (u) => {
   u = String(u); calls.push(u);
+  if (u.startsWith("https://quote.cnbc.com/")) { const syms = decodeURIComponent(/symbols=([^&]+)/.exec(u)[1]).split("|"); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.map(cnbcQ) } })); }
+  if (u.startsWith("https://ts-api.cnbc.com/")) return new Response(JSON.stringify({ barData: { priceBars: [3, 2, 1].map((n, i) => ({ open: String(10600 + i), high: String(10650 + i), low: String(10550 + i), close: String(10620 + i * 10), tradeTime: ago(n).replace(/-/g, "") + "000000", tradeTimeinMills: Date.parse(ago(n)) })) } }));
   const m = /cdn-api\.cboe\.com\/api\/global\/delayed_quotes\/(quotes|charts\/historical)\/(_[A-Z]+)\.json$/.exec(u);
   if (m) {
     if (cboeDown.has(m[2])) return new Response("denied", { status: 403 });
@@ -98,7 +102,7 @@ const call = async (path, env) => { const r = await worker.fetch(new Request("ht
 const env = { ALLOWED_ORIGIN: "https://alessandrozanichelli.com", FRED_KEY: KEYF };
 
 let r = await call("/api/indices", env);
-ok("GET /api/indices: the catalog only (no source called)", r.status === 200 && r.j.groups.length === 7 && r.j.groups[0].indices[0].id === "SPX" && r.j.notConnected.length === 7 && r.j.notConnected.find((x) => x.id === "NIFTY").reason.startsWith("NSE refuses") && calls.length === 0);
+ok("GET /api/indices: the catalog only (no source called)", r.status === 200 && r.j.groups.length === 8 && r.j.groups[0].indices[0].id === "SPX" && r.j.notConnected.length === 0 && calls.length === 0);
 r = await call("/api/indices?g=us", env);
 const by = (id) => r.j.indices.find((x) => x.id === id);
 ok("US group: Cboe delayed rows LIVE with time, the Dow DERIVED (DJX × 100), the Nasdaq Composite from FRED (close)", r.status === 200 && by("SPX").status === "LIVE" && by("SPX").kind === "delayed" && by("SPX").delayMin === 15 && by("SPX").date === todayNY && by("DJI").status === "DERIVED" && by("DJI").last === 51232 && /DJX/.test(by("DJI").note) && by("COMP").kind === "close" && by("COMP").last === 27500 && by("COMP").prev === 27450 && by("COMP").date === ago(1) && /FRED/.test(by("COMP").source), JSON.stringify(r.j).slice(0, 600));
@@ -110,11 +114,12 @@ store = new Map();
 r = await call("/api/indices?g=us", { ...env, FRED_KEY: undefined });
 ok("without FRED: S&P 500 N/A too, the Nasdaq Composite N/A (fred_not_configured)", by("SPX").status === "N/A" && by("COMP").status === "N/A" && by("COMP").error === "fred_not_configured" && by("NDX").status === "LIVE");
 r = await call("/api/indices?g=eu", env);
-ok("Europe: STOXX closes, change DERIVED from the previous close; a file that is not the data → N/A; not-connected ones listed", by("SX5E").last === 101.5 && by("SX5E").chg === 1.5 && by("SX5E").chgPct === 1.5 && by("SX5E").kind === "close" && by("SX5E").status === "LIVE" && by("MDAX").status === "N/A" && r.j.notConnected.map((x) => x.name).join() === "FTSE 100,CAC 40,FTSE MIB");
+ok("Europe: STOXX closes, change DERIVED from the previous close; a file that is not the data → N/A; not-connected ones listed", by("SX5E").last === 101.5 && by("SX5E").chg === 1.5 && by("SX5E").chgPct === 1.5 && by("SX5E").kind === "close" && by("SX5E").status === "LIVE" && by("MDAX").status === "N/A" && r.j.notConnected.length === 0);
+ok("Europe: FTSE 100, CAC 40, FTSE MIB, AEX from CNBC's quote service in one request — level, change and CNBC's time, market data", by("UKX").last === 10733 && by("UKX").prev === 10700 && by("UKX").chg === 33 && by("UKX").chgPct === 0.31 && by("UKX").status === "LIVE" && /CNBC quote service.* · FTSE International/.test(by("UKX").source) && by("UKX").kind === "delayed" && by("FTSEMIB").last === 1234.5 && calls.filter((u) => u.startsWith("https://quote.cnbc.com/") && u.includes(".FTSE")).length === 1, JSON.stringify(by("UKX")));
 ok("Europe: SMI and IBEX 35 from SIX (15-min delayed snapshot, change DERIVED); a valor SIX does not return → N/A", by("SMI").last === 14478.37 && by("SMI").kind === "delayed" && by("SMI").delayMin === 15 && by("SMI").status === "LIVE" && by("SMI").chg === 109.59 && by("IBEX").last === 19092.4 && by("IBEX").prev === 19039.3 && by("SPI").status === "N/A", JSON.stringify(by("SPI")));
 r = await call("/api/indices?g=asia", env);
 ok("Asia-Pacific: Nikkei with open/high/low; SSE Composite and CSI 300 from the Shanghai Stock Exchange; S&P/ASX 200 PARTIAL (no time); Nifty 50 not connected with its reason",
-  by("N225").last === 70035.71 && by("N225").open === 70582.11 && by("SHCOMP").last === 3735.3704 && by("SHCOMP").status === "LIVE" && by("CSI300").kind === "delayed" && by("XJO").status === "PARTIAL" && by("XJO").asOf === null && by("XJO").chg === -28.8 && r.j.notConnected.some((x) => x.name === "Nifty 50" && /NSE refuses/.test(x.reason)), JSON.stringify(r.j.indices.map((x) => [x.id, x.status, x.error])));
+  by("N225").last === 70035.71 && by("N225").open === 70582.11 && by("SHCOMP").last === 3735.3704 && by("SHCOMP").status === "LIVE" && by("CSI300").kind === "delayed" && by("XJO").status === "PARTIAL" && by("XJO").asOf === null && by("XJO").chg === -28.8 && by("NIFTY").status === "LIVE" && by("HSI").last === 1234.5 && by("KOSPI").status === "N/A", JSON.stringify(r.j.indices.map((x) => [x.id, x.status, x.error])));
 r = await call("/api/indices?g=world", env);
 ok("Americas & global: Ibovespa = B3's daily close (its quote service refuses the server), change DERIVED from the close before; MSCI EAFE / EM / ACWI from Cboe", by("IBOV").last === 205096.23 && by("IBOV").prev === 204000 && by("IBOV").kind === "close" && by("IBOV").status === "LIVE" && !calls.some((u) => u.includes("cotacao.b3")) && by("MXEA").kind === "delayed" && by("MXEF").status === "LIVE" && by("MXACW").last === 629, JSON.stringify(by("IBOV")));
 r = await call("/api/indices?g=zz", env);
@@ -136,7 +141,9 @@ ok("history (ASX): none published → N/A no_history, said so", r.status === 502
 r = await call("/api/indices/history?id=RUT", env);
 ok("history: Cboe refused and no stand-in → 502 N/A", r.status === 502 && r.j.status === "N/A" && !r.j.points);
 r = await call("/api/indices/history?id=FTSEMIB", env);
-ok("history of an index without a source → 400", r.status === 400);
+ok("history of a CNBC index: daily bars with open/high/low/close, oldest first, labelled as CNBC dates them", r.status === 200 && r.j.fields === "ohlc" && r.j.points.length === 3 && r.j.points[2][4] === 10640 && /CNBC/.test(r.j.source) && /dated as CNBC/.test(r.j.note), JSON.stringify(r.j).slice(0, 300));
+r = await call("/api/indices/history?id=NOPE", env);
+ok("history of an unknown index → 400", r.status === 400);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

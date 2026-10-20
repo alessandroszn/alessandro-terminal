@@ -29,7 +29,7 @@ const merged = mergeHeadlines([[{ title: "x", url: "https://a/1?utm=1", timestam
 ok("merge: newest first, duplicates across sections removed", merged.length === 2 && merged[0].title === "y" && merged[1].title === "x");
 ok("feeds: FT and Bloomberg sections defined on the publishers' own domains", PRESS.FT.feeds.every(([, u]) => u.startsWith("https://www.ft.com/")) && PRESS.BLOOMBERG.feeds.every(([, u]) => u.startsWith("https://feeds.bloomberg.com/")));
 ok("feeds: WSJ and MarketWatch from Dow Jones' own public feeds; central banks from their official sites only", [...PRESS.WSJ.feeds, ...PRESS.MARKETWATCH.feeds].every(([, u]) => u.startsWith("https://feeds.content.dowjones.io/public/rss/")) && PRESS.CB.feeds.every(([, u]) => /^https:\/\/www\.(federalreserve\.gov|ecb\.europa\.eu|bankofengland\.co\.uk)\//.test(u)));
-ok("no wire / aggregator source (GDELT removed): only the listed publishers and central banks", Object.keys(PRESS).join() === "FT,BLOOMBERG,WSJ,MARKETWATCH,CB" && !JSON.stringify(PRESS).includes("gdelt"));
+ok("no wire / aggregator source (GDELT removed): only the listed publishers and central banks (CNBC, The Economist, Il Sole 24 Ore added 20 Oct 2026)", Object.keys(PRESS).join() === "FT,BLOOMBERG,WSJ,MARKETWATCH,CNBC,ECONOMIST,SOLE,CB" && !JSON.stringify(PRESS).includes("gdelt") && !/reuters/i.test(JSON.stringify(PRESS)));
 ok("central-bank items are named by institution", pressSourceName("CB", "Fed speeches") === "Federal Reserve" && pressSourceName("CB", "ECB") === "European Central Bank" && pressSourceName("CB", "BoE") === "Bank of England" && pressSourceName("WSJ", "Markets") === "The Wall Street Journal");
 
 let failing = new Set(), calls = [];
