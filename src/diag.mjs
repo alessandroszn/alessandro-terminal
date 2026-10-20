@@ -52,6 +52,17 @@ export async function handleDiag(url, env, ctx, H, json) {
     }
     const r = json({ n: CNBC_ALL.length, got: Object.keys(out).length, first, out }, H); r.headers.set("cache-control", "no-store"); return r;
   }
+  if (url.searchParams.get("off") === "1") {
+    const out = {};
+    const names = (buf) => { const dv = new DataView(buf), n = buf.byteLength; let e = -1; for (let i = n - 22; i >= Math.max(0, n - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; } if (e < 0) return []; const c = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = []; for (let k = 0; k < c; k++) { const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true); out.push(new TextDecoder().decode(new Uint8Array(buf, p + 46, nl))); p += 46 + nl + xl + cl; } return out; };
+    try {
+      const r = await fetch(URLS.bdi, { headers: { "user-agent": UA, accept: "*/*" } }); const buf = await r.arrayBuffer(); const list = names(buf);
+      const csv = list.find((x) => /\.csv$/i.test(x)); const { unzipEntry } = await import("./lib.mjs"); const t = csv ? await unzipEntry(buf, csv) : null;
+      out.bdi = { status: r.status, size: buf.byteLength, list, len: t && t.length, head: t && t.slice(0, 2500), tail: t && t.slice(-1200) };
+    } catch (e) { out.bdi = { error: String(e && e.message) }; }
+    try { const r = await fetch(URLS.snbRss, { headers: { "user-agent": UA, accept: "*/*" } }); const t = await r.text(); out.snb = { status: r.status, size: t.length, items: [...t.matchAll(/<item[\s\S]*?<\/item>/g)].slice(0, 6).map((m) => m[0].slice(0, 900)) }; } catch (e) { out.snb = { error: String(e && e.message) }; }
+    const r = json(out, H); r.headers.set("cache-control", "no-store"); return r;
+  }
   if (url.searchParams.get("bis") === "1") {
     const out = {};
     for (const [k, u] of Object.entries(BIS)) {
