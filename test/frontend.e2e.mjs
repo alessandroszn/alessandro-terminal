@@ -896,6 +896,7 @@ const OK_API = {
   ok("[H] CMDTY: U.S. weekly inventories (EIA) — level, unit, w/w, vs a year ago, vs the 5-year average (% for stocks, the unit for rates)", /U\.S\. INVENTORIES · EIA WEEKLY/.test(cm.text) && /Crude oil \(excl\. SPR\)\s+\d\d \w{3} \d{4}\s+409\.2\s+M bbl\s+\+3\.2\s+\+4\.2\s+\+1\.5%/.test(cm.text) && /Cushing, OK\s+\d\d \w{3} \d{4}\s+22\.4\s+M bbl\s+-0\.7\s+-1\.1\s+-33\.3%/.test(cm.text) && /Natural gas in storage \(Lower 48\)\s+\d\d \w{3} \d{4}\s+3,712\s+Bcf\s+\+87\s+\+101\s+\+1\.7%/.test(cm.text) && /Refinery utilization\s+\d\d \w{3} \d{4}\s+89\.6\s+%\s+-1\.2\s+\+0\.4\s+\+1\.5\b/.test(cm.text), cm.text.slice(cm.text.indexOf("INVENTORIES"), cm.text.indexOf("INVENTORIES") + 900));
   ok("[H] CMDTY: a weekly series EIA stopped publishing is N/A with its last date, never a value", /Jet fuel \(kerosene-type\)\s+N\/A — EIA has not published this series since 07 Aug 2026/.test(cm.text) && /DERIVED from EIA's own series/.test(cm.text) && (await page.$$eval(".win table.inv svg.spark", (x) => x.length)) === 4);
   await shotWin(page, "COMMODITIES", "t07-cmdty");
+  if (SHOTS) { await page.evaluate(() => document.querySelector(".win table.inv")?.scrollIntoView({ block: "center" })); await page.waitForTimeout(300); await page.screenshot({ path: SHOTS + "/t07-cmdty-inv.png" }); }
   await cmd(page, "FCRV"); await page.waitForTimeout(2500);
   await shotWin(page, "FUTURES CURVES", "t07-fcrv");
   const fc = await winOf(page, "FUTURES CURVES");
