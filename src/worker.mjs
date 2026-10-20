@@ -563,6 +563,7 @@ export const app = {
     if (url.pathname.startsWith("/api/cnbc/")) return handleCnbc(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/nasdaq/")) return handleNasdaq(url, env, ctx, H, json);
     if (url.pathname === "/api/reddit") return handleReddit(url, env, ctx, H, json);
+    if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
