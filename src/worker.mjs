@@ -44,6 +44,7 @@ import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
 import { handleMarkets } from "./markets.mjs";
+import { UA } from "./lib.mjs"; // TEMPORARY (EIA diagnostics)
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -623,6 +624,23 @@ export const app = {
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
     if (url.pathname === "/api/energy/stocks") return handleEnergyStocks(url, env, ctx, H, json);
+    // TEMPORARY diagnostics (removed after the check): reachability of api.eia.gov from the Worker; reports only status, time, size
+    if (url.pathname === "/api/energy/diag") {
+      const probe = async (label, u, h) => { const t = Date.now(), ac = new AbortController(), tm = setTimeout(() => ac.abort(), 20000);
+        try { const r = await fetch(u, { headers: h, signal: ac.signal }); const b = await r.text(); return { label, http: r.status, ms: Date.now() - t, bytes: b.length, kind: b.trim().startsWith("{") ? "json" : "other" }; }
+        catch (e) { return { label, err: ac.signal.aborted ? "timeout" : "unreachable", ms: Date.now() - t }; } finally { clearTimeout(tm); } };
+      const BR = { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36", accept: "application/json" };
+      const keyed = (route, extra) => `https://api.eia.gov/v2/${route}/data/?${new URLSearchParams([["api_key", env.EIA_KEY || ""], ["frequency", extra.f], ["data[0]", "value"], ["facets[series][]", extra.s], ["length", "5"]])}`;
+      const out = await Promise.all([
+        probe("root, worker UA", "https://api.eia.gov/v2/", { "user-agent": UA }),
+        probe("root, browser UA", "https://api.eia.gov/v2/", BR),
+        probe("www.eia.gov", "https://www.eia.gov/opendata/", BR),
+        probe("keyed spot, browser UA", keyed("petroleum/pri/spt", { f: "daily", s: "RWTC" }), BR),
+        probe("keyed weekly, browser UA", keyed("petroleum/stoc/wstk", { f: "weekly", s: "WCESTUS1" }), BR),
+        probe("keyed weekly, worker UA", keyed("petroleum/stoc/wstk", { f: "weekly", s: "WCESTUS1" }), { "user-agent": UA, accept: "application/json" }),
+      ]);
+      const r = json({ out }, H, 200); r.headers.set("cache-control", "no-store"); return r;
+    }
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
     if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
