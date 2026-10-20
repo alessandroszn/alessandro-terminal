@@ -556,6 +556,7 @@ export const app = {
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
+    if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/bonds") return handleBonds(url, env, ctx, H, json);
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
