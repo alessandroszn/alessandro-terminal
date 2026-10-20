@@ -1,6 +1,7 @@
 // MY STUFF (T07) — the owner's own lists, stored on the server (Workers KV, binding BRIEFS), private behind Access.
-//   GET|POST|DELETE  /api/user/alerts          price alerts {sym, op ">="|"<=", price, note}; checked in the page
-//   POST             /api/user/alerts/hit?id   the page records when an alert fired, with the live price it saw
+//   GET|POST|DELETE  /api/user/alerts          alerts: price, daily move, market open / close, economic release (see
+//                                              alerts.mjs: checked on the server every 5 minutes, optionally sent to Telegram)
+//   POST             /api/user/alerts/rearm?id a fired price alert watches again
 //   GET|POST|PUT|DELETE /api/user/notes        notes {text, sym?}
 //   GET|PUT          /api/user/board           custom boards [{id, name, syms[]}]
 //   GET              /api/status[?usage=1]     system status for SYS: which sources are configured (yes/no only),
@@ -8,26 +9,20 @@
 // Nothing here is market data: these are the owner's own entries. All start empty.
 import { finnhubKey } from "./earnings.mjs";
 import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
+import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
+import { loadCnbcQuotes } from "./cnbc.mjs";
 
 export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board" };
-// quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols,
-// and live alerts watch at most 10 different symbols
-export const LIMITS = { alerts: 100, alertSyms: 10, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000 };
+// quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
+// Alerts are checked on CNBC quotes (one request for all of them): at most 25 different symbols
+export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000 };
 const SYM_RE = /^[A-Z0-9][A-Z0-9.\-:/]{0,19}$/;
 
 async function load(env, k) { try { const t = await env.BRIEFS.get(UD_KEYS[k]); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
 const save = (env, k, v) => env.BRIEFS.put(UD_KEYS[k], JSON.stringify(v));
 const clean = (s, n) => String(s == null ? "" : s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim().slice(0, n);
 
-export function validateAlert(b) {
-  if (!b || typeof b !== "object") return "body required";
-  const sym = clean(b.sym, 20).toUpperCase();
-  if (!SYM_RE.test(sym)) return "symbol required";
-  if (b.op !== ">=" && b.op !== "<=") return "op must be >= or <=";
-  const price = Number(b.price);
-  if (!Number.isFinite(price) || price <= 0) return "price must be a positive number";
-  return { sym, op: b.op, price, note: clean(b.note, 200) };
-}
+export { validateAlert };
 export function validateNote(b) {
   if (!b || typeof b !== "object") return "body required";
   const text = clean(b.text, LIMITS.noteLen);
@@ -76,19 +71,23 @@ export async function handleUserData(url, env, ctx, H, json, req) {
     await save(env, kind, rest); return send({ removed: id, [kind]: rest });
   }
   if (kind === "alerts") {
-    if (method === "POST" && sub === "hit") {
-      const p = await body(); if (p.e) return p.e;
+    if (method === "POST" && sub === "rearm") {
       const a = list.find((x) => x.id === id); if (!a) return send({ error: "not_found" }, 404);
-      const price = Number(p.b && p.b.price); if (!Number.isFinite(price) || price <= 0) return send({ error: "bad_request", message: "price required" }, 400);
-      if (!a.hit) { a.hit = { at: iso(Date.now()), price, source: clean(p.b.source, 40) || null }; await save(env, kind, list); }
-      return send({ alerts: list });
+      if (kindOf(a) !== "price" || !a.hit) return send({ error: "bad_request", message: "only a fired price alert can be re-armed" }, 400);
+      a.hit = null; a.rearmed = iso(Date.now()); await save(env, kind, list); return send({ alerts: list });
     }
     if (method === "POST" && !sub) {
       const p = await body(); if (p.e) return p.e;
       const v = validateAlert(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
       if (list.length >= LIMITS.alerts) return send({ error: "bad_request", message: `limit of ${LIMITS.alerts} alerts reached` }, 400);
-      const watched = new Set(list.filter((x) => !x.hit).map((x) => x.sym));
-      if (!watched.has(v.sym) && watched.size >= LIMITS.alertSyms) return send({ error: "bad_request", message: `live alerts can watch at most ${LIMITS.alertSyms} different symbols (quote credits)` }, 400);
+      if (v.sym) {
+        const watched = new Set(list.filter((x) => isActive(x) && x.sym).map((x) => x.sym));
+        if (!watched.has(v.sym) && watched.size >= LIMITS.alertSyms) return send({ error: "bad_request", message: `alerts can watch at most ${LIMITS.alertSyms} different symbols` }, 400);
+        // the symbol must have a CNBC quote now (the feed the server checks it on)
+        const cs = alertCnbcSym(v.sym), q = await loadCnbcQuotes([cs]);
+        if (!q.data || !q.data[cs]) return send({ error: "bad_request", message: `no CNBC quote for ${v.sym}${q.err && q.err !== "no_data" ? " (" + q.err + ")" : ""}` }, 400);
+        v.name = q.data[cs].name || null;
+      }
       const a = { id: crypto.randomUUID(), ...v, created: iso(Date.now()), hit: null };
       await save(env, kind, [...list, a]); return send({ added: a.id, alerts: [...list, a] }, 201);
     }
@@ -119,9 +118,10 @@ export function sourcesStatus(env) {
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and futures curves (CMDTY, FCRV)", configured: !!env.EIA_KEY },
     { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
     { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },
+    { id: "telegram", name: "Telegram bot", use: "alerts sent to your chat (ALRT)", configured: !!tgToken(env), note: env.TELEGRAM_BOT_TOKEN && !tgToken(env) ? "TELEGRAM_BOT_TOKEN is set but does not look like a bot token" : undefined },
     { id: "ai", name: "Workers AI", use: "briefing editions", configured: !!env.AI },
     { id: "kv", name: "Workers KV", use: "briefings, portfolio, alerts, notes, boards, calendar archive", configured: !!env.BRIEFS },
-    { id: "public", name: "Public sources (no key)", use: "ECB, Bundesbank, NY Fed, BoE, SNB, BoC, Japan MOF, CFTC, Forex Factory, press feeds, iShares, Invesco, SPDR", configured: true },
+    { id: "public", name: "Public sources (no key)", use: "ECB, Bundesbank, Banca d'Italia, NY Fed, BoE, SNB, BoC, Japan MOF, BIS, CFTC, Forex Factory, CNBC, Nasdaq, ApeWisdom, press feeds, iShares, Invesco, SPDR", configured: true },
   ];
 }
 // Twelve Data's own counter of credits used this minute and today. Each check costs 1 credit, so it runs only when
@@ -144,6 +144,7 @@ export async function handleStatus(url, env, ctx, H, json) {
     const e = await cacheRead(url.origin, USAGE_KEY, ctx);
     usage = e && e.data ? { ...e.data, fetchedAt: iso(e.fetchedAt), status: Date.now() - e.fetchedAt < USAGE_TTL ? "LIVE" : "STALE" } : { status: "N/A", error: "not_checked" };
   }
-  let cron = null, issues = []; if (env.BRIEFS) try { const [t, i] = await Promise.all([env.BRIEFS.get("cron/last"), env.BRIEFS.get("cron/issues")]); cron = t ? JSON.parse(t) : null; issues = i ? JSON.parse(i) : []; } catch { cron = null; }
-  return send({ sources: sourcesStatus(env), twelvedata: usage, credits, scheduler: { lastRun: cron, issues, schedule: "Cron Triggers: every minute 05:00–07:59 and 20:00–21:59 UTC; each edition is written at its time" }, serverTime: iso(Date.now()) });
+  let cron = null, issues = [], alog = null; if (env.BRIEFS) try { const [t, i, l] = await Promise.all([env.BRIEFS.get("cron/last"), env.BRIEFS.get("cron/issues"), env.BRIEFS.get(LOG_KEY)]); cron = t ? JSON.parse(t) : null; issues = i ? JSON.parse(i) : []; alog = l ? JSON.parse(l) : null; } catch { cron = null; }
+  return send({ sources: sourcesStatus(env), twelvedata: usage, credits, scheduler: { lastRun: cron, issues, schedule: "Cron Triggers: every minute 05:00–07:59 and 20:00–21:59 UTC; each edition is written at its time" },
+    alerts: { lastRecorded: alog && alog.run ? alog.run : null, schedule: "every 5 minutes; recorded when an alert fires and once an hour" }, serverTime: iso(Date.now()) });
 }

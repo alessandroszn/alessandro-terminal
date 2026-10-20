@@ -5,7 +5,7 @@
 import { chromium } from "playwright";
 import { buildPositions, validateTx } from "../src/portfolio.mjs";
 import { readFileSync } from "node:fs";
-import { normalizeQuote, buildInstrument } from "../src/worker.mjs";
+import { normalizeQuote, buildInstrument, app as workerApp } from "../src/worker.mjs";
 import { normalizeSearch } from "../src/search.mjs";
 
 const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
@@ -66,7 +66,7 @@ function mktApi(u) {
       past[id] = { "1W": { date: "2026-10-13", points: pts.map((p) => ({ tenor: p.tenor, months: p.months, value: +(p.value - 0.1).toFixed(3), date: "2026-10-13" })) }, "1M": { date: "2026-09-18", points: pts.map((p) => ({ tenor: p.tenor, months: p.months, value: +(p.value + 0.2).toFixed(3), date: "2026-09-18" })) } }; }
     return { body: { past, errors: {}, source: "CNBC quote service" } };
   }
-  if (u.pathname === "/api/yields/market/history") { const pts = []; for (let i = 300; i >= 0; i--) { const d = dShift(today, -i); if (new Date(d + "T12:00:00Z").getUTCDay() % 6) pts.push([d, +(3.5 + i / 1000).toFixed(4)]); } return { body: { id: u.searchParams.get("id"), tenor: u.searchParams.get("tenor"), freq: "D", points: pts, source: "CNBC quote service", status: "LIVE", fetchedAt: new Date().toISOString() } }; }
+  if (u.pathname === "/api/yields/market/history") { const pts = []; for (let i = 300; i >= 0; i--) { const d = dShift(today, -i); if (new Date(d + "T12:00:00Z").getUTCDay() % 6) { const id = u.searchParams.get("id"); pts.push([d, +(3.5 + i / 1000 + (id === "IT" ? 1.1 + Math.sin(i / 15) * 0.15 : id === "DE" ? -0.9 : 0)).toFixed(4)]); } } return { body: { id: u.searchParams.get("id"), tenor: u.searchParams.get("tenor"), freq: "D", points: pts, source: "CNBC quote service", status: "LIVE", fetchedAt: new Date().toISOString() } }; }
   return { body: MKT_FIX() };
 }
 function yieldsIds(u) {
@@ -247,7 +247,7 @@ const IDX_FIX = (g) => ({ group: g, status: "LIVE", indices: {
   vol: [], sec: [IDX_ROW("SX7P", "STOXX Europe 600 Banks", "sec", 391.61, -0.44, "close")], sec2: [],
   asia: [IDX_ROW("N225", "Nikkei 225", "asia", 70035.71, -0.92, "close", { source: "Nikkei Inc. (daily)" }), IDX_ROW("XJO", "S&P/ASX 200", "asia", 8816.9, -0.33, "delayed", { status: "PARTIAL", asOf: null, date: null, delayMin: 20, note: "ASX publishes no time for this value", source: "ASX (≥20-min delayed, no time)" }),
     IDX_ROW("SHCOMP", "SSE Composite", "asia", 3735.37, 0.12, "delayed", { delayMin: null, source: "Shanghai Stock Exchange (delayed)" })],
-  world: [IDX_ROW("IBOV", "Ibovespa", "world", 207939.03, 1.39, "close", { source: "B3 (daily close)" })] }[g],
+  world: [IDX_ROW("IBOV", "Ibovespa", "world", 207939.03, 1.39, "close", { source: "B3 (daily close)" }), IDX_ROW("DXY", "U.S. Dollar Index (DXY)", "world", 98.765, -0.21, "delayed", { source: "CNBC quote service" })] }[g],
   notConnected: { us: [], vol: [], sec: [], sec2: [], eu: [{ id: "UKX", name: "FTSE 100" }, { id: "CAC", name: "CAC 40" }, { id: "FTSEMIB", name: "FTSE MIB" }], asia: [{ id: "HSI", name: "Hang Seng", reason: "no free official source" }, { id: "KOSPI", name: "KOSPI", reason: "no free official source" }, { id: "NIFTY", name: "Nifty 50", reason: "NSE refuses requests from the server (checked 20 Oct 2026)" }], world: [{ id: "TSX", name: "S&P/TSX Composite" }] }[g] });
 // SPX: 420 sessions rising by 1 point a day to 7,700 (OHLC); DAX: 64 STOXX closes (close only)
 const IDX_HIST = (id) => { const eu = id === "SX5E" || id === "DAX", n = eu ? 64 : 420, ds = IDX_DAYS(n), end = { SPX: 7700, DJI: 51000, COMP: 27500, SX5E: 6100, DAX: 25000, N225: 70000 }[id] || 1000;
@@ -294,6 +294,40 @@ const t07Api = (u, method, body, st) => {
   return { status: 404, body: { error: "not found" } };
 };
 
+// ---------- provider formats answered in Node: the real Worker code builds /api/cnbc, /api/nasdaq, /api/reddit, /api/alerts ----------
+// (CNBC quote service and bars, Nasdaq calendar / screener / movers, ApeWisdom, Telegram Bot API — fixtures in their formats)
+const PV = { kv: new Map(), tg: [], cnbcAsked: [] };
+const TG_TOKEN = "123456789:AAH" + "e".repeat(32);
+const cnTime = (ms) => new Date(ms).toISOString().replace("Z", "+0000");
+const CN_PX = { ".SPX": 6700.5, ".NDX": 24800, ".DJI": 46500, ".RUT": 2450, ".N225": 49000, "@SP.1": 6731.25, "@ND.1": 24890, "@DJ.1": 46600, "@TFS.1": 2460, "@NK.1": 49150, "@CL.1": 88.42, "@GC.1": 4130.5, "EUR=": 1.1235, "NVDA": 190.5, ".FTMIB": 44000 };
+const cnPx = (s) => CN_PX[s] ?? (/^@CL\.(\d+)$/.test(s) ? 88.42 - (+s.split(".")[1] - 1) * 0.35 : /^@NG\.(\d+)$/.test(s) ? 3.1 + (+s.split(".")[1]) * 0.08 : 50 + [...s].reduce((a, c) => a + c.charCodeAt(0), 0) % 70);
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const cnQuote = (s) => { const last = cnPx(s), prev = +(last / 1.0075).toFixed(4), n = /^@[A-Z]+\.(\d+)$/.exec(s), m = n ? (10 + +n[1]) : 0;
+  return { symbol: s, code: 0, name: n ? `${s} (${MON[m % 12]}'${26 + Math.floor(m / 12)})` : s === "EUR=" ? "EUR/USD" : s, last: last.toLocaleString("en-US", { maximumFractionDigits: 4 }), previous_day_closing: String(prev), change: "+" + (last - prev).toFixed(4), change_pct: "+0.75%", open: String(prev), high: String(last), low: String(prev), volume: "1000", last_time: cnTime(Date.now() - (s.startsWith(".") ? 5 : 2) * 60_000), exchange: "CME", realTime: s.startsWith(".") ? "false" : "true", curmktstatus: "REG_MKT" }; };
+const cnBars = (s, five) => { const out = [], end = Date.now(); if (five) { for (let t = end - 4 * 864e5; t < end; t += 300_000) out.push({ close: String(cnPx(s)), tradeTime: "x", tradeTimeinMills: t - t % 300_000 }); return out; }
+  const d0 = new Date(); d0.setUTCHours(4, 0, 0, 0); for (let i = 420; i >= 1; i--) { const t = d0.getTime() - i * 864e5, wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue; const v = cnPx(s) * (1 - i * 0.0004 + Math.sin(i / 9) * 0.01); out.push({ close: v.toFixed(4), open: v.toFixed(4), high: (v * 1.01).toFixed(4), low: (v * 0.99).toFixed(4), tradeTime: new Date(t).toISOString().slice(0, 10).replace(/-/g, "") + "000000", tradeTimeinMills: t }); } return out; };
+const NQ_TODAY = new Date().toISOString().slice(0, 10);
+globalThis.fetch = async (u, init = {}) => {
+  u = String(u);
+  if (u.startsWith("https://quote.cnbc.com/")) { const syms = decodeURIComponent(/symbols=([^&]+)/.exec(u)[1]).split("|"); PV.cnbcAsked.push(syms); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.map((s) => s === "ZZZZ" ? { symbol: s, code: 1 } : cnQuote(s)) } })); }
+  if (u.startsWith("https://ts-api.cnbc.com/")) { const sym = decodeURIComponent(u.split("/bars/")[1].split("/")[0]); return new Response(JSON.stringify({ barData: { priceBars: cnBars(sym, /\/5M\//.test(u)) } })); }
+  if (u.startsWith("https://api.nasdaq.com/api/calendar/")) { const d = /date=([\d-]+)/.exec(u)[1]; return new Response(JSON.stringify({ data: { rows: d === NQ_TODAY ? [{ gmt: "12:30", country: "United States", eventName: "CPI (MoM)", actual: "0.4%", consensus: "0.3%", previous: "0.2%" }, { gmt: "08:00", country: "Germany", eventName: "PPI (MoM)", actual: "-0.1%", consensus: "0.0%", previous: "0.2%" }] : [] } })); }
+  if (u.startsWith("https://api.nasdaq.com/api/screener/")) { const ex = /exchange=(\w+)/.exec(u)[1]; return new Response(JSON.stringify({ data: { rows: (ex === "nasdaq" ? [["NVDA", "NVIDIA Corporation Common Stock", "$190.50", "2.1%", "200000000", "4600000000000", "Technology", "Semiconductors", "United States", "1999"], ["AAPL", "Apple Inc. Common Stock", "$250.00", "-0.5%", "50000000", "3700000000000", "Technology", "Computer Manufacturing", "United States", "1980"]] : ex === "nyse" ? [["JPM", "JP Morgan Chase & Co. Common Stock", "$260.40", "0.8%", "9000000", "720000000000", "Finance", "Major Banks", "United States", ""]] : [["AMEX1", "Small Co Common Stock", "$3.10", "12.5%", "100000", "50000000", "Health Care", "Biotechnology", "United States", "2021"]]).map(([symbol, name, lastsale, pctchange, volume, marketCap, sector, industry, country, ipoyear]) => ({ symbol, name, lastsale, pctchange, volume, marketCap, sector, industry, country, ipoyear })) } })); }
+  if (u.startsWith("https://api.nasdaq.com/api/marketmovers")) return new Response(JSON.stringify({ data: { STOCKS: { MostActiveByShareVolume: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "Share Volume" }, rows: [{ symbol: "NVDA", name: "NVIDIA", lastSalePrice: "$190.50", lastSaleChange: "+3.92", change: "200,000,000" }] } }, MostAdvanced: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "% Change" }, rows: [{ symbol: "UPCO", name: "Up Co", lastSalePrice: "$12.00", lastSaleChange: "+3.00", change: "+33.33%" }] } }, MostDeclined: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "% Change" }, rows: [{ symbol: "DNCO", name: "Down Co", lastSalePrice: "$2.00", lastSaleChange: "-1.00", change: "-33.33%" }] } } } } }));
+  if (u.startsWith("https://apewisdom.io/")) return new Response(JSON.stringify({ results: [{ rank: 1, ticker: "NVDA", name: "NVIDIA", mentions: 812, upvotes: 4021, rank_24h_ago: 2, mentions_24h_ago: 640 }, { rank: 2, ticker: "TSLA", name: "Tesla", mentions: 700, upvotes: 3000, rank_24h_ago: 1, mentions_24h_ago: 900 }] }));
+  if (u.startsWith("https://api.telegram.org/")) { const method = u.split("/").pop(), body = JSON.parse(init.body || "{}"); PV.tg.push({ method, body, tokenInUrl: u.includes(TG_TOKEN) });
+    if (method === "getMe") return new Response(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, first_name: "Ale alerts", username: "ale_alerts_bot" } }));
+    if (method === "getUpdates") return new Response(JSON.stringify({ ok: true, result: [{ update_id: 1, message: { message_id: 1, chat: { id: 4242, type: "private", first_name: "Alessandro" }, text: "/start" } }] }));
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } })); }
+  return new Response("", { status: 404 });
+};
+const workerEnv = { ALLOWED_ORIGIN: ORIGIN, TELEGRAM_BOT_TOKEN: TG_TOKEN, BRIEFS: { get: async (k) => PV.kv.get(k) ?? null, put: async (k, v) => { PV.kv.set(k, v); }, delete: async (k) => { PV.kv.delete(k); } } };
+async function viaWorker(route, u) {
+  const rq = route.request(), m = rq.method();
+  const r = await workerApp.fetch(new Request(u.href, { method: m, headers: { "content-type": rq.headers()["content-type"] || "", origin: ORIGIN }, body: m === "GET" || m === "HEAD" ? undefined : rq.postData() || undefined }), workerEnv, { waitUntil() {} });
+  return route.fulfill({ status: r.status, contentType: "application/json", body: await r.text() });
+}
+
 // ---------- harness ----------
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
@@ -330,6 +364,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts)\//.test(u.pathname) || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -474,10 +509,10 @@ const OK_API = {
   // news
   await cmd(page, "N");
   const nw = await winOf(page, "NEWS");
-  ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 5 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(0, 600));
+  ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && /Test CNBC top news headline\s*CNBC · TOP NEWS/.test(nw.text) && /Test Economist finance headline\s*ECONOMIST · FINANCE & ECONOMICS/i.test(nw.text) && /Test Sole 24 Ore finanza headline\s*SOLE 24 ORE · FINANZA/i.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve", "Test CNBC", "Test Economist", "Test Sole"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 8 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(nw.text.indexOf("HEADLINES"), nw.text.indexOf("HEADLINES") + 900));
   ok("[A] news: window status from the headline sources on screen (all LIVE)", nw.pill === "LIVE", nw.pill);
   ok("[A] news: last check time and automatic 5-minute checks shown", /CHECKED \d{2}:\d{2}(:\d{2})? · AUTO EVERY 5 MIN/.test(nw.text), (nw.text.match(/HEADLINES[^\n]*/) || [])[0]);
-  ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
+  ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CNBC\s*ECONOMIST\s*SOLE 24 ORE\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
   await page.click('.win [data-src="BLOOMBERG"]'); await page.waitForTimeout(300);
   const nwB = await winOf(page, "NEWS");
   ok("[A] news: source filter (BLOOMBERG only)", /Test Bloomberg economics headline/.test(nwB.text) && !/Test FT markets headline/.test(nwB.text) && !/Test WSJ/.test(nwB.text));
@@ -782,7 +817,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "FUT,RDT", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -818,20 +853,23 @@ const OK_API = {
   const cb = await winOf(page, "CENTRAL BANKS");
   ok("[H] CB: published policy rates; the level before the last change with its date; Fed target range and its last move; failed / missing sources N/A", /European Central Bank\s+EUR\s+Deposit facility rate\s+2\.00%\s+2\.25%\s+\(-25 bp\)\s+changed 11 Jun 2026/.test(cb.text) && /FOMC target range\s+3\.58%\s+3\.50–3\.75%\s+daily\s+3\.75–4\.00% changed 18 Sept? 2026/.test(cb.text) && /Bank Rate\s+3\.75%\s+4\.00%\s+\(-25 bp\)\s+changed 07 Aug 2026/.test(cb.text) && /2\.50%\s+no change since 06 Oct 2023/.test(cb.text) && /Swiss National Bank\s+CHF\s+N\/A/.test(cb.text) && /Bank of Japan\s+JPY\s+no same-day official source connected/.test(cb.text), cb.text.slice(0, 900));
   await shotWin(page, "CENTRAL BANKS", "t07-cb");
-  // SPRD
-  await cmd(page, "SPRD"); await page.waitForTimeout(800);
+  // SPRD — any pair from CNBC market yields (default), then the official 2s10s
+  await cmd(page, "SPRD"); await page.waitForTimeout(1500);
   await shotWin(page, "SPREADS", "t07-sprd");
-  const sp = await winOf(page, "SPREADS");
-  ok("[H] SPRD: euro-area 2s10s from the ECB history, changes DERIVED; U.S. latest from the Treasury curve", /SPREAD\s+85\.9 bp/.test(sp.text) && /Δ 1W\s+\+0\.\d bp/.test(sp.text) && /UNITED STATES · 10Y − 2Y\s+\d+\.\d bp/.test(sp.text) && /FRED API key/.test(sp.text) && (await page.$$eval(".sp-cv", (c) => c.length)) === 1, sp.text.slice(0, 700));
-  // CMDTY + FCRV
-  await cmd(page, "CMDTY"); await page.waitForTimeout(900);
+  let sp = await winOf(page, "SPREADS");
+  ok("[H] SPRD market: BTP–Bund 10Y from the two intraday yields; daily-bar history with 1W/1M/3M changes, range, percentile and z-score DERIVED", /BTP–BUND 10Y\s*DRV/.test(sp.text) && /LATEST QUOTES\s+\+125\.8 bp/.test(sp.text) && /LAST DAILY BAR\s+\+\d{3}\.\d bp/.test(sp.text) && /Δ 1M\s+[+-]\d+\.\d bp/.test(sp.text) && /PERCENTILE\s+\d+%/.test(sp.text) && /Z-SCORE\s+[+-−]?\d\.\d\d/.test(sp.text) && /IT 10Y − DE 10Y: CNBC's daily bars/.test(sp.text), sp.text.slice(sp.text.indexOf("BTP–BUND"), sp.text.indexOf("BTP–BUND") + 700));
+  await page.click('[data-spm="OFF"]'); await page.waitForTimeout(900);
+  sp = await winOf(page, "SPREADS");
+  ok("[H] SPRD official: euro-area 2s10s from the ECB history, changes DERIVED; U.S. latest from the Treasury curve", /SPREAD\s+85\.9 bp/.test(sp.text) && /Δ 1W\s+\+0\.\d bp/.test(sp.text) && /UNITED STATES · 10Y − 2Y\s+\d+\.\d bp/.test(sp.text) && /FRED API key/.test(sp.text) && (await page.$$eval(".sp-cv", (c) => c.length)) === 1, sp.text.slice(0, 700));
+  // CMDTY + FCRV — CNBC futures (served by the real Worker code from CNBC-format fixtures)
+  await cmd(page, "CMDTY"); await page.waitForTimeout(2500);
   const cm = await winOf(page, "COMMODITIES");
-  ok("[H] CMDTY: EIA spot prices with their date, 1D/1W/1M DERIVED; gold live; no-value rows and agriculture N/A", /WTI crude \(Cushing\)\s+62\.31\s+\$\/bbl\s+\+0\.40%\s+-1\.20%\s+\+2\.50%/.test(cm.text) && /Brent crude \(Europe\)\s+N\/A/.test(cm.text) && /Gold \(spot, vs USD\)\s+4,165\.24/.test(cm.text) && /Wheat\s+N\/A/.test(cm.text), cm.text.slice(0, 900));
+  ok("[H] CMDTY: front-month futures from CNBC with contract month, unit, change, 1W/1M/3M/YTD/1Y DERIVED from daily bars, time and real-time mark", /ENERGY · FUTURES \(CNBC\)/.test(cm.text) && /WTI crude oil\s+Dec 2026\s+88\.42\s+\$\/bbl\s+\+0\.75%\s+[+-]\d+\.\d\d%\s+[+-]\d+\.\d\d%/.test(cm.text) && /Gold\s+Dec 2026\s+4,130\.50\s+\$\/oz/.test(cm.text) && /\d\d:\d\d RT\s+LIVE/.test(cm.text), cm.text.slice(0, 900));
   await shotWin(page, "COMMODITIES", "t07-cmdty");
-  await page.click(".go-fcrv"); await page.waitForTimeout(700);
+  await cmd(page, "FCRV"); await page.waitForTimeout(2500);
   await shotWin(page, "FUTURES CURVES", "t07-fcrv");
   const fc = await winOf(page, "FUTURES CURVES");
-  ok("[H] FCRV: contracts 1–4 now, a week and a month before; backwardation DERIVED; an unavailable curve N/A", /M1\s+M2\s+M3\s+M4\s+M4 \/ M1/.test(fc.text) && /62\.30\s+62\.00\s+61\.80\s+61\.60\s+-1\.12%/.test(fc.text) && /Backwardation \(M4 < M1, -1\.12%\)/.test(fc.text) && /NATURAL GAS FUTURES \(NYMEX\)\s*N\/A/.test(fc.text), fc.text.slice(0, 700));
+  ok("[H] FCRV: WTI curve by contract month (CNBC), now / a week / a month before, spread to the previous month DERIVED", /WTI CRUDE OIL · CURVE BY CONTRACT MONTH/.test(fc.text) && /1\s+Dec 2026\s+88\.42\s+\+0\.75%\s+\d+\.\d\d\s+\d+\.\d\d\s+[+-]\d+\.\d\d%/.test(fc.text) && /2\s+Jan 2027\s+88\.07\s+\+0\.75%[\s\S]{0,40}-0\.3500/.test(fc.text) && (await page.$$eval(".win canvas", (c) => c.length)) > 0, fc.text.slice(0, 700));
   // ERN
   await cmd(page, "ERN"); await page.waitForTimeout(1000);
   const er = await winOf(page, "EARNINGS CALENDAR");
@@ -847,15 +885,22 @@ const OK_API = {
   // FX + CRYPTO + FUT + RDT
   await cmd(page, "FX"); await page.waitForTimeout(1500);
   const fx = await winOf(page, "CURRENCIES");
-  ok("[H] FX: the 8 pairs vs USD from live quotes; USD average DERIVED (not the licensed DXY)", Object.values({ a: "EUR/USD", b: "USD/JPY", c: "USD/CNY" }).every((p) => fx.text.includes(p)) && /not the ICE dollar index|DXY/.test(await page.evaluate(() => document.querySelector(".win:last-child") && document.body.innerHTML.includes("DXY") ? "DXY" : "")), fx.text.slice(0, 400));
+  ok("[H] FX: the 8 pairs vs USD from live quotes; 1W / 1M / YTD / 1Y from CNBC daily bars; the ICE dollar index (DXY, CNBC); USD average DERIVED", ["EUR/USD", "USD/JPY", "USD/CNY"].every((p) => fx.text.includes(p)) && /DXY\s+98\.765\s+-0\.210\s+-0\.21%/.test(fx.text) && /US dollar vs these 8 currencies, equal weights/.test(fx.text) && /1\.35121\s+[+-]\d+\.\d\d%\s+[+-]\d+\.\d\d%\s+[+-]\d+\.\d\d%\s+[+-]\d+\.\d\d%/.test(fx.text) && /ICE U\.S\. Dollar Index\s+[+-]\d+\.\d\d%/.test(fx.text), fx.text.slice(0, 1200));
   await cmd(page, "CRYPTO"); await page.waitForTimeout(900);
   const cr = await winOf(page, "CRYPTO");
   ok("[H] CRYPTO: pairs by traded value with live price and 1D change", /BTC\/USD\s+86,000\s+\+1\.18%\s+\$1\.20B/.test(cr.text) && cr.text.indexOf("BTC/USD") < cr.text.indexOf("ETH/USD"), cr.text.slice(0, 400));
-  await cmd(page, "FUT"); await page.waitForTimeout(300);
+  await cmd(page, "FUT"); await page.waitForTimeout(2500);
   const fu = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent === "FUTURES"); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.textContent.trim() } : null; });
-  ok("[H] FUT: NO DATA with the reason; every price N/A; points to FCRV", /NO DATA — futures prices are licensed/.test(fu.text) && !/\d+\.\d\d/.test(fu.text.split("DATA")[2] || "") && fu.pill === "N/A");
-  await cmd(page, "RDT"); await page.waitForTimeout(300);
-  ok("[H] RDT: N/A — source not approved, nothing estimated", /N\/A — Reddit sentiment needs a third-party source \(ApeWisdom\), which was not approved/.test((await winOf(page, "REDDIT SENTIMENT")).text));
+  ok("[H] FUT: where the cash indices are set to open (implied move DERIVED) and 45 contracts by group with month, last, returns", /WHERE THE CASH INDICES ARE SET TO OPEN\s*DRV/.test(fu.text) && /S&P 500\s+6,700\.50\s+[\s\S]{0,30}Dec 2026\s+6,731\.25\s+6,731\.25\s+\+0\.00%\s+6,700\.50/.test(fu.text) && /S&P 500 E-mini\s+Dec 2026\s+6,731\.25\s+pts\s+\+0\.75%/.test(fu.text) && /LIVESTOCK/.test(fu.text) && fu.pill === "LIVE", fu.text.slice(0, 900));
+  await cmd(page, "RDT"); await page.waitForTimeout(1500);
+  const rd = await winOf(page, "REDDIT · MOST MENTIONED");
+  ok("[H] RDT: most mentioned tickers on Reddit (ApeWisdom) with the 24 hours before and changes DERIVED — a count, not a sentiment", !!rd && /1\s+NVDA\s+NVIDIA\s+812\s+640\s+\+27%\s+▲1\s+4,021/.test(rd.text) && /2\s+TSLA\s+Tesla\s+700\s+900\s+-22%\s+▼1/.test(rd.text) && /not a sentiment/.test(rd.text), rd && rd.text.slice(0, 500));
+  await cmd(page, "MOV"); await page.waitForTimeout(1500);
+  const mvw = await winOf(page, "MARKET MOVERS");
+  ok("[H] MOV: Nasdaq's lists for every U.S.-listed stock (most active, gainers, losers)", /U\.S\. MARKET \(NASDAQ\)/.test(mvw.text) && /MOST ACTIVE · SHARES\s+1\s+NVDA\s+\$190\.50/.test(mvw.text) && /TOP GAINERS\s+1\s+UPCO/.test(mvw.text) && /TOP LOSERS\s+1\s+DNCO/.test(mvw.text), mvw.text.slice(0, 500));
+  await cmd(page, "SCR"); await page.waitForTimeout(2000);
+  let sc = await winOf(page, "EQUITY SCREENER");
+  ok("[H] SCR: every U.S.-listed stock from Nasdaq's screener (three exchanges), sorted by market cap", /4 matches of 4 U\.S\.-listed stocks/.test(sc.text) && /NVDA\s+NVIDIA Corporation\s+Technology · Semiconductors\s+\$190\.50\s+\+2\.10%\s+200\.0M\s+\$4\.60T\s+NASDAQ/.test(sc.text) && sc.text.indexOf("NVDA\t") < sc.text.indexOf("AAPL\t"), sc.text.slice(sc.text.indexOf("SYM"), sc.text.indexOf("SYM") + 600));
   // BOARD
   await cmd(page, "BOARD"); await page.waitForTimeout(500);
   await page.fill('[data-k="bnew"]', "Chips"); await page.click(".b-new"); await page.waitForTimeout(500);
@@ -863,12 +908,34 @@ const OK_API = {
   await page.fill('[data-k="badd"]', "ZZZZ"); await page.click(".b-add"); await page.waitForTimeout(700);
   const bd = await winOf(page, "BOARD · Chips");
   ok("[H] BOARD: create a board, add a symbol checked with a real quote, refuse an unknown one; stored on the server", !!bd && /NVDA\s+NVDA Inc\s+\$190\.50/.test(bd.text) && /ZZZZ not added: unknown symbol/.test(bd.text) && t7.boards.length === 1 && t7.boards[0].syms.join() === "NVDA", bd && bd.text.slice(0, 400));
-  // ALRT
-  await cmd(page, "ALRT"); await page.waitForTimeout(500);
+  // ALRT — served by the real Worker code (KV in memory; CNBC / Telegram in their formats)
+  await cmd(page, "ALRT"); await page.waitForTimeout(700);
+  await page.fill('.al-f input[name="sym"]', "zzzz"); await page.fill('.al-f input[name="price"]', "5"); await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(700);
+  let al = await winOf(page, "ALERTS");
+  ok("[H] ALRT: a symbol CNBC does not quote is refused by the server", /no CNBC quote for ZZZZ/.test(al.text), al.text.slice(0, 300));
   await page.fill('.al-f input[name="sym"]', "nvda"); await page.fill('.al-f input[name="price"]', "100"); await page.fill('.al-f input[name="note"]', "test level");
-  await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(1200);
-  const al = await winOf(page, "PRICE ALERTS"), toastTxt = await page.evaluate(() => document.querySelector("#toasts")?.innerText || "");
-  ok("[H] ALRT: an alert is saved, fires on a LIVE quote, records the price it saw, shows a toast", t7.alerts.length === 1 && t7.hits.length === 1 && t7.hits[0].price === 190.5 && /FIRED/.test(al.text) && /@ 190\.5/.test(al.text) && /ALERT NVDA ≥ 100 — last \$190\.50/.test(toastTxt), al.text.slice(0, 400) + " | " + toastTxt);
+  await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(900);
+  al = await winOf(page, "ALERTS");
+  ok("[H] ALRT: a price alert is saved on the server, with CNBC's last price and the distance to the level", JSON.parse(PV.kv.get("ud/alerts")).length === 1 && /watching/.test(al.text) && /190\.50/.test(al.text) && /−?-?47\.\d\d%/.test(al.text), al.text.slice(0, 500));
+  await page.click(".al-run"); await page.waitForTimeout(1500);
+  al = await winOf(page, "ALERTS"); const toastTxt = await page.evaluate(() => document.querySelector("#toasts")?.innerText || "");
+  ok("[H] ALRT: CHECK NOW runs the server check — the alert fires on a fresh CNBC quote, records price and time, shows in RECENT FIRINGS and as a toast", JSON.parse(PV.kv.get("ud/alerts"))[0].hit.price === 190.5 && /FIRED/.test(al.text) && /@ 190\.50/.test(al.text) && /RECENT FIRINGS/.test(al.text) && /page only/.test(al.text) && /ALERT NVDA ≥ 100 — last 190\.5/.test(toastTxt), al.text.slice(0, 600) + " | " + toastTxt);
+  await page.click(".al-rearm"); await page.waitForTimeout(700);
+  ok("[H] ALRT: RE-ARM watches the level again", JSON.parse(PV.kv.get("ud/alerts"))[0].hit === null);
+  await page.click('[data-ak="session"]'); await page.waitForTimeout(300);
+  await page.selectOption('.al-f select[name="market"]', "IT"); await page.selectOption('.al-f select[name="event"]', "close"); await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(900);
+  await page.click('[data-ak="release"]'); await page.waitForTimeout(300);
+  await page.fill('.al-f input[name="match"]', "cpi"); await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(900);
+  al = await winOf(page, "ALERTS");
+  ok("[H] ALRT: market close (Italy, FTSE MIB) and data-release (United States, “cpi”) alerts", /Italy — close \(FTSE MIB\)/.test(al.text) && /United States: “cpi”/.test(al.text) && JSON.parse(PV.kv.get("ud/alerts")).length === 3, al.text.slice(0, 700));
+  ok("[H] ALRT: Telegram configured but no chat linked → FIND MY CHAT", /bot configured; no chat linked yet/.test(al.text));
+  await page.click(".al-find"); await page.waitForTimeout(900);
+  await page.click(".al-link"); await page.waitForTimeout(900);
+  al = await winOf(page, "ALERTS");
+  ok("[H] ALRT: FIND MY CHAT lists the chats that wrote to the bot; LINK saves it and sends a confirmation", /sending to Alessandro/.test(al.text) && JSON.parse(PV.kv.get("ud/telegram")).id === "4242" && PV.tg.some((x) => x.method === "sendMessage" && /alerts will arrive in this chat/.test(x.body.text)), al.text.slice(-700));
+  await page.click(".al-test"); await page.waitForTimeout(800);
+  al = await winOf(page, "ALERTS"); const pageHtml = await page.content();
+  ok("[H] ALRT: SEND TEST reaches the linked chat; the bot token is used only towards Telegram, never in the page", /Test message sent/.test(al.text) && PV.tg.at(-1).body.chat_id === "4242" && PV.tg.every((x) => x.tokenInUrl) && !pageHtml.includes(TG_TOKEN.split(":")[1]), al.text.slice(-400));
   // NOTE
   await cmd(page, "NOTE"); await page.waitForTimeout(400);
   await page.fill('.nt-f textarea', "Watch the ECB on Thursday"); await page.fill('.nt-f input[name="sym"]', "EUR/USD"); await page.click('.nt-f button[type="submit"]'); await page.waitForTimeout(600);
@@ -881,7 +948,7 @@ const OK_API = {
   const bt = await winOf(page, "BACKTEST · NVDA"), cs = daily.map((p) => p.c), bh = (cs[cs.length - 1] / cs[199] - 1) * 100;
   ok("[H] BT: SMA 50/200 vs buy & hold on real closes (dividend-adjusted request), from the first signal; results DERIVED", new RegExp(`Total return\\s+[+-]?[\\d.]+%\\s+\\${bh >= 0 ? "+" : "-"}${Math.abs(bh).toFixed(1)}%`).test(bt.text) && /Max drawdown/.test(bt.text) && /Sharpe \(risk-free 0\)/.test(bt.text) && requests.some((r) => /\/api\/history\?symbol=NVDA&range=5Y&adjust=all&interval=1day/.test(r)), bt.text.slice(0, 600) + " bh=" + bh.toFixed(2));
   await shotWin(page, "BACKTEST · NVDA", "t07-bt");
-  await shotWin(page, "PRICE ALERTS", "t07-alrt");
+  await shotWin(page, "ALERTS", "t07-alrt");
   // SYS
   await cmd(page, "SYS"); await page.waitForTimeout(600);
   const sy = await winOf(page, "SYSTEM STATUS");
@@ -921,7 +988,7 @@ const OK_API = {
   const cm = await winOf(page, "COMMODITIES");
   await cmd(page, "FCRV"); await page.waitForTimeout(600);
   const fc = await winOf(page, "FUTURES CURVES");
-  ok("[H] no EIA key → NO DATA banners naming the secret, no energy numbers", /NO DATA — Energy prices \(U\.S\. EIA\): the API key is not set in the Worker \(EIA_KEY/.test(cm.text) && !/\$\/bbl/.test(cm.text) && /NO DATA/.test(fc.text) && fc.pill === "N/A" && errors.length === 0, cm.text.slice(0, 400));
+  ok("[H] no EIA key → the EIA spot rows are N/A naming the missing key; CNBC futures and curves unaffected", /N\/A — EIA prices unavailable \(EIA API key not set in the Worker\)/.test(cm.text) && /WTI crude oil\s+Dec 2026\s+88\.42/.test(cm.text) && /WTI CRUDE OIL · CURVE BY CONTRACT MONTH/.test(fc.text) && errors.length === 0, cm.text.slice(cm.text.indexOf("SPOT") - 200, cm.text.indexOf("SPOT") + 400));
   await page.close();
 }
 
@@ -943,7 +1010,7 @@ const OK_API = {
   await page.click('[data-cgrp="Metals"]'); await page.waitForTimeout(200);
   ok("[I] COT: group filter", !/E-mini S&P 500/.test((await winOf(page, "FUTURES POSITIONING")).text) && /Gold/.test((await winOf(page, "FUTURES POSITIONING")).text));
   await cmd(page, "FUT"); await page.waitForTimeout(300);
-  ok("[I] FUT: prices N/A, positioning one click away", !!(await page.$(".go-cot")));
+  ok("[I] FUT: positioning (COT) one click away", !!(await page.$(".go-cot")));
   await cmd(page, "ETF"); await page.waitForTimeout(1200);
   let et = await winOf(page, "ETFs BY ASSET CLASS");
   ok("[I] ETF: grouped by asset class with live price, change and traded value; labelled as ETF prices", /US EQUITY\s+SPY[\s\S]*TREASURIES\s+TLT[\s\S]*CREDIT AND AGGREGATE\s+HYG/.test(et.text) && /TLT\s+iShares 20\+ Year Treasury \(TLT\)\s+Treasuries\s+\$88\.40\s+-1\.01%/.test(et.text) && /not the price of the bonds/.test(et.text), et.text.slice(0, 700));
@@ -1020,6 +1087,45 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await cmd(page, "PFA"); await page.waitForTimeout(600);
   const pa = await winOf(page, "PORTFOLIO ANALYTICS");
   ok("[J] no trades: the analytics say so and point to PORTFOLIO (nothing invented)", /No trades yet/.test(pa.text) && errors.length === 0, JSON.stringify(pa).slice(0, 300) + errors.join("|"));
+  await page.close();
+}
+
+// =============== J. analytics: yields grid, options views, portfolio-mix backtest, currency-converted comparison, ratio stats ===============
+{
+  const FXD = []; for (let i = 400; i >= 0; i--) FXD.push([dShift(today, -i), 1.1]);
+  const { page, errors } = await openTerminal({ ...OK_API, portfolio: (u) => u.pathname === "/api/portfolio/fx" ? { body: { base: "EUR", series: Object.fromEntries((u.searchParams.get("ccys") || "USD").split(",").map((c) => [c, FXD])), currencies: ["USD"], missing: [], status: "LIVE", source: "ECB euro reference rates (ECB Data Portal, EXR)" } } : { body: { baseCurrency: "EUR", transactions: [], positions: [], realized: [], error: null } } });
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  // YLD GRID
+  await cmd(page, "YLD"); await page.waitForTimeout(1200); await page.click('[data-yc="GRID"]'); await page.waitForTimeout(700);
+  let y = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[J] YLD GRID: every country × maturity from CNBC market yields; a country with no quote N/A", /COUNTRY\s+3M\s+1Y\s+2Y\s+5Y\s+10Y\s+30Y/.test(y.text) && /IT Italy\s+·\s+·\s+2\.70\s+3\.20\s+3\.912\s+4\.60/.test(y.text) && /TH Thailand\s+N\/A no quote/.test(y.text), y.text.slice(y.text.indexOf("COUNTRY"), y.text.indexOf("COUNTRY") + 400));
+  await page.click('[data-ygm="1W"]'); await page.waitForTimeout(900);
+  y = await winOf(page, "GOVERNMENT YIELDS");
+  ok("[J] YLD GRID Δ 1W: changes in basis points against the close a week before (DERIVED)", /IT Italy[\s\S]{0,40}\+10\.0/.test(y.text) && /basis points/.test(y.text), y.text.slice(y.text.indexOf("COUNTRY"), y.text.indexOf("COUNTRY") + 400));
+  // OMON views
+  await cmd(page, "OMON AAPL"); await page.waitForTimeout(1500);
+  let om = await winOf(page, "OPTIONS · AAPL");
+  ok("[J] OMON: expected move from the ATM straddle and max pain from open interest (DERIVED)", /EXPECTED MOVE\s*DRV\s+±\$17\.25\s+±6\.9% · ATM straddle/.test(om.text) && /MAX PAIN\s*DRV\s+250/.test(om.text), om.text.slice(0, 600));
+  await page.click('[data-ov="TERM"]'); await page.waitForTimeout(800); om = await winOf(page, "OPTIONS · AAPL");
+  ok("[J] OMON TERM: ATM IV, straddle and expected move per expiry", /29 Oct 2026\s+9\s+250\s+28\.0%\s+17\.25\s+±6\.9%\s+±4\.4%/.test(om.text) && /26 Nov 2026\s+37\s+250\s+28\.0%/.test(om.text), om.text.slice(om.text.indexOf("EXPIRY"), om.text.indexOf("EXPIRY") + 300));
+  await page.click('[data-ov="SURF"]'); await page.waitForTimeout(800); om = await winOf(page, "OPTIONS · AAPL");
+  ok("[J] OMON SURFACE: IV by moneyness and expiry; no strike near a level → —", /100\.0% ATM\s+28\.0%\s+28\.0%/.test(om.text) && /95\.0% put\s+29\.0%/.test(om.text) && /85\.0% put\s+—\s+—/.test(om.text), om.text.slice(om.text.indexOf("STRIKE / SPOT"), om.text.indexOf("STRIKE / SPOT") + 300));
+  await page.click('[data-ov="PAY"]'); await page.waitForTimeout(800);
+  ok("[J] OMON PAYOFF: legs from the chain, profit or loss at expiry DERIVED", /ADD LEG/.test((await winOf(page, "OPTIONS · AAPL")).text) && /intrinsic value minus the premium paid/.test((await winOf(page, "OPTIONS · AAPL")).text));
+  // BT portfolio mix
+  await cmd(page, "BT"); await page.waitForTimeout(1200); await page.click('[data-btm="mix"]'); await page.waitForTimeout(3000);
+  const bt = await winOf(page, "BACKTEST · PORTFOLIO MIX");
+  ok("[J] BT PORTFOLIO MIX: weights, rebalancing and a benchmark on real daily closes; return, CAGR, volatility, Sharpe, drawdown, calendar years, correlation (DERIVED)", !!bt && /RESULT\s*DRV\s+PORTFOLIO\s+SPY/.test(bt.text) && /Total return\s+[+-]\d+\.\d%/.test(bt.text) && /Max drawdown\s+-?\d+\.\d%/.test(bt.text) && /Rebalancings\s+\d/.test(bt.text) && /CALENDAR YEARS/.test(bt.text) && /CORRELATION\s+SPY\s+TLT\s+GLD/.test(bt.text) && /Real daily closes from Twelve Data/.test(bt.text), bt && bt.text.slice(0, 900));
+  // COMP converted to EUR
+  await cmd(page, "COMP"); await page.waitForTimeout(1800); await page.click('[data-cccy="EUR"]'); await page.waitForTimeout(1800);
+  const cp = await winOf(page, "COMPARE");
+  ok("[J] COMP: converted to EUR at the ECB rate of each day (the series from /api/portfolio/fx)", /converted at the ECB reference rate of each day/.test(cp.text) && !/N\/A:/.test(cp.text) && (await page.$$eval(".win canvas", (c) => c.length)) > 0, cp.text.slice(0, 500));
+  // CROSS stats
+  await cmd(page, "CROSS NVDA AAPL"); await page.waitForTimeout(1800);
+  const cx = await winOf(page, "CROSS · NVDA / AAPL");
+  ok("[J] CROSS: where the ratio sits in its range (percentile) and its z-score — σ of 0 gives — (nothing invented)", /WHERE IT SITS\s+\d+%\s+percentile of the period/.test(cx.text) && /Z-SCORE\s+—/.test(cx.text) && /CORRELATION\s+1\.00/.test(cx.text), cx.text.slice(0, 500));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[J] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

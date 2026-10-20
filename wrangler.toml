@@ -24,9 +24,10 @@ binding = "AI"
 
 # scheduled briefings (src/cron.mjs): every minute in these UTC hours, which contain the
 # Rome slots in both CET and CEST (Daily 07:30, Weekly/Monthly Sat 08:00, Evening 22:30).
-# Outside a slot's ~30 minutes a run returns at once; 300 runs a day (free plan: 5 cron triggers).
+# Outside a slot's ~30 minutes a run returns at once; 300 runs a day.
+# alerts (src/alerts.mjs): checked every 5 minutes, 288 runs a day. Free plan: 5 cron triggers per account.
 [triggers]
-crons = ["* 5-7 * * *", "* 20-21 * * *"]
+crons = ["* 5-7 * * *", "* 20-21 * * *", "*/5 * * * *"]
 
 # briefing archive (Daily / Evening / Weekly / Monthly editions) + staged inputs of scheduled runs
 [[kv_namespaces]]
@@ -42,3 +43,5 @@ ACCESS_AUD = "665e1b22b9f9c6fd946766bc604fcd5e87731182535777b75f835d297666552a"
 
 # TWELVEDATA_KEY is a SECRET (Cloudflare dashboard → Worker → Settings →
 # Variables and Secrets, type "Secret"), never committed to this repo.
+# Optional, same place, type "Secret": TELEGRAM_BOT_TOKEN (the bot that sends alerts; the chat is linked
+# from ALRT) and TELEGRAM_CHAT_ID (only if the chat is not linked from ALRT).

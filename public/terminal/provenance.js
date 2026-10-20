@@ -120,7 +120,13 @@
     storage_not_configured: "server storage not configured",
     forbidden_origin: "request from another site refused",
     bad_request: "invalid request",
-    not_found: "not found"
+    not_found: "not found",
+    not_configured: "not set up",
+    bad_token_format: "TELEGRAM_BOT_TOKEN does not look like a bot token",
+    telegram_unauthorized: "Telegram refused the bot token (check TELEGRAM_BOT_TOKEN)",
+    telegram_blocked: "the bot cannot write to this chat (blocked, or never started)",
+    telegram_bad_request: "Telegram refused the message (chat not found?)",
+    no_chat: "no Telegram chat linked"
   };
   function errorText(code) { return ERRORS[code] || code || "unavailable"; }
 

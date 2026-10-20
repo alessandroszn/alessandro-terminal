@@ -108,7 +108,8 @@ async function loadBars(sym, days, now) {
 // no failure memo here: each symbol is one cache read and one write (the Cache API allows 50 calls per request)
 const bars = (origin, ctx, sym, years, now) => cachedSource({ origin, key: `myld/b${years}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, load: () => loadBars(sym, years === 1 ? 400 : years * 366, now) });
 
-// the close 1 week / 1 month / 3 months / 1 year before the latest close: the last close on or before that day — never interpolated
+// the close 1 week / 1 month / 3 months / 1 year before the latest close, and the last close of the previous year (YTD):
+// the last close on or before that day — never interpolated
 export const MKT_PAST = [["1W", 7], ["1M", 30], ["3M", 91], ["1Y", 365]];
 export function pastOf(rows) {
   const out = {}; if (!rows || rows.length < 2) return out;
@@ -120,6 +121,10 @@ export function pastOf(rows) {
     if (!r && Date.parse(rows[0][0]) - target <= 7 * 86400_000 && rows[0] !== rows[rows.length - 1]) r = rows[0];
     if (r) out[k] = { date: r[0], value: r[1] };
   }
+  // YTD: the last close of the previous year
+  const y = new Date(last).getUTCFullYear(); let ye = null;
+  for (const x of rows) { if (x[0] <= `${y - 1}-12-31`) ye = x; else break; }
+  if (ye) out.YTD = { date: ye[0], value: ye[1] };
   return out;
 }
 

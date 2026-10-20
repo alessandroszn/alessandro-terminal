@@ -47,8 +47,10 @@ export function inSession(now, tz, open, close) {
   const hm = `${String(+p.hour % 24).padStart(2, "0")}:${p.minute}`;
   return hm >= open && hm < close;
 }
-// other symbols the terminal reads from CNBC (whitelist for /api/cnbc/history and /returns)
-export const EXTRA_SYMS = [".DXY", ".SPX", ".NDX", ".DJI", ".RUT", ".N225"];
+// other symbols the terminal reads from CNBC (whitelist for /api/cnbc/history and /returns): cash indices, and the FX board's
+// eight pairs as CNBC codes them (EUR= is EUR/USD, GBP= GBP/USD, AUD= AUD/USD, NZD= NZD/USD; JPY= is USD/JPY, CHF=, CAD=, CNY= the same way)
+export const FX_CNBC = { EUR: "EUR=", GBP: "GBP=", JPY: "JPY=", CHF: "CHF=", CAD: "CAD=", AUD: "AUD=", NZD: "NZD=", CNY: "CNY=" };
+export const EXTRA_SYMS = [".DXY", ".SPX", ".NDX", ".DJI", ".RUT", ".N225", ...Object.values(FX_CNBC)];
 
 // numbers as CNBC writes them: "10,733.00", "-0.4738%", "+0.005", "UNCH" (= 0 change)
 export const cnbcNum = (s) => { const t = String(s == null ? "" : s).replace(/,/g, "").replace(/%$/, "").trim(); return /^[-+]?\d+(\.\d+)?$/.test(t) ? Number(t) : null; };

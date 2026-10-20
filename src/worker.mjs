@@ -37,6 +37,7 @@ import { handleCentralBanks, handleSpread, handleEnergy } from "./macro.mjs";
 import { handleEarnings } from "./earnings.mjs";
 import { handleDes, handleOptions } from "./company.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
+import { handleAlerts, runAlerts, ALERT_CRON } from "./alerts.mjs";
 import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
@@ -562,13 +563,13 @@ export const app = {
     if (url.pathname.startsWith("/api/cnbc/")) return handleCnbc(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/nasdaq/")) return handleNasdaq(url, env, ctx, H, json);
     if (url.pathname === "/api/reddit") return handleReddit(url, env, ctx, H, json);
-    if (url.pathname === "/api/diag") return (await import("./diag.mjs")).handleDiag(url, env, ctx, H, json); // TEMPORARY
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
     if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
+    if (url.pathname === "/api/alerts" || url.pathname.startsWith("/api/alerts/")) return handleAlerts(url, env, ctx, H, json, req);
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
     if (url.pathname === "/api/bonds") return handleBonds(url, env, ctx, H, json);
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
@@ -592,8 +593,10 @@ export default {
     }
     return app.fetch(req, env, ctx);
   },
-  // Cron Trigger (wrangler.toml [triggers]): briefing editions written at their time — see cron.mjs
+  // Cron Triggers (wrangler.toml [triggers]): the alerts check every 5 minutes (alerts.mjs); briefing editions written at
+  // their time (cron.mjs)
   async scheduled(event, env, ctx) {
+    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); return; }
     ctx.waitUntil(runCron(event.scheduledTime, env, ctx, { fetchQuotes: (syms) => fetchQuotesCoalesced(syms, env.TWELVEDATA_KEY) }));
   },
 };

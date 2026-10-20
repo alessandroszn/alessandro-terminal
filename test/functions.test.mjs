@@ -191,6 +191,7 @@ ok("/api/options without Alpaca keys → 503 N/A", r.status === 503);
 
 // ---------- the owner's alerts / notes / boards ----------
 ok("alert validation: symbol, >= or <=, positive price", validateAlert({ sym: "nvda", op: ">=", price: 200 }).sym === "NVDA" && typeof validateAlert({ sym: "NVDA", op: ">", price: 1 }) === "string" && typeof validateAlert({ sym: "NVDA", op: "<=", price: -1 }) === "string");
+ok("alert validation: daily move, market open / close, data release; unsupported symbols refused", validateAlert({ kind: "move", sym: "EUR/USD", dir: "any", pct: 1 }).pct === 1 && validateAlert({ kind: "session", market: "IT", event: "close" }).market === "IT" && validateAlert({ kind: "release", country: "United States", match: "cpi" }).match === "cpi" && /not supported/.test(validateAlert({ sym: "USD/EUR", op: ">=", price: 1 })) && typeof validateAlert({ kind: "session", market: "XX", event: "open" }) === "string");
 ok("note validation: text required, control characters removed", validateNote({ text: "a\u0000b" }).text === "ab" && typeof validateNote({ text: "  " }) === "string");
 ok("board validation: name required, symbols deduplicated, at most 12 per board", validateBoards({ boards: [{ name: "EU banks", syms: ["isp.mi", "ISP.MI", "UCG:XMIL"] }] })[0].syms.join() === "ISP.MI,UCG:XMIL" && typeof validateBoards({ boards: [{ name: "x", syms: Array.from({ length: 13 }, (_, i) => "S" + i) }] }) === "string" && LIMITS.boardSyms === 12);
 const kv = new Map(), BRIEFS = { get: async (k) => kv.get(k) ?? null, put: async (k, v) => { kv.set(k, v); }, delete: async (k) => { kv.delete(k); } };
@@ -198,16 +199,25 @@ const envU = { ...env, BRIEFS };
 const J = (method, b) => ({ method, headers: { "content-type": "application/json", origin: "https://alessandrozanichelli.com" }, body: JSON.stringify(b) });
 r = await call("/api/user/alerts", undefined, envU);
 ok("alerts / notes / boards start empty", r.status === 200 && r.j.alerts.length === 0 && (await call("/api/user/notes", undefined, envU)).j.notes.length === 0 && (await call("/api/user/board", undefined, envU)).j.boards.length === 0);
+// the server saves a symbol only if CNBC (the feed alerts are checked on) quotes it now
+const SX = (i) => "S" + String.fromCharCode(65 + i), CN_KNOWN = new Set(["NVDA", ...Array.from({ length: 26 }, (_, i) => SX(i))]), fetch0 = globalThis.fetch;
+globalThis.fetch = async (u, o) => { const s = String(u); if (s.startsWith("https://quote.cnbc.com/")) { const syms = new URL(s).searchParams.get("symbols").split("|"); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.filter((x) => CN_KNOWN.has(x)).map((x) => ({ code: 0, symbol: x, name: x + " Corp", last: "100.00", last_time: "2026-10-20T15:00:00.000-0400", previous_day_closing: "99.00", change: "+1.00", change_pct: "+1.01%" })) } }), { status: 200 }); } return fetch0(u, o); };
 r = await call("/api/user/alerts", J("POST", { sym: "NVDA", op: ">=", price: 200, note: "breakout" }), envU);
 const aid = r.j && r.j.added;
-ok("alert stored (KV ud/alerts), not fired", r.status === 201 && JSON.parse(kv.get("ud/alerts"))[0].hit === null);
-r = await call(`/api/user/alerts/hit?id=${aid}`, J("POST", { price: 201.5, source: "Twelve Data" }), envU);
-ok("alert fired: time and the live price the page saw are recorded once", r.status === 200 && r.j.alerts[0].hit.price === 201.5);
-r = await call(`/api/user/alerts/hit?id=${aid}`, J("POST", { price: 250 }), envU);
-ok("alert fired twice: the first record stays", r.j.alerts[0].hit.price === 201.5);
-for (let i = 0; i < 10; i++) await call("/api/user/alerts", J("POST", { sym: "S" + i, op: "<=", price: 1 }), envU);
-r = await call("/api/user/alerts", J("POST", { sym: "EXTRA", op: "<=", price: 1 }), envU);
-ok("live alerts watch at most 10 different symbols (quote credits)", r.status === 400 && /10 different symbols/.test(r.j.message));
+ok("alert stored (KV ud/alerts), not fired, with CNBC's name", r.status === 201 && JSON.parse(kv.get("ud/alerts"))[0].hit === null && r.j.alerts[0].name === "NVDA Corp" && r.j.alerts[0].kind === "price");
+r = await call("/api/user/alerts", J("POST", { sym: "ZZZZ", op: ">=", price: 1 }), envU);
+ok("a symbol CNBC does not quote is refused", r.status === 400 && /no CNBC quote for ZZZZ/.test(r.j.message));
+r = await call(`/api/user/alerts/rearm?id=${aid}`, J("POST", {}), envU);
+ok("an alert that has not fired cannot be re-armed", r.status === 400);
+{ const l = JSON.parse(kv.get("ud/alerts")); l[0].hit = { at: "2026-10-20T19:00:00.000Z", price: 201.5, source: "CNBC" }; kv.set("ud/alerts", JSON.stringify(l)); }
+r = await call(`/api/user/alerts/rearm?id=${aid}`, J("POST", {}), envU);
+ok("a fired price alert is re-armed (watches again)", r.status === 200 && r.j.alerts[0].hit === null && r.j.alerts[0].rearmed);
+for (let i = 0; i < 24; i++) await call("/api/user/alerts", J("POST", { sym: SX(i), op: "<=", price: 1 }), envU);
+r = await call("/api/user/alerts", J("POST", { sym: "SZ", kind: "move", dir: "up", pct: 2 }), envU);
+ok("alerts watch at most 25 different symbols (one CNBC request)", r.status === 400 && /25 different symbols/.test(r.j.message));
+r = await call("/api/user/alerts", J("POST", { kind: "session", market: "US", event: "both" }), envU);
+ok("a market open / close alert needs no symbol", r.status === 201 && r.j.alerts.at(-1).kind === "session");
+globalThis.fetch = fetch0;
 r = await call("/api/user/alerts", { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: "{}" }, envU);
 ok("writes from another origin → 403; non-JSON → 415", r.status === 403 && (await call("/api/user/notes", { method: "POST", headers: { "content-type": "text/plain" }, body: "x" }, envU)).status === 415);
 r = await call("/api/user/notes", J("POST", { text: "Watch the ECB on Thursday", sym: "EUR/USD" }), envU);

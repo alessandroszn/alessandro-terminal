@@ -11,7 +11,7 @@ let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
 
 // ---------- CNBC parsing ----------
-ok("45 futures in 9 groups; 12 curves; only listed symbols allowed", FUTURES.length === 45 && new Set(FUTURES.map((f) => f[2])).size === 9 && Object.keys(CURVES).length === 12 && isAllowed("@CL.12") && isAllowed("@GC.1") && !isAllowed("@CL.13") && !isAllowed("AAPL"));
+ok("45 futures in 9 groups; 12 curves; only listed symbols allowed", FUTURES.length === 45 && new Set(FUTURES.map((f) => f[2])).size === 9 && Object.keys(CURVES).length === 12 && isAllowed("@CL.12") && isAllowed("@GC.1") && isAllowed("EUR=") && isAllowed("JPY=") && !isAllowed("@CL.13") && !isAllowed("AAPL") && !isAllowed("XYZ="));
 ok("numbers as CNBC writes them", cnbcNum("10,733.00") === 10733 && cnbcNum("-0.4738%") === -0.4738 && cnbcNum("+0.005") === 0.005 && cnbcNum("UNCH") === null && cnbcNum("") === null);
 ok("time with offset; contract month from the name", cnbcTime("2026-10-20T11:43:24.000-0400") === Date.parse("2026-10-20T15:43:24Z") && contractOf("WTI Crude (Nov'26)") === "Nov 2026" && contractOf("Gold") === null);
 const cl = parseCnbcQuote({ symbol: "@CL.1", code: 0, name: "WTI Crude (Nov'26)", last: "101.09", previous_day_closing: "103.66", change: "-2.57", change_pct: "-2.48%", open: "103.43", high: "110.48", low: "101.04", volume: "16,735", last_time: "2026-10-20T14:30:38.000-0400", exchange: "New York Mercantile Exchange", realTime: "false", curmktstatus: "REG_MKT" });
