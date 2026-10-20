@@ -1,5 +1,6 @@
 // PRESS HEADLINES (T06) — top publishers and central banks, from their own public RSS feeds:
-// Financial Times, Bloomberg, The Wall Street Journal, MarketWatch; Federal Reserve, ECB, Bank of England.
+// Financial Times, Bloomberg, The Wall Street Journal, MarketWatch, CNBC, The Economist, Il Sole 24 Ore; Reuters from its
+// own public news sitemap (the file it publishes for search engines); Federal Reserve, ECB, Bank of England.
 // Shown like a feed reader in this private terminal: headline, section, time and a link to the
 // article on the publisher's site. No article text, summary or image is stored or shown.
 //   GET /api/headlines?source=FT|BLOOMBERG|WSJ|MARKETWATCH|CB
@@ -38,7 +39,6 @@ export const PRESS = {
     feeds: [["Top stories", "https://feeds.content.dowjones.io/public/rss/mw_topstories"]],
   },
   // added 20 Oct 2026 (approved: "More news RSS"); the NEWS window only — the briefing keeps BRIEF_PRESS below.
-  // Reuters has no public RSS feed any more (its agency feed answers 404 to the Worker, 20 Oct 2026): not listed.
   CNBC: {
     name: "CNBC", home: "https://www.cnbc.com/",
     feeds: [["Top news", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114"], ["Finance", "https://www.cnbc.com/id/10000664/device/rss/rss.html"]],
@@ -50,6 +50,13 @@ export const PRESS = {
   SOLE: {
     name: "Il Sole 24 Ore", home: "https://www.ilsole24ore.com/",
     feeds: [["Finanza", "https://www.ilsole24ore.com/rss/finanza.xml"], ["Economia", "https://www.ilsole24ore.com/rss/economia.xml"], ["Mondo", "https://www.ilsole24ore.com/rss/mondo.xml"]],
+  },
+  // Reuters has no public RSS feed any more (its agency and Arc RSS feeds answer 404, 20–21 Oct 2026); its news sitemap
+  // (headline, link, publication time of the last two days) answers the Worker, so that is what is read.
+  REUTERS: {
+    name: "Reuters", home: "https://www.reuters.com/", sitemap: true,
+    feeds: [["News", "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml"]],
+    basis: "Reuters' public news sitemap — headline, time and link only (no article text)",
   },
   // official releases: each feed is its own institution (the section names it)
   CB: {
@@ -93,6 +100,21 @@ export function parseRss(xml, section) {
   return out;
 }
 
+// Google-News sitemap (<url><loc>…<news:publication_date>…<news:title>…) → the same items; the section is the first
+// part of the article's path, and only these sections are kept (sport, lifestyle and the like are left out)
+export const REUTERS_SECTIONS = { markets: "Markets", business: "Business", world: "World", technology: "Technology", legal: "Legal", breakingviews: "Breakingviews", sustainability: "Sustainability" };
+export function parseNewsSitemap(xml, sections = REUTERS_SECTIONS) {
+  const out = [];
+  for (const m of String(xml || "").matchAll(/<url\b[^>]*>([\s\S]*?)<\/url>/gi)) {
+    const it = m[1], url = decodeXml(tag(it, "loc")), title = decodeXml(tag(it, "news:title"));
+    const t = Date.parse(decodeXml(tag(it, "news:publication_date") || ""));
+    const seg = (/^https:\/\/www\.reuters\.com\/([a-z-]+)\//.exec(url) || [])[1];
+    if (!title || !url || !Number.isFinite(t) || !seg || !sections[seg]) continue;
+    out.push({ title, url, timestamp: new Date(t).toISOString(), section: sections[seg] });
+  }
+  return out;
+}
+
 export function mergeHeadlines(lists, limit = 40) {
   const seen = new Set(), out = [];
   for (const it of lists.flat().sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))) {
@@ -111,7 +133,7 @@ export async function getPress(origin, ctx, id) {
     load: async () => {
       const f = await fetchText(url, { timeoutMs: 10000, headers: { accept: "application/rss+xml, application/xml, text/xml" } });
       if (f.err) return { err: f.err };
-      const items = parseRss(f.text, section);
+      const items = src.sitemap ? parseNewsSitemap(f.text) : parseRss(f.text, section);
       return items.length ? { data: items } : { err: "no_data" };
     },
   }).then((r) => ({ section, url, ...r }))));
@@ -134,7 +156,7 @@ export async function handleHeadlines(url, env, ctx, H, json) {
   const status = !ok.length ? "N/A" : ok.some((p) => p.cache === "STALE") || ok.length < per.length ? (ok.some((p) => p.cache === "STALE") ? "STALE" : "PARTIAL") : "LIVE";
   const r = json({
     source: id, name: src.name, home: src.home, items, feeds, status,
-    basis: "publisher's public RSS feed — headline, time and link only (no article text)",
+    basis: src.basis || "publisher's public RSS feed — headline, time and link only (no article text)",
     fetchedAt: ok.length ? iso(Math.max(...ok.map((p) => p.fetchedAt))) : null,
     ...(ok.length ? {} : { error: (per.find((p) => p.err) || {}).err || "no_data" }),
   }, H, ok.length ? 200 : 502);

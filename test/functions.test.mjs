@@ -228,6 +228,15 @@ r = await call(`/api/user/notes?id=${nid}`, { method: "DELETE" }, envU);
 ok("notes: delete", r.status === 200 && r.j.notes.length === 0);
 r = await call("/api/user/board", J("PUT", { boards: [{ name: "Italy", syms: ["ISP:XMIL", "ENI:XMIL"] }] }), envU);
 ok("boards: replaced as a whole, ids assigned", r.status === 200 && r.j.boards[0].id && JSON.parse(kv.get("ud/board"))[0].name === "Italy");
+r = await call("/api/user/views", J("POST", { name: "Morning", desk: { w: 1600, h: 900 }, layout: [{ type: "YLD", state: { c: "IT" }, x: 0, y: 0, w: 800, h: 450 }, { type: "N", state: { src: "ALL" }, x: 800, y: 0, w: 800, h: 450, min: true }] }), envU);
+const vid = r.j && r.j.saved;
+ok("views: a layout is saved (window types, their state, positions, desk size)", r.status === 201 && r.j.views[0].layout.length === 2 && r.j.views[0].layout[1].min === true && r.j.views[0].desk.w === 1600);
+r = await call("/api/user/views", J("POST", { name: "morning", layout: [{ type: "CB", state: {}, x: 0, y: 0, w: 500, h: 400 }] }), envU);
+ok("views: the same name (any case) replaces that view", r.status === 200 && r.j.replaced === true && r.j.views.length === 1 && r.j.views[0].id === vid && r.j.views[0].layout[0].type === "CB");
+r = await call("/api/user/views", J("POST", { name: "x", layout: [{ type: "bad type", state: {}, x: 0, y: 0, w: 1, h: 1 }] }), envU);
+ok("views: bad window type / missing name / huge state refused", r.status === 400 && (await call("/api/user/views", J("POST", { layout: [{ type: "CB", x: 0, y: 0, w: 1, h: 1 }] }), envU)).status === 400 && (await call("/api/user/views", J("POST", { name: "big", layout: [{ type: "CB", state: { s: "x".repeat(5000) }, x: 0, y: 0, w: 1, h: 1 }] }), envU)).status === 400);
+r = await call(`/api/user/views?id=${vid}`, { method: "DELETE" }, envU);
+ok("views: delete", r.status === 200 && r.j.views.length === 0);
 r = await call("/api/user/alerts", undefined, { ...env, BRIEFS: undefined });
 ok("no storage → 503 N/A", r.status === 503);
 

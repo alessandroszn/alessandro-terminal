@@ -4,6 +4,8 @@
 //   POST             /api/user/alerts/rearm?id a fired price alert watches again
 //   GET|POST|PUT|DELETE /api/user/notes        notes {text, sym?}
 //   GET|PUT          /api/user/board           custom boards [{id, name, syms[]}]
+//   GET|POST|DELETE  /api/user/views           saved layouts [{id, name, desk:{w,h}, layout:[{type, state, x, y, w, h, min}], saved}]
+//                                              (a name saved again replaces that view)
 //   GET              /api/status[?usage=1]     system status for SYS: which sources are configured (yes/no only),
 //                                              Twelve Data credit usage (checked on request: 1 credit), the scheduler's last run
 // Nothing here is market data: these are the owner's own entries. All start empty.
@@ -12,10 +14,10 @@ import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
 import { loadCnbcQuotes } from "./cnbc.mjs";
 
-export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board" };
+export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views" };
 // quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
 // Alerts are checked on CNBC quotes (one request for all of them): at most 25 different symbols
-export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000 };
+export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000 };
 const SYM_RE = /^[A-Z0-9][A-Z0-9.\-:/]{0,19}$/;
 
 async function load(env, k) { try { const t = await env.BRIEFS.get(UD_KEYS[k]); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
@@ -30,6 +32,24 @@ export function validateNote(b) {
   const sym = b.sym ? clean(b.sym, 20).toUpperCase() : "";
   if (sym && !SYM_RE.test(sym)) return "bad symbol";
   return { text, sym: sym || null };
+}
+// a saved layout: the window types and their own state (no market data), positions and sizes on the desk
+export function validateView(b) {
+  if (!b || typeof b !== "object") return "body required";
+  const name = clean(b.name, 40); if (!name) return "a name is required";
+  const L = Array.isArray(b.layout) ? b.layout : null; if (!L || !L.length) return "layout[] required (at least one window)";
+  if (L.length > LIMITS.viewWins) return `at most ${LIMITS.viewWins} windows`;
+  const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : null), layout = [];
+  for (const w of L) {
+    const type = String(w && w.type || ""); if (!/^[A-Z]{1,8}$/.test(type)) return "bad window type";
+    const st = w.state && typeof w.state === "object" && !Array.isArray(w.state) ? w.state : {}, js = JSON.stringify(st);
+    if (js.length > LIMITS.viewState) return `window state too large (${type})`;
+    const x = num(w.x), y = num(w.y), ww = num(w.w), h = num(w.h);
+    if ([x, y, ww, h].some((v) => v == null || v < -100 || v > 20000)) return "bad window position";
+    layout.push({ type, state: JSON.parse(js), x, y, w: ww, h, min: !!w.min });
+  }
+  const dw = num(b.desk && b.desk.w), dh = num(b.desk && b.desk.h);
+  return { name, layout, desk: dw && dh ? { w: dw, h: dh } : null };
 }
 export function validateBoards(b) {
   const list = b && Array.isArray(b.boards) ? b.boards : null;
@@ -63,6 +83,15 @@ export async function handleUserData(url, env, ctx, H, json, req) {
     const p = await body(); if (p.e) return p.e;
     const v = validateBoards(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
     await save(env, kind, v); return send({ boards: v });
+  }
+  if (kind === "views" && method === "POST" && !sub) {
+    const p = await body(); if (p.e) return p.e;
+    const v = validateView(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
+    const list = await load(env, kind), same = list.find((x) => x.name.toLowerCase() === v.name.toLowerCase());
+    if (!same && list.length >= LIMITS.views) return send({ error: "bad_request", message: `limit of ${LIMITS.views} views reached` }, 400);
+    const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
+    const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
+    await save(env, kind, next); return send({ saved: item.id, replaced: !!same, views: next }, same ? 200 : 201);
   }
   const list = await load(env, kind);
   if (method === "DELETE" && !sub) {
@@ -121,7 +150,7 @@ export function sourcesStatus(env) {
     { id: "telegram", name: "Telegram bot", use: "alerts sent to your chat (ALRT)", configured: !!tgToken(env), note: env.TELEGRAM_BOT_TOKEN && !tgToken(env) ? "TELEGRAM_BOT_TOKEN is set but does not look like a bot token" : undefined },
     { id: "ai", name: "Workers AI", use: "briefing editions", configured: !!env.AI },
     { id: "kv", name: "Workers KV", use: "briefings, portfolio, alerts, notes, boards, calendar archive", configured: !!env.BRIEFS },
-    { id: "public", name: "Public sources (no key)", use: "ECB, Bundesbank, Banca d'Italia, NY Fed, BoE, SNB, BoC, Japan MOF, BIS, CFTC, Forex Factory, CNBC, Nasdaq, ApeWisdom, press feeds, iShares, Invesco, SPDR", configured: true },
+    { id: "public", name: "Public sources (no key)", use: "ECB, Bundesbank, Banca d'Italia, NY Fed, BoE, SNB, BoC, Japan MOF, BIS, CFTC, FINRA, Forex Factory, CNBC, Nasdaq, ApeWisdom, press feeds (Reuters sitemap included), iShares, Invesco, SPDR", configured: true },
   ];
 }
 // Twelve Data's own counter of credits used this minute and today. Each check costs 1 credit, so it runs only when

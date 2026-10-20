@@ -55,7 +55,8 @@ ok("other venues kept with their MIC", ms.some((x) => x.id === "4MSFT:XMIL") && 
 const nv = normalizeSearch({ data: SEARCH.nvidia }, "NVIDIA");
 ok("rank: 'NVIDIA' → NVDA first, warrants last", nv[0].id === "NVDA" && /Warrant/.test(nv.at(-1).type) && /Warrant/.test(nv.at(-2).type), nv.map((x) => x.id).join());
 const ro = normalizeSearch({ data: SEARCH.roche }, "Roche");
-ok("'Roche': SIX listings found, flagged as needing the Pro plan", ro.filter((x) => x.mic === "XSWX").every((x) => x.planRequired === "Pro" && x.quotable === false) && ro.some((x) => x.id === "RO:XSWX"));
+ok("'Roche': SIX listings found, flagged as needing the Pro plan, quotable through CNBC (ROG-CH)", ro.filter((x) => x.mic === "XSWX").every((x) => x.planRequired === "Pro" && x.quotable === true && x.via === "CNBC" && x.cnbc === x.symbol + "-CH") && ro.some((x) => x.id === "RO:XSWX"));
+ok("a listing on an exchange CNBC is not mapped for stays not quotable", normalizeSearch({ data: [row("005930", "Samsung Electronics", "KRX", "XKRX", "Common Stock", "South Korea", "KRW", "Pro")] }, "005930")[0].quotable === false);
 ok("'Roche': SIX listings first, then the US ADR the current plan can quote", ro[0].mic === "XSWX" && ro[1].mic === "XSWX" && ro[2].id === "RHHBY" && ro[2].quotable === true, ro.map((x) => x.id).join());
 ok("result fields: id, symbol, name, exchange, mic, country, currency, type, plan", ["id", "symbol", "name", "exchange", "mic", "country", "currency", "type", "planRequired", "quotable"].every((k) => k in ro[0]));
 const ro2 = normalizeSearch({ data: [row("RCCB", "Rochester New York Community Baseball Inc.", "OTC", "OTCM", "Common Stock", "United States", "USD", "Basic"), row("RHHBF", "Roche Holding AG", "OTC", "PINX", "Common Stock", "United States", "USD", "Basic"), ...SEARCH.roche] }, "Roche");
@@ -140,7 +141,7 @@ ok("search: empty query refused (400)", r.status === 400);
 // ---------- quotes: plain batch + venue ids ----------
 __resetForTests(); urls = []; auths = []; store = new Map();
 r = await call("/api/quote?symbols=AAPL,MSFT,NOVN:XSWX");
-const qUrls = urls.filter((u) => u.includes("/quote"));
+const qUrls = urls.filter((u) => u.startsWith("https://api.twelvedata.com/quote"));
 ok("quote: plain ids in one batched call, venue id in its own call with mic_code", qUrls.length === 2 && qUrls.some((u) => /symbol=AAPL%2CMSFT$/.test(u)) && qUrls.some((u) => /symbol=NOVN&mic_code=XSWX/.test(u)), qUrls.map((u) => u.replace(KEY, "***")).join(" "));
 ok("quote: listing outside the plan → plan_required N/A, others LIVE", r.status === 200 && r.j.errors["NOVN:XSWX"].error === "plan_required" && r.j.errors["NOVN:XSWX"].status === "N/A" && r.j.quotes.AAPL.status === "LIVE" && !r.j.quotes["NOVN:XSWX"]);
 r = await call("/api/quote?symbols=NOVN:XSWX");
@@ -154,6 +155,6 @@ ok("history: venue id outside the plan → 403 plan_required N/A", r.status === 
 r = await call("/api/history?symbol=AAPL&range=6M");
 ok("history: plain id unchanged", r.status === 200 && r.j.symbol === "AAPL");
 
-ok("key never in any provider URL; sent only as 'Authorization: apikey …' header", urls.length >= 4 && !urls.some((u) => u.includes(KEY) || /apikey/i.test(u)) && auths.filter(Boolean).every((a) => a === `apikey ${KEY}`) && auths.filter((a, i) => /\/(quote|time_series)/.test(urls[i])).every((a) => a === `apikey ${KEY}`));
+ok("key never in any provider URL; sent only as 'Authorization: apikey …' header", urls.length >= 4 && !urls.some((u) => u.includes(KEY) || /apikey/i.test(u)) && auths.filter(Boolean).every((a) => a === `apikey ${KEY}`) && auths.filter((a, i) => /^https:\/\/api\.twelvedata\.com\/(quote|time_series)/.test(urls[i])).every((a) => a === `apikey ${KEY}`));
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

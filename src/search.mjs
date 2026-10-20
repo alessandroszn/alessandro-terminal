@@ -4,6 +4,7 @@
 // Quotes and history are then fetched on demand, only for the instrument the user selects.
 // Instrument id: plain symbol for US listings, FX, metals and crypto ("AAPL", "EUR/USD");
 // "SYMBOL:MIC" for every other listing ("NOVN:XSWX"), so quotes and history hit exactly that venue.
+import { cnbcCodeFor } from "./intl.mjs";
 import { fetchText, cachedSource, iso } from "./lib.mjs";
 
 const TD = "https://api.twelvedata.com";
@@ -42,6 +43,7 @@ function score(r, Q) {
   return s;
 }
 
+// listings the plan does not include but CNBC quotes (intl.mjs: SYMBOL:MIC → CNBC code) are quotable through CNBC
 export function normalizeSearch(j, q) {
   const data = Array.isArray(j && j.data) ? j.data : [];
   const Q = String(q).trim().toUpperCase();
@@ -49,12 +51,13 @@ export function normalizeSearch(j, q) {
   for (const r of data) {
     if (!r || !r.symbol) continue;
     const need = (r.access && (r.access.global || r.access.plan)) || null;
-    const quotable = need ? (PLAN_RANK[need] ?? 9) <= PLAN_RANK[CURRENT_PLAN] : null;
-    rows.push({ r, quotable, s: score({ ...r, quotable }, Q) });
+    const inPlan = need ? (PLAN_RANK[need] ?? 9) <= PLAN_RANK[CURRENT_PLAN] : null;
+    const via = inPlan === false && cnbcCodeFor(instrumentId(r)) ? "CNBC" : null, quotable = via ? true : inPlan;
+    rows.push({ r, quotable, via, s: score({ ...r, quotable }, Q) });
   }
   rows.sort((a, b) => a.s - b.s);
   const seen = new Set(), out = [];
-  for (const { r, quotable } of rows) {
+  for (const { r, quotable, via } of rows) {
     const id = instrumentId(r);
     if (seen.has(id)) continue; // e.g. AAPL on Nasdaq and on IEX: one US instrument
     seen.add(id);
@@ -63,6 +66,7 @@ export function normalizeSearch(j, q) {
       exchange: isCcy(r) ? null : r.exchange || null, mic: isCcy(r) ? null : r.mic_code || null,
       country: r.country || null, currency: r.currency || null, type: r.instrument_type || null,
       timezone: r.exchange_timezone || null, planRequired: (r.access && (r.access.global || r.access.plan)) || null, quotable,
+      ...(via ? { via, cnbc: cnbcCodeFor(id) } : {}),
     });
   }
   return out;

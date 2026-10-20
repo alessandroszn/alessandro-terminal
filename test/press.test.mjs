@@ -29,7 +29,13 @@ const merged = mergeHeadlines([[{ title: "x", url: "https://a/1?utm=1", timestam
 ok("merge: newest first, duplicates across sections removed", merged.length === 2 && merged[0].title === "y" && merged[1].title === "x");
 ok("feeds: FT and Bloomberg sections defined on the publishers' own domains", PRESS.FT.feeds.every(([, u]) => u.startsWith("https://www.ft.com/")) && PRESS.BLOOMBERG.feeds.every(([, u]) => u.startsWith("https://feeds.bloomberg.com/")));
 ok("feeds: WSJ and MarketWatch from Dow Jones' own public feeds; central banks from their official sites only", [...PRESS.WSJ.feeds, ...PRESS.MARKETWATCH.feeds].every(([, u]) => u.startsWith("https://feeds.content.dowjones.io/public/rss/")) && PRESS.CB.feeds.every(([, u]) => /^https:\/\/www\.(federalreserve\.gov|ecb\.europa\.eu|bankofengland\.co\.uk)\//.test(u)));
-ok("no wire / aggregator source (GDELT removed): only the listed publishers and central banks (CNBC, The Economist, Il Sole 24 Ore added 20 Oct 2026)", Object.keys(PRESS).join() === "FT,BLOOMBERG,WSJ,MARKETWATCH,CNBC,ECONOMIST,SOLE,CB" && !JSON.stringify(PRESS).includes("gdelt") && !/reuters/i.test(JSON.stringify(PRESS)));
+ok("no wire / aggregator source (GDELT removed): only the listed publishers and central banks (CNBC, The Economist, Il Sole 24 Ore added 20 Oct 2026; Reuters from its own news sitemap 21 Oct 2026)", Object.keys(PRESS).join() === "FT,BLOOMBERG,WSJ,MARKETWATCH,CNBC,ECONOMIST,SOLE,REUTERS,CB" && !JSON.stringify(PRESS).includes("gdelt") && PRESS.REUTERS.feeds[0][1].startsWith("https://www.reuters.com/arc/outboundfeeds/news-sitemap/"));
+{
+  const { parseNewsSitemap } = await import("../src/press.mjs");
+  const SM = `<?xml version="1.0"?><urlset xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"><url><loc>https://www.reuters.com/markets/us/stocks-close-higher-2026-10-20/</loc><lastmod>2026-10-20T21:10:00.000Z</lastmod><news:news><news:publication><news:name>Reuters</news:name><news:language>eng</news:language></news:publication><news:publication_date>2026-10-20T21:09:17.854Z</news:publication_date><news:title>Stocks close higher &amp; yields ease</news:title></news:news></url><url><loc>https://www.reuters.com/sports/soccer/a-match-2026-10-20/</loc><news:news><news:publication_date>2026-10-20T20:00:00Z</news:publication_date><news:title>A match</news:title></news:news></url><url><loc>https://www.reuters.com/business/no-date/</loc><news:news><news:title>No date</news:title></news:news></url></urlset>`;
+  const it = parseNewsSitemap(SM);
+  ok("Reuters news sitemap: headline, link, publication time and section from the path; sport and undated items left out", it.length === 1 && it[0].title === "Stocks close higher & yields ease" && it[0].section === "Markets" && it[0].timestamp === "2026-10-20T21:09:17.854Z", JSON.stringify(it));
+}
 ok("central-bank items are named by institution", pressSourceName("CB", "Fed speeches") === "Federal Reserve" && pressSourceName("CB", "ECB") === "European Central Bank" && pressSourceName("CB", "BoE") === "Bank of England" && pressSourceName("WSJ", "Markets") === "The Wall Street Journal");
 
 let failing = new Set(), calls = [];
@@ -53,7 +59,7 @@ r = await call("/api/headlines?source=CB");
 ok("central banks: LIVE, each item named by its institution", r.status === 200 && r.j.status === "LIVE" && r.j.items.length > 0 && r.j.items.every((i) => ["Federal Reserve", "European Central Bank", "Bank of England"].includes(i.source) && i.provider === "CB"));
 const top = await topHeadlines("https://alessandrozanichelli.com", ctx, 5);
 ok("topHeadlines (briefing input): all sources merged, newest first, duplicates removed, publisher named", top.length === 2 && top[0].timestamp >= top[1].timestamp && top.every((h) => h.source && h.provider));
-r = await call("/api/headlines?source=REUTERS");
+r = await call("/api/headlines?source=GDELT");
 ok("unknown source → 400", r.status === 400);
 
 console.log(`\n${pass} passed, ${fail} failed`);

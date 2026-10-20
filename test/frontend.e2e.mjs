@@ -7,6 +7,7 @@ import { buildPositions, validateTx } from "../src/portfolio.mjs";
 import { readFileSync } from "node:fs";
 import { normalizeQuote, buildInstrument, app as workerApp } from "../src/worker.mjs";
 import { normalizeSearch } from "../src/search.mjs";
+import { cnbcIntlRec, cnbcInstrument } from "../src/intl.mjs";
 
 const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
@@ -90,6 +91,7 @@ const PRESS_FIX = {
   CNBC: ["CNBC", "https://www.cnbc.com/", "Test CNBC top news headline", "https://www.cnbc.com/2026/10/20/test-6.html", 360_000, "Top news"],
   ECONOMIST: ["The Economist", "https://www.economist.com/", "Test Economist finance headline", "https://www.economist.com/finance-and-economics/test-7", 420_000, "Finance & economics"],
   SOLE: ["Il Sole 24 Ore", "https://www.ilsole24ore.com/", "Test Sole 24 Ore finanza headline", "https://www.ilsole24ore.com/art/test-8", 480_000, "Finanza"],
+  REUTERS: ["Reuters", "https://www.reuters.com/", "Test Reuters markets headline", "https://www.reuters.com/markets/test-9-2026-10-20/", 540_000, "Markets"],
 };
 const PRESS = (src) => { const now = Date.now(), [name, home, title, url, ago, section] = PRESS_FIX[src];
   return { source: src, name, home, status: "LIVE", fetchedAt: new Date(now).toISOString(),
@@ -314,6 +316,15 @@ globalThis.fetch = async (u, init = {}) => {
   if (u.startsWith("https://api.nasdaq.com/api/calendar/")) { const d = /date=([\d-]+)/.exec(u)[1]; return new Response(JSON.stringify({ data: { rows: d === NQ_TODAY ? [{ gmt: "12:30", country: "United States", eventName: "CPI (MoM)", actual: "0.4%", consensus: "0.3%", previous: "0.2%" }, { gmt: "08:00", country: "Germany", eventName: "PPI (MoM)", actual: "-0.1%", consensus: "0.0%", previous: "0.2%" }] : [] } })); }
   if (u.startsWith("https://api.nasdaq.com/api/screener/")) { const ex = /exchange=(\w+)/.exec(u)[1]; return new Response(JSON.stringify({ data: { rows: (ex === "nasdaq" ? [["NVDA", "NVIDIA Corporation Common Stock", "$190.50", "2.1%", "200000000", "4600000000000", "Technology", "Semiconductors", "United States", "1999"], ["AAPL", "Apple Inc. Common Stock", "$250.00", "-0.5%", "50000000", "3700000000000", "Technology", "Computer Manufacturing", "United States", "1980"]] : ex === "nyse" ? [["JPM", "JP Morgan Chase & Co. Common Stock", "$260.40", "0.8%", "9000000", "720000000000", "Finance", "Major Banks", "United States", ""]] : [["AMEX1", "Small Co Common Stock", "$3.10", "12.5%", "100000", "50000000", "Health Care", "Biotechnology", "United States", "2021"]]).map(([symbol, name, lastsale, pctchange, volume, marketCap, sector, industry, country, ipoyear]) => ({ symbol, name, lastsale, pctchange, volume, marketCap, sector, industry, country, ipoyear })) } })); }
   if (u.startsWith("https://api.nasdaq.com/api/marketmovers")) return new Response(JSON.stringify({ data: { STOCKS: { MostActiveByShareVolume: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "Share Volume" }, rows: [{ symbol: "NVDA", name: "NVIDIA", lastSalePrice: "$190.50", lastSaleChange: "+3.92", change: "200,000,000" }] } }, MostAdvanced: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "% Change" }, rows: [{ symbol: "UPCO", name: "Up Co", lastSalePrice: "$12.00", lastSaleChange: "+3.00", change: "+33.33%" }] } }, MostDeclined: { dataAsOf: "Data as of today", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "% Change" }, rows: [{ symbol: "DNCO", name: "Down Co", lastSalePrice: "$2.00", lastSaleChange: "-1.00", change: "-33.33%" }] } } } } }));
+  if (u.startsWith("https://api.finra.org/")) { const b = JSON.parse(init.body || "{}"); if (b.limit === 1) return new Response(JSON.stringify([{ settlementDate: "2026-09-30" }]));
+    if ((b.compareFilters || []).some((f) => f.fieldName === "symbolCode")) return new Response(JSON.stringify([{ symbolCode: "AAPL", issueName: "Apple Inc.", marketClassCode: "NNM", currentShortPositionQuantity: 120763539, previousShortPositionQuantity: 128753092, averageDailyVolumeQuantity: 39858260, daysToCoverQuantity: 3.03, changePercent: -6.21, settlementDate: "2026-09-30" }, { symbolCode: "AAPL", issueName: "Apple Inc.", marketClassCode: "NNM", currentShortPositionQuantity: 128753092, previousShortPositionQuantity: 139749097, averageDailyVolumeQuantity: 45135477, daysToCoverQuantity: 2.85, changePercent: -7.87, settlementDate: "2026-09-15" }]));
+    return new Response(JSON.stringify([["NVDA", "NVIDIA Corporation Common Stoc", "NNM", 311389688, 294225803, 110290688, 2.82, 5.83], ["JPM", "JP Morgan Chase", "NYSE", 20000000, 21000000, 9000000, 2.22, -4.76], ["AMEX1", "Small Co", "ARCA", 15000000, 10000000, 100000, 150, 50]].map(([symbolCode, issueName, marketClassCode, currentShortPositionQuantity, previousShortPositionQuantity, averageDailyVolumeQuantity, daysToCoverQuantity, changePercent]) => ({ symbolCode, issueName, marketClassCode, currentShortPositionQuantity, previousShortPositionQuantity, averageDailyVolumeQuantity, daysToCoverQuantity, changePercent, settlementDate: "2026-09-30" })))); }
+  if (u.startsWith("https://cdn.finra.org/equity/regsho/daily/")) { const d = /CNMSshvol(\d{8})/.exec(u)[1]; return new Response(`Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market\n${d}|AAPL|4000000|1200|10000000|B,Q,N\n`); }
+  if (u.startsWith("https://api.nasdaq.com/api/analyst/AAPL/ratings")) return new Response(JSON.stringify({ data: { symbol: "aapl", meanRatingType: "Buy", ratingsSummary: "Based on 29 analysts offering recommendations for AAPL.", upgradesDowngrades: [], brokerNames: ["CITIGROUP"] } }));
+  if (u.startsWith("https://api.nasdaq.com/api/analyst/AAPL/targetprice")) return new Response(JSON.stringify({ data: { consensusOverview: { lowPriceTarget: 245, highPriceTarget: 400, priceTarget: 301.44, buy: 16, sell: 4, hold: 10 }, historicalConsensus: [{ z: { buy: 15, hold: 9, sell: 4, consensus: "Buy" }, x: 1790812800, y: 301.44 }] } }));
+  if (u.startsWith("https://api.nasdaq.com/api/analyst/AAPL/earnings-forecast")) return new Response(JSON.stringify({ data: { quarterlyForecast: { rows: [{ fiscalEnd: "Dec 2026", consensusEPSForecast: 2.9, highEPSForecast: 3.04, lowEPSForecast: 2.68, noOfEstimates: 6, up: 1, down: 0 }] }, yearlyForecast: { rows: [{ fiscalEnd: "Sep 2027", consensusEPSForecast: 9.59, highEPSForecast: 10.47, lowEPSForecast: 9.01, noOfEstimates: 11, up: 2, down: 1 }] } } }));
+  if (u.startsWith("https://api.nasdaq.com/api/company/AAPL/institutional-holdings")) return new Response(JSON.stringify({ data: { ownershipSummary: { SharesOutstandingPCT: { value: "61.20%" }, ShareoutstandingTotal: { value: "14,800" }, TotalHoldingsValue: { value: "$2,264,400" } }, activePositions: { rows: [{ positions: "Increased Positions", holders: "2,815", shares: "329,984,542" }] }, holdingsTransactions: { totalRecords: "6437", table: { rows: [{ ownerName: "Vanguard Group Inc", date: "06/30/2026", sharesHeld: "1,426,283,914", sharesChange: "26,856,752", sharesChangePCT: "1.919%", marketValue: "$358,000,000" }] } } } }));
+  if (u.startsWith("https://api.nasdaq.com/api/analyst/") || u.startsWith("https://api.nasdaq.com/api/company/")) return new Response(JSON.stringify({ data: null }));
   if (u.startsWith("https://apewisdom.io/")) return new Response(JSON.stringify({ results: [{ rank: 1, ticker: "NVDA", name: "NVIDIA", mentions: 812, upvotes: 4021, rank_24h_ago: 2, mentions_24h_ago: 640 }, { rank: 2, ticker: "TSLA", name: "Tesla", mentions: 700, upvotes: 3000, rank_24h_ago: 1, mentions_24h_ago: 900 }] }));
   if (u.startsWith("https://api.telegram.org/")) { const method = u.split("/").pop(), body = JSON.parse(init.body || "{}"); PV.tg.push({ method, body, tokenInUrl: u.includes(TG_TOKEN) });
     if (method === "getMe") return new Response(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, first_name: "Ale alerts", username: "ale_alerts_bot" } }));
@@ -364,7 +375,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts)\//.test(u.pathname) || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra)\//.test(u.pathname) || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -381,7 +392,7 @@ const wlFill = async (page, sym) => { await page.fill(".wl-in", sym); await page
 const OK_API = {
   quote: (syms) => {
     const quotes = {}, errors = {};
-    for (const s of syms) { if (s === "ZZZZ") errors[s] = { error: "symbol_not_found", status: "N/A" }; else quotes[s] = instrument(s); }
+    for (const s of syms) { if (s === "ZZZZ") errors[s] = { error: "symbol_not_found", status: "N/A" }; else if (s === "NOVN:XSWX") quotes[s] = cnbcInstrument(cnbcIntlRec(s, { symbol: "NOVN-CH", code: 0, name: "Novartis AG", last: "126.50", last_time: new Date(Date.now() - 600_000).toISOString().replace("Z", "+0000"), change: "+0.50", change_pct: "+0.40%", previous_day_closing: "126.00", currencyCode: "CHF", exchange: "Swiss Exchange", realTime: "false", countryCode: "CH" }), { fetchedAt: Date.now(), fieldKeys: ["price", "change", "changePct", "prevClose", "open", "high", "low", "volume", "fiftyTwoWeekLow", "fiftyTwoWeekHigh", "marketCap", "pe", "eps", "dividendYield", "sharesOutstanding"] }); else if (s === "ISP:XMIL") quotes[s] = cnbcInstrument(cnbcIntlRec(s, { symbol: "ISP-IT", code: 0, name: "Intesa Sanpaolo S.p.A.", last: "5.99", last_time: new Date(Date.now() - 600_000).toISOString().replace("Z", "+0000"), change: "-0.02", change_pct: "-0.37%", previous_day_closing: "6.02", currencyCode: "EUR", exchange: "Milan Stock Exchange", realTime: "false", pe: "10.62", eps: "0.56", mktcapView: "103.871B", dividendyield: "6.27%", sharesout: "17.33B", yrhiprice: "6.94", yrloprice: "4.81", countryCode: "IT" }), { fetchedAt: Date.now(), fieldKeys: ["price", "change", "changePct", "prevClose", "open", "high", "low", "volume", "fiftyTwoWeekLow", "fiftyTwoWeekHigh", "marketCap", "pe", "eps", "dividendYield", "sharesOutstanding"] }); else quotes[s] = instrument(s); }
     return { status: Object.keys(quotes).length ? 200 : 404, body: { quotes, errors, meta: {} } };
   },
   history: (sym, range) => ({ body: historyBody(sym, range) }),
@@ -509,10 +520,10 @@ const OK_API = {
   // news
   await cmd(page, "N");
   const nw = await winOf(page, "NEWS");
-  ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && /Test CNBC top news headline\s*CNBC · TOP NEWS/.test(nw.text) && /Test Economist finance headline\s*ECONOMIST · FINANCE & ECONOMICS/i.test(nw.text) && /Test Sole 24 Ore finanza headline\s*SOLE 24 ORE · FINANZA/i.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve", "Test CNBC", "Test Economist", "Test Sole"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 8 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(nw.text.indexOf("HEADLINES"), nw.text.indexOf("HEADLINES") + 900));
+  ok("[A] news: ALL = top publishers + central banks only, newest first, each with source tag and https link in a new tab", /Test FT markets headline\s*FT · MARKETS/.test(nw.text) && /Test Bloomberg economics headline\s*BLOOMBERG · ECONOMICS/.test(nw.text) && /Test WSJ markets headline\s*WSJ · MARKETS/.test(nw.text) && /Test MarketWatch top story\s*MARKETWATCH · TOP STORIES/.test(nw.text) && /Test Federal Reserve press release\s*FED/.test(nw.text) && /Test CNBC top news headline\s*CNBC · TOP NEWS/.test(nw.text) && /Test Economist finance headline\s*ECONOMIST · FINANCE & ECONOMICS/i.test(nw.text) && /Test Sole 24 Ore finanza headline\s*SOLE 24 ORE · FINANZA/i.test(nw.text) && /Test Reuters markets headline\s*REUTERS · MARKETS/i.test(nw.text) && ["Test FT", "Test Bloomberg", "Test WSJ", "Test MarketWatch", "Test Federal Reserve", "Test CNBC", "Test Economist", "Test Sole", "Test Reuters"].every((t, i, a) => !i || nw.text.indexOf(a[i - 1]) < nw.text.indexOf(t)) && (await page.$$eval(".news-item a.h", (a) => a.length === 9 && a.every((x) => /^https:\/\//.test(x.href) && x.target === "_blank"))), nw.text.slice(nw.text.indexOf("HEADLINES"), nw.text.indexOf("HEADLINES") + 900));
   ok("[A] news: window status from the headline sources on screen (all LIVE)", nw.pill === "LIVE", nw.pill);
   ok("[A] news: last check time and automatic 5-minute checks shown", /CHECKED \d{2}:\d{2}(:\d{2})? · AUTO EVERY 5 MIN/.test(nw.text), (nw.text.match(/HEADLINES[^\n]*/) || [])[0]);
-  ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CNBC\s*ECONOMIST\s*SOLE 24 ORE\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
+  ok("[A] news: no wire tab and no SEC filings mixed into ALL", !/WIRE|GDELT/.test(nw.text) && !/AAPL · 8-K/.test(nw.text) && /ALL\s*FT\s*BLOOMBERG\s*WSJ\s*MARKETWATCH\s*CNBC\s*ECONOMIST\s*SOLE 24 ORE\s*REUTERS\s*CENTRAL BANKS\s*SEC FILINGS/.test(nw.text));
   await page.click('.win [data-src="BLOOMBERG"]'); await page.waitForTimeout(300);
   const nwB = await winOf(page, "NEWS");
   ok("[A] news: source filter (BLOOMBERG only)", /Test Bloomberg economics headline/.test(nwB.text) && !/Test FT markets headline/.test(nwB.text) && !/Test WSJ/.test(nwB.text));
@@ -683,13 +694,13 @@ const OK_API = {
   await cmd(page, "Novartis"); await page.waitForTimeout(400);
   let sr = await winOf(page, "SYMBOL SEARCH");
   ok("[E] a company name in the command line opens SYMBOL SEARCH with the provider's listings", !!sr && /NOVN\s+Novartis AG Registered Shares\s+SIX XSWX\s+Switzerland/.test(sr.text) && /NVS\s+Novartis AG Sponsored ADR/.test(sr.text), sr && sr.text.slice(0, 400));
-  ok("[E] plan shown per listing (BASIC vs PRO+), source + time, LIVE pill", /BASIC/.test(sr.text) && /PRO\+/.test(sr.text) && /3 listings · 1 quotable on the current plan \(Basic\) · source Twelve Data symbol_search/.test(sr.text) && sr.pill === "LIVE");
+  ok("[E] plan shown per listing: BASIC, CNBC for a listing outside the plan that CNBC quotes (SIX → NOVN-CH), GROW+ for one it cannot; source + time, LIVE pill", /BASIC/.test(sr.text) && /CNBC/.test(sr.text) && /GROW\+/.test(sr.text) && /3 listings · 2 quotable \(Twelve Data Basic, or CNBC for listings outside the plan\) · source Twelve Data symbol_search/.test(sr.text) && sr.pill === "LIVE", sr.text.slice(0, 600));
   ok("[E] search costs no quote: no /api/quote for search results", !quoteBatches.some((b) => b.syms.some((x) => /NOVN|NVS/.test(x))));
-  ok("[E] +WL disabled for a listing outside the plan", await page.$eval('[data-add="NOVN:XSWX"]', (b) => b.disabled));
-  await page.click('[data-open="NOVN:XSWX"]'); await page.waitForTimeout(500);
+  ok("[E] +WL disabled for a listing outside the plan that CNBC cannot quote either", await page.$eval('[data-add="NOVN:NEOE"]', (b) => b.disabled) && !(await page.$eval('[data-add="NOVN:XSWX"]', (b) => b.disabled)));
+  await page.click('[data-open="NOVN:XSWX"]'); await page.waitForTimeout(800);
   const gpCh = await winOf(page, "NOVN:XSWX");
-  ok("[E] OPEN on a listing outside the plan → N/A with the reason, no credit spent", !!gpCh && /N\/A — quote and history unavailable: listed by the provider on SIX, but not included in the current data plan \(Twelve Data Basic\); it needs the Pro plan or higher/.test(gpCh.text) && !requests.some((u) => /NOVN/.test(u) && /\/api\/(quote|history)/.test(u)), gpCh && gpCh.text.slice(0, 300));
-  ok("[E] its window shows venue, country and currency from the symbol master, no price", /SIX · XSWX · Switzerland · CHF · Common Stock/.test(gpCh.text) && !/CHF\s*\d|\d[\d,]*\.\d\d CHF/.test(gpCh.text));
+  ok("[E] OPEN on a listing outside the plan that CNBC quotes → CNBC's price in its own currency, labelled CNBC", !!gpCh && /126\.50/.test(gpCh.text) && /CHF/.test(gpCh.text) && requests.some((u) => /NOVN%3AXSWX|NOVN:XSWX/.test(u) && /\/api\/quote/.test(u)), gpCh && gpCh.text.slice(0, 300));
+  ok("[E] its window shows venue, country and currency", /SIX · XSWX · Switzerland · CHF · Common Stock|Swiss Exchange/.test(gpCh.text), gpCh.text.slice(0, 300));
   await page.click('[data-add="NVS"]'); await page.waitForTimeout(700);
   ok("[E] +WL on a quotable listing: validated with a real quote, added, metadata saved", (await page.$$eval(".wl-row", (r) => r.map((x) => x.dataset.sym).join())).endsWith(",NVS") && quoteBatches.some((b) => b.syms.join() === "NVS") && JSON.parse(await page.evaluate(() => localStorage.getItem("at-wlmeta"))).NVS.exchange === "NYSE" && /NVS added/.test((await winOf(page, "SYMBOL SEARCH")).text));
   await page.click('[data-open="NVS"]'); await page.waitForTimeout(800);
@@ -817,7 +828,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1126,6 +1137,53 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[J] CROSS: where the ratio sits in its range (percentile) and its z-score — σ of 0 gives — (nothing invented)", /WHERE IT SITS\s+\d+%\s+percentile of the period/.test(cx.text) && /Z-SCORE\s+—/.test(cx.text) && /CORRELATION\s+1\.00/.test(cx.text), cx.text.slice(0, 500));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[J] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== K. most shorted, analysts / short interest / holders in DES, international listing, themes, saved views ===============
+{
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
+  // MOV · MOST SHORTED
+  await cmd(page, "MOV"); await page.waitForTimeout(600); await page.click('[data-mv="SHORT"]'); await page.waitForTimeout(2500);
+  let mv = await winOf(page, "MARKET MOVERS");
+  ok("[K] MOV most shorted: FINRA short interest of the latest settlement, % of shares from Nasdaq's market cap ÷ price (DERIVED), days to cover, size filter ≥ $300M by default", /FINRA consolidated short interest, settlement of\s+30 Sept? 2026/.test(mv.text) && /1\s+NVDA\s+NVIDIA Corporation\s+1\.29%\s+311\.4M\s+\+5\.8%\s+2\.82/.test(mv.text) && /2\s+JPM\s+JP Morgan Chase & Co\.\s+0\.72%/.test(mv.text) && !/AMEX1/.test(mv.text), mv.text.slice(0, 900));
+  await page.click('[data-scap="0"]'); await page.waitForTimeout(500);
+  mv = await winOf(page, "MARKET MOVERS");
+  ok("[K] MOV most shorted: ANY SIZE brings in the small cap with the highest short share", /1\s+AMEX1\s+Small Co\s+93\.\d\d%/.test(mv.text), mv.text.slice(0, 600));
+  await page.click('[data-ssrt="days"]'); await page.waitForTimeout(400);
+  mv = await winOf(page, "MARKET MOVERS");
+  ok("[K] MOV most shorted: sort by days to cover", mv.text.indexOf("AMEX1") < mv.text.indexOf("NVDA") && mv.text.indexOf("NVDA") < mv.text.indexOf("JPM"));
+  // DES AAPL: analysts, short interest, holders
+  await cmd(page, "DES AAPL"); await page.waitForTimeout(3000);
+  const ds = await winOf(page, "DES · AAPL");
+  ok("[K] DES analysts (Nasdaq): mean rating with the number of analysts, consensus target and range, upside vs the live price (DERIVED), buy / hold / sell, EPS forecasts", /MEAN RATING\s*LIVE\s+Buy\s+based on 29 analysts/.test(ds.text) && /PRICE TARGET\s*LIVE\s+\$301\.44/.test(ds.text) && /UPSIDE\s*DRV\s+\+20\.6%/.test(ds.text) && /Dec 2026\s+2\.90\s+2\.68\s+3\.04\s+6/.test(ds.text) && /Sep 2027\s+9\.59/.test(ds.text), ds.text.slice(ds.text.indexOf("ANALYSTS"), ds.text.indexOf("ANALYSTS") + 900));
+  ok("[K] DES short interest (FINRA): latest settlement, change, days to cover, % of shares on the SEC cover page (DERIVED), short volume of the last sessions", /SHORT INTEREST\s*LIVE\s+120\.8M\s+shares, settlement 30 Sept? 2026/.test(ds.text) && /DAYS TO COVER\s*LIVE\s+3\.03/.test(ds.text) && /% OF SHARES OUTSTANDING\s*DRV\s+0\.8\d%/.test(ds.text) && /SHORT VOLUME\s*LIVE\s+40\.0%/.test(ds.text), ds.text.slice(ds.text.indexOf("SHORT INTEREST ·"), ds.text.indexOf("SHORT INTEREST ·") + 900));
+  ok("[K] DES institutional holders (Nasdaq, 13F): ownership, holders, top holders with their filing date", /INSTITUTIONAL OWNERSHIP\s*LIVE\s+61\.20%/.test(ds.text) && /Vanguard Group Inc\s+30 Jun 2026\s+1\.43B\s+\+26\.9M\s+\+1\.92%\s+\$358\.00B/.test(ds.text), ds.text.slice(ds.text.indexOf("INSTITUTIONAL HOLDERS"), ds.text.indexOf("INSTITUTIONAL HOLDERS") + 700));
+  // DES for a listing outside the U.S. (CNBC)
+  await cmd(page, "DES ISP:XMIL"); await page.waitForTimeout(1800);
+  const di = await winOf(page, "DES · ISP:XMIL");
+  ok("[K] DES international listing: CNBC's quote and fundamentals, no SEC profile claimed", !!di && /Intesa Sanpaolo S\.p\.A\./.test(di.text) && /Milan Stock Exchange · EUR · IT · CNBC ISP-IT/.test(di.text) && /Not an SEC registrant/.test(di.text) && /MARKET CAP\s*LIVE\s+103\.87B EUR/.test(di.text) && /P\/E\s*LIVE\s+10\.6×/.test(di.text) && /DIVIDEND YIELD\s*LIVE\s+6\.27%/.test(di.text), di && di.text.slice(0, 900));
+  // themes
+  await cmd(page, "SET"); await page.waitForTimeout(400); await page.click('[data-theme="nord"]'); await page.waitForTimeout(300);
+  const th = await page.evaluate(() => ({ bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), panel: getComputedStyle(document.documentElement).getPropertyValue("--panel").trim(), accent: getComputedStyle(document.documentElement).getPropertyValue("--amber").trim(), n: document.querySelectorAll("[data-theme]").length, saved: localStorage.getItem("at-theme") }));
+  await page.click('[data-theme="amber"]'); await page.waitForTimeout(300);
+  const th2 = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--bg").trim());
+  ok("[K] SET: eight themes with full palettes (NORD sets background, panels, accent; AMBER restores the default background)", th.n === 8 && th.bg === "#242933" && th.panel === "#2e3440" && th.accent === "#88c0d0" && /nord|242933/.test(th.saved) && th2 === "#0a0b0e", JSON.stringify(th) + " " + th2);
+  // saved views
+  await cmd(page, "CLOSE"); await cmd(page, "CB"); await cmd(page, "SPRD"); await page.waitForTimeout(600);
+  await cmd(page, "VIEW"); await page.waitForTimeout(800);
+  await page.fill('.vw-f input[name="name"]', "Rates desk"); await page.click('.vw-f button[type="submit"]'); await page.waitForTimeout(900);
+  let vw = await winOf(page, "SAVED VIEWS");
+  ok("[K] VIEW: the current layout is saved on the server under a name (without the views window itself)", /Saved: Rates desk/.test(vw.text) && /Rates desk\s+CB · SPRD/.test(vw.text) && JSON.parse(PV.kv.get("ud/views"))[0].layout.map((x) => x.type).join() === "CB,SPRD", vw.text.slice(0, 400));
+  await cmd(page, "N"); await page.waitForTimeout(400); await cmd(page, "VIEW"); await page.waitForTimeout(400);
+  await page.click(".vw-open"); await page.waitForTimeout(1200);
+  const titles = await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent));
+  ok("[K] VIEW: opening a view closes the current windows and reopens the saved ones", titles.includes("CENTRAL BANKS") && titles.includes("SPREADS") && !titles.includes("NEWS"), titles.join("|"));
+  await cmd(page, "UNDO"); await page.waitForTimeout(600);
+  ok("[K] VIEW: UNDO brings back the windows a view replaced", (await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent))).includes("NEWS"));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[K] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

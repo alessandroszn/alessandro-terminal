@@ -4,6 +4,8 @@
 //   GET /api/nasdaq/calendar?from=2026-10-19&to=2026-10-23   releases with actual / consensus / previous (≤ 8 days)
 //   GET /api/nasdaq/screener?ex=nasdaq|nyse|amex             every listed stock of one exchange (compact rows)
 //   GET /api/nasdaq/movers                                   most active, gainers, losers (the lists Nasdaq publishes)
+//   GET /api/nasdaq/company?sym=AAPL                         analysts (mean rating, price targets and their history, EPS
+//                                                            forecasts) and institutional holders (13F) as Nasdaq publishes them
 import { fetchText, cachedSource, iso } from "./lib.mjs";
 
 const BUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
@@ -11,7 +13,13 @@ export const NQ_HEADERS = { "user-agent": BUA, accept: "application/json, text/p
 export const NQ_CAL = (date) => `https://api.nasdaq.com/api/calendar/economicevents?date=${date}`;
 export const NQ_SCR = (ex) => `https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=25&offset=0&download=true&exchange=${ex}`;
 export const NQ_MOV = "https://api.nasdaq.com/api/marketmovers?assetclass=stocks&exchangestatus=currentMarket&limit=20";
-export const NQ_PAGE = { calendar: "https://www.nasdaq.com/market-activity/economic-calendar", screener: "https://www.nasdaq.com/market-activity/stocks/screener", movers: "https://www.nasdaq.com/market-activity/most-active" };
+export const NQ_CO = {
+  ratings: (s) => `https://api.nasdaq.com/api/analyst/${s}/ratings`,
+  target: (s) => `https://api.nasdaq.com/api/analyst/${s}/targetprice`,
+  forecast: (s) => `https://api.nasdaq.com/api/analyst/${s}/earnings-forecast`,
+  holders: (s) => `https://api.nasdaq.com/api/company/${s}/institutional-holdings?limit=12&type=TOTAL&sortColumn=marketValue&sortOrder=DESC`,
+};
+export const NQ_PAGE = { company: "https://www.nasdaq.com/market-activity/stocks", calendar: "https://www.nasdaq.com/market-activity/economic-calendar", screener: "https://www.nasdaq.com/market-activity/stocks/screener", movers: "https://www.nasdaq.com/market-activity/most-active" };
 const SRC = (k) => ({ source: "Nasdaq", sourceUrl: NQ_PAGE[k] });
 
 // a published figure or nothing: blanks and "&nbsp;" are not values
@@ -62,6 +70,36 @@ export function parseNqMovers(j) {
   return out;
 }
 
+// "12/31/2025" → "2025-12-31"
+const nqDate = (v) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(v || "").trim()); return m ? `${m[3]}-${m[1]}-${m[2]}` : null; };
+export function parseNqRatings(j) {
+  const d = j && j.data; if (!d || !d.meanRatingType) return null;
+  const m = /Based on (\d+) analysts/i.exec(String(d.ratingsSummary || ""));
+  return { mean: nqText(d.meanRatingType), analysts: m ? Number(m[1]) : null, brokers: Array.isArray(d.brokerNames) ? d.brokerNames.map((x) => String(x).trim()).filter(Boolean) : [],
+    changes: Array.isArray(d.upgradesDowngrades) ? d.upgradesDowngrades.slice(0, 12).map((x) => Object.fromEntries(Object.entries(x || {}).map(([k, v]) => [k, nqText(v)]))) : [] };
+}
+export function parseNqTarget(j) {
+  const d = j && j.data, c = d && d.consensusOverview; if (!c) return null;
+  const hist = (Array.isArray(d.historicalConsensus) ? d.historicalConsensus : []).map((h) => { const z = h.z || {}, t = Number(h.x); return Number.isFinite(t) ? [new Date(t * 1000).toISOString().slice(0, 10), nqNum(h.y), nqNum(z.buy), nqNum(z.hold), nqNum(z.sell), nqText(z.consensus)] : null; }).filter(Boolean);
+  return { mean: nqNum(c.priceTarget), low: nqNum(c.lowPriceTarget), high: nqNum(c.highPriceTarget), buy: nqNum(c.buy), hold: nqNum(c.hold), sell: nqNum(c.sell), history: hist };
+}
+export function parseNqForecast(j) {
+  const d = j && j.data; if (!d) return null;
+  const rows = (x) => (x && Array.isArray(x.rows) ? x.rows : []).map((r) => ({ period: nqText(r.fiscalEnd), eps: nqNum(r.consensusEPSForecast), high: nqNum(r.highEPSForecast), low: nqNum(r.lowEPSForecast), n: nqNum(r.noOfEstimates), up: nqNum(r.up), down: nqNum(r.down) })).filter((r) => r.period && r.eps != null);
+  const q = rows(d.quarterlyForecast), y = rows(d.yearlyForecast);
+  return q.length || y.length ? { quarterly: q, yearly: y } : null;
+}
+export function parseNqHolders(j) {
+  const d = j && j.data; if (!d) return null;
+  const o = d.ownershipSummary || {}, t = d.holdingsTransactions && d.holdingsTransactions.table;
+  const top = (t && Array.isArray(t.rows) ? t.rows : []).map((r) => ({ name: nqText(r.ownerName), date: nqDate(r.date), shares: nqNum(r.sharesHeld), chg: nqNum(r.sharesChange), chgPct: nqNum(r.sharesChangePCT), valueK: nqNum(r.marketValue) })).filter((r) => r.name);
+  const active = (d.activePositions && Array.isArray(d.activePositions.rows) ? d.activePositions.rows : []).map((r) => ({ label: nqText(r.positions), holders: nqNum(r.holders), shares: nqNum(r.shares) })).filter((r) => r.label);
+  const v = (k) => o[k] && nqText(o[k].value);
+  if (!top.length && !v("SharesOutstandingPCT")) return null;
+  return { instPct: nqNum(v("SharesOutstandingPCT")), sharesOutM: nqNum(v("ShareoutstandingTotal")), valueM: nqNum(v("TotalHoldingsValue")), holders: nqNum(d.holdingsTransactions && d.holdingsTransactions.totalRecords), active, top };
+}
+const CO_PARSE = { ratings: parseNqRatings, target: parseNqTarget, forecast: parseNqForecast, holders: parseNqHolders };
+
 export async function handleNasdaq(url, env, ctx, H, json) {
   const now = Date.now(), p = url.pathname, send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (p === "/api/nasdaq/calendar") {
@@ -85,6 +123,23 @@ export async function handleNasdaq(url, env, ctx, H, json) {
     } });
     if (!r.data) return send({ ex, status: "N/A", error: r.err, ...SRC("screener") }, 502);
     return send({ ex, cols: ["symbol", "name", "last", "chgPct", "volume", "marketCap", "sector", "industry", "country", "ipoYear"], rows: r.data, ...SRC("screener"), basis: "Nasdaq's screener file: last sale, change and volume as Nasdaq lists them (delayed), market cap as Nasdaq computes it", status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
+  }
+  if (p === "/api/nasdaq/company") {
+    const sym = String(url.searchParams.get("sym") || "").trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9.]{0,9}$/.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
+    const nsym = sym, out = { sym }, errors = {};
+    await Promise.all(Object.keys(NQ_CO).map(async (k) => {
+      const r = await cachedSource({ origin: url.origin, key: `nq/co/${k}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 7 * DAY, failTtlMs: 30 * 60_000, ctx, load: async () => {
+        const f = await fetchText(NQ_CO[k](encodeURIComponent(nsym)), { timeoutMs: 12000, headers: NQ_HEADERS });
+        if (f.err) return { err: f.err };
+        let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+        const v = CO_PARSE[k](j); return v ? { data: v } : { err: "no_data" };
+      } });
+      if (r.data) { out[k] = r.data; out[k + "At"] = iso(r.fetchedAt); } else errors[k] = r.err;
+    }));
+    const any = Object.keys(NQ_CO).some((k) => out[k]);
+    return send({ ...out, errors, ...SRC("company"), sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${sym.toLowerCase()}`,
+      basis: "as Nasdaq publishes them: analysts' mean rating, price targets (consensus, low, high, and the monthly history of the consensus with the buy / hold / sell counts), EPS forecasts with their range and revisions; institutional holders from 13F filings (holdings as of each holder's filing date)", status: any ? "LIVE" : "N/A" }, any ? 200 : 502);
   }
   if (p === "/api/nasdaq/movers") {
     const r = await cachedSource({ origin: url.origin, key: "nq/mov", ttlMs: 2 * 60_000, staleMaxMs: 3 * DAY, failTtlMs: 60_000, ctx, load: async () => {
