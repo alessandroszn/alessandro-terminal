@@ -319,6 +319,7 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
   // world high-impact events (Forex Factory); the US official schedules only if that source is unavailable
   const cal = world.events.length ? { events: world.events.filter((e) => e.impact === "High") } : await getCalendar(origin, ctx, now);
   if (!world.events.length) errors.calendarWorld = world.err || "no_data";
+  else if (world.cache === "STALE" && world.fetchedAt) errors.calendarWorldCopyOf = new Date(world.fetchedAt).toISOString(); // this week's export as last archived by the terminal
   // calendar window per edition (US/Eastern dates)
   const todayET = easternDate(new Date(now)), horizon = { daily: [todayET, todayET], evening: [addDays(todayET, 1), addDays(todayET, 3)], weekly: [addDays(todayET, 1), addDays(todayET, 9)], monthly: [addDays(todayET, 1), addDays(todayET, 35)] }[period];
   const events = (cal.events || []).filter((e) => e.dateET >= horizon[0] && e.dateET <= horizon[1]).slice(0, 14);

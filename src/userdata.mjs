@@ -144,6 +144,6 @@ export async function handleStatus(url, env, ctx, H, json) {
     const e = await cacheRead(url.origin, USAGE_KEY, ctx);
     usage = e && e.data ? { ...e.data, fetchedAt: iso(e.fetchedAt), status: Date.now() - e.fetchedAt < USAGE_TTL ? "LIVE" : "STALE" } : { status: "N/A", error: "not_checked" };
   }
-  let cron = null; if (env.BRIEFS) try { const t = await env.BRIEFS.get("cron/last"); cron = t ? JSON.parse(t) : null; } catch { cron = null; }
-  return send({ sources: sourcesStatus(env), twelvedata: usage, credits, scheduler: { lastRun: cron, schedule: "Cron Triggers: every minute 05:00–07:59 and 20:00–21:59 UTC; each edition is written at its time" }, serverTime: iso(Date.now()) });
+  let cron = null, issues = []; if (env.BRIEFS) try { const [t, i] = await Promise.all([env.BRIEFS.get("cron/last"), env.BRIEFS.get("cron/issues")]); cron = t ? JSON.parse(t) : null; issues = i ? JSON.parse(i) : []; } catch { cron = null; }
+  return send({ sources: sourcesStatus(env), twelvedata: usage, credits, scheduler: { lastRun: cron, issues, schedule: "Cron Triggers: every minute 05:00–07:59 and 20:00–21:59 UTC; each edition is written at its time" }, serverTime: iso(Date.now()) });
 }

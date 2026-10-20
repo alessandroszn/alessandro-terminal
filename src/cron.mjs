@@ -12,7 +12,7 @@ import { romeNow, isSlotDay, SLOT_MIN, MARKET_SYMS, PERIODS, dueEdition, writeEd
 import { getUniverse, getCloses, alpacaConfigured, refTarget } from "./spx.mjs";
 import { getYieldCurves, CURVES } from "./yields.mjs";
 import { BRIEF_CURVES } from "./briefs.mjs";
-import { getWorldCalendar, getCalendar, archiveFF } from "./calendar.mjs";
+import { getWorldCalendar, getCalendar, archiveFF, archivedFF } from "./calendar.mjs";
 import { getPress, PRESS } from "./press.mjs";
 
 export const BUFFER_MIN = 2;  // minutes between the last staging run and the write (KV propagation)
@@ -82,7 +82,16 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
   if (step === "fxdaily") return (await tdDaily(env, MARKET_SYMS, now, origin, sctx)) ? "ok" : "no_data";
   if (step === "yields") return ok(await getYieldCurves(origin, sctx, now, env));
   if (step.startsWith("bonds:")) return ok(await getYieldCurves(origin, sctx, now, env, [step.slice(6)])); // one country per run
-  if (step === "calendar") { const w = await getWorldCalendar(origin, sctx, now); if (w.data) await archiveFF(env, w.data).catch(() => null); if (w.events.length) return "ok"; const c = await getCalendar(origin, sctx, now); return c.events.length ? "ok_us_only" : w.err || "no_data"; }
+  if (step === "calendar") {
+    const w = await getWorldCalendar(origin, sctx, now);
+    if (w.data) { await archiveFF(env, w.data).catch(() => null); if (w.events.length) return "ok"; }
+    // Forex Factory refuses the scheduled runs (every edition since 7 Oct lacked it) while it answers the terminal:
+    // stage this week's export as the terminal last fetched and archived it (at most 3 days old), with that time
+    const a = await archivedFF(env, now);
+    if (a) { await sctx.store.put("calendar/FF", { data: a.raw, fetchedAt: a.at, archived: true }, 86400); return `ff_${w.err || "no_data"}; archive_${new Date(a.at).toISOString().slice(0, 16)}`; }
+    const c = await getCalendar(origin, sctx, now);
+    return `ff_${w.err || "no_data"}; ${c.events.length ? "us_only" : "no_events"}`;
+  }
   if (step.startsWith("press:")) return ok(await getPress(origin, sctx, step.slice(6)));
   if (step === "fx") {
     if (!deps || !deps.fetchQuotes) return "quotes_not_configured";
@@ -101,6 +110,10 @@ export async function runStep(step, plan, origin, env, sctx, now, deps) {
   return "unknown_step";
 }
 
+// what did not work in the scheduled runs (shown in SYS; the Worker's own logs are off on this account)
+export async function logCronIssue(env, now, step, result) {
+  try { const t = await env.BRIEFS.get("cron/issues"); const L = t ? JSON.parse(t) : []; L.unshift({ at: new Date(now).toISOString(), step, result: String(result).slice(0, 160) }); await env.BRIEFS.put("cron/issues", JSON.stringify(L.slice(0, 20))); } catch { /* best effort */ }
+}
 export async function runCron(scheduledTime, env, ctx, deps = {}) {
   const now = Number(scheduledTime) || Date.now();
   const plan = cronPlan(now);
@@ -113,6 +126,7 @@ export async function runCron(scheduledTime, env, ctx, deps = {}) {
       if (plan.first) ctx.waitUntil(env.BRIEFS.put("cron/last", JSON.stringify({ at: new Date(now).toISOString(), periods: plan.periods, slotAt: new Date(plan.slotAt).toISOString() })));
       const result = await runStep(plan.step, plan, origin, env, sctx, now, deps);
       console.log(`[cron] ${plan.periods.join("+")} step ${plan.step}: ${result}`);
+      if (!/^(ok|nothing_missing)$/.test(result) && !/: ok$/.test(result)) ctx.waitUntil(logCronIssue(env, now, plan.step, result));
       return { action: "step", step: plan.step, result };
     }
     // write: only the edition of this slot, only once, only from staged data
@@ -123,6 +137,7 @@ export async function runCron(scheduledTime, env, ctx, deps = {}) {
     const r = await writeEdition(origin, env, { ...sctx, readOnly: true }, plan.period, ed, MARKET_SYMS, now, false, "schedule");
     const result = r.status === 201 ? "written" : r.status === 202 ? "in_progress" : (r.body && r.body.error) || `http_${r.status}`;
     console.log(`[cron] write ${ed.id}: ${result}`);
+    if (result !== "written" && result !== "in_progress") ctx.waitUntil(logCronIssue(env, now, "write " + ed.id, result));
     return { action: "write", period: plan.period, id: ed.id, result };
   } catch (e) {
     console.log(`[cron] ${plan.action} failed: ${e && e.name}`);

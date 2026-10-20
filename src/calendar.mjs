@@ -130,11 +130,29 @@ export function ffWeekKey(list) {
   const d = new Date(et + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - d.getUTCDay());
   return d.toISOString().slice(0, 10);
 }
-export async function archiveFF(env, raw) {
+export async function archiveFF(env, raw, at = Date.now()) {
   const wk = ffWeekKey(raw);
   if (!wk || !env.BRIEFS) return null;
   await env.BRIEFS.put(`cal/ff/${wk}`, JSON.stringify(raw), { expirationTtl: 400 * 86400 });
+  await env.BRIEFS.put(`calat/ff/${wk}`, String(at), { expirationTtl: 400 * 86400 }); // when this copy was fetched (outside cal/ff/, which holds exports only)
   return wk;
+}
+// the Sunday (New York) that starts this Forex Factory week
+export function ffWeekOf(now = Date.now()) {
+  const et = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const d = new Date(et + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d.toISOString().slice(0, 10);
+}
+// this week's export as the terminal last fetched it (archived in KV), with the time it was fetched; null if none
+export async function archivedFF(env, now = Date.now(), maxAgeMs = 3 * 86400_000) {
+  if (!env || !env.BRIEFS) return null;
+  const wk = ffWeekOf(now);
+  try {
+    const [t, a] = await Promise.all([env.BRIEFS.get(`cal/ff/${wk}`), env.BRIEFS.get(`calat/ff/${wk}`)]);
+    const at = Number(a), raw = t ? JSON.parse(t) : null;
+    if (!Array.isArray(raw) || !raw.length || !Number.isFinite(at) || now - at > maxAgeMs) return null;
+    return { raw, at, week: wk };
+  } catch { return null; }
 }
 const prevWeek = (wk) => { const d = new Date(wk + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); };
 export const BACK_DAYS = 4;
@@ -171,6 +189,7 @@ export async function handleCalendarHistory(url, env, ctx, H, json) {
     for (const k of l.keys) {
       const t = await env.BRIEFS.get(k.name); if (!t) continue;
       let list; try { list = JSON.parse(t); } catch { continue; }
+      if (!Array.isArray(list)) continue;
       for (const e of list) if (e && e.country === ccy && String(e.title).trim() === title && Number.isFinite(Date.parse(e.date)))
         out.push({ datetime: new Date(Date.parse(e.date)).toISOString(), forecast: e.forecast || null, previous: e.previous || null, week: k.name.slice(7) });
     }

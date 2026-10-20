@@ -76,7 +76,7 @@ let r = await call("/api/spx/universe?u=CTRY");
 ok("/api/spx/universe?u=CTRY: fixed ETF list, labelled, source named", r.status === 200 && r.j.universe === "CTRY" && r.j.items.length === COUNTRY_ETFS.length && /ETFs/.test(r.j.source));
 r = await call("/api/spx/closes?u=SECT&ref=recent");
 ok("/api/spx/closes?u=SECT: Alpaca closes with traded value (third value)", r.status === 200 && r.j.closes.XLK[1][2] === 102000 && r.j.universe === "SECT");
-r = await call("/api/spx/closes?u=CRYPTO&ref=recent");
+{ const realNow = Date.now; Date.now = () => NOW; r = await call("/api/spx/closes?u=CRYPTO&ref=recent"); Date.now = realNow; } // the fixture's bars are dated around NOW
 ok("/api/spx/closes?u=CRYPTO: completed days only, todayBarFinal true, UTC day basis", r.status === 200 && r.j.closes["BTC/USD"].length === 2 && r.j.todayBarFinal === true && /UTC/.test(r.j.dayBasis));
 r = await call("/api/spx/live?u=CRYPTO");
 ok("/api/spx/live?u=CRYPTO: latest crypto trade, live", r.status === 200 && r.j.live === true && r.j.trades["BTC/USD"][0] === 61500);

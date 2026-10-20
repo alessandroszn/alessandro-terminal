@@ -142,6 +142,22 @@ failing = new Set();
 const ffCalls = (r) => r.calls.filter((u) => u.includes("faireconomy")).length;
 ok("retries rotate over the inputs still missing: the first retry tries the Bank of England, the second the calendar (staged)", runs9[26].sources.join() === "UK" && ffCalls(runs9[27]) === 1 && !!kv.get("stage/calendar/FF"), JSON.stringify([runs9[26].sources, runs9[27].sources]));
 
+// Forex Factory refuses the scheduled runs: this week's export as the terminal archived it is staged instead (with its time)
+kv.clear(); aiCalls = 0;
+const FF12 = [{ title: "Retail Sales m/m", country: "EUR", date: "2026-10-12T05:00:00-04:00", impact: "High", forecast: "0.4%", previous: "0.1%" }];
+kv.set("cal/ff/2026-10-11", JSON.stringify(FF12)); kv.set("calat/ff/2026-10-11", String(at("2026-10-11T18:00:00Z")));
+for (let m = 13; m <= 27; m++) { failing = new Set(["CALENDAR"]); await tick(`2026-10-12T05:${m}:00Z`); }
+failing = new Set();
+await tick("2026-10-12T05:30:00Z");
+const ed12 = JSON.parse(kv.get("brief/daily-2026-10-12") || "null");
+const issues = JSON.parse(kv.get("cron/issues") || "[]");
+ok("Forex Factory unreachable from the schedule → this week's archived export (fetched Sun 18:00 by the terminal) is used and said so", !!ed12 && /Retail Sales m\/m/.test(ed12.inputData) && !ed12.inputErrors.calendarWorld && ed12.inputErrors.calendarWorldCopyOf === "2026-10-11T18:00:00.000Z", JSON.stringify(ed12 && ed12.inputErrors));
+ok("SYS issue log: the calendar step's result (refused + archive used) is recorded, newest first, at most 20", issues.length >= 1 && issues.length <= 20 && issues.some((x) => x.step === "calendar" && /^ff_.*archive_2026-10-11T18:00/.test(x.result)), JSON.stringify(issues.slice(0, 3)));
+kv.delete("calat/ff/2026-10-11"); kv.delete("stage/calendar/FF");
+for (let m = 18; m <= 18; m++) { failing = new Set(["CALENDAR"]); await tick(`2026-10-13T05:${m}:00Z`); }
+failing = new Set();
+ok("an archived export without its fetch time is not used (age unknown)", !kv.get("stage/calendar/FF"));
+
 // the Bank of England: year-long three-series request refused → one series per request, merged by date
 const { loadUkForTest, mergeBoeCsv, parseBoeYields } = await import("../src/yields.mjs");
 const m3 = mergeBoeCsv(["DATE,IUDSNPY\n02 Oct 2026,4.89\n05 Oct 2026,4.93", "DATE,IUDMNPY\n05 Oct 2026,5.36", "<html>error</html>"]);
