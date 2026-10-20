@@ -342,7 +342,7 @@ async function indexRow(url, env, ctx, ix, now, cq) {
   if (ix.src === "cnbc") {
     const r = cq || { err: "no_data" }, q = r.data && cnbcIndexRow(r.data[ix.sym]);
     if (!q) return { ...base(ix), source: SRC.cnbc.name, sourceUrl: SRC.cnbc.url, status: "N/A", error: r.err || "no_data" };
-    return { ...base(ix), ...q, kind: q.realTime ? "realtime" : "delayed", delayMin: null, source: SRC.cnbc.name + (q.venue ? ` · ${q.venue}` : ""), sourceUrl: SRC.cnbc.url,
+    return { ...base(ix), ...q, kind: "delayed", delayMin: null, source: SRC.cnbc.name + (q.venue ? ` · ${q.venue}` : ""), sourceUrl: SRC.cnbc.url,
       status: stale(r) || tooOld(q.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
   }
   if (ix.src === "cboe") {

@@ -87,6 +87,9 @@ const PRESS_FIX = {
   WSJ: ["The Wall Street Journal", "https://www.wsj.com/", "Test WSJ markets headline", "https://www.wsj.com/finance/test-3", 180_000, "Markets"],
   MARKETWATCH: ["MarketWatch", "https://www.marketwatch.com/", "Test MarketWatch top story", "https://www.marketwatch.com/story/test-4", 240_000, "Top stories"],
   CB: ["Central banks", null, "Test Federal Reserve press release", "https://www.federalreserve.gov/newsevents/pressreleases/test-5.htm", 300_000, "Fed"],
+  CNBC: ["CNBC", "https://www.cnbc.com/", "Test CNBC top news headline", "https://www.cnbc.com/2026/10/20/test-6.html", 360_000, "Top news"],
+  ECONOMIST: ["The Economist", "https://www.economist.com/", "Test Economist finance headline", "https://www.economist.com/finance-and-economics/test-7", 420_000, "Finance & economics"],
+  SOLE: ["Il Sole 24 Ore", "https://www.ilsole24ore.com/", "Test Sole 24 Ore finanza headline", "https://www.ilsole24ore.com/art/test-8", 480_000, "Finanza"],
 };
 const PRESS = (src) => { const now = Date.now(), [name, home, title, url, ago, section] = PRESS_FIX[src];
   return { source: src, name, home, status: "LIVE", fetchedAt: new Date(now).toISOString(),

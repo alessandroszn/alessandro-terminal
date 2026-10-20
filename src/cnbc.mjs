@@ -36,7 +36,17 @@ export const FUT_GROUPS = [...new Set(FUTURES.map((f) => f[2]))];
 // the curves: root → [label, contract months answered on 20 Oct 2026]
 export const CURVES = { CL: ["WTI crude oil", 12], LCO: ["Brent crude oil", 6], NG: ["Natural gas", 12], RB: ["RBOB gasoline", 6], HO: ["Heating oil", 6], GC: ["Gold", 6], SI: ["Silver", 6], HG: ["Copper", 6], C: ["Corn", 6], W: ["Wheat", 6], S: ["Soybeans", 6], KC: ["Coffee", 6] };
 // index futures and the cash index they price: [future, cash, label]
-export const IMPLIED = [["@SP.1", ".SPX", "S&P 500"], ["@ND.1", ".NDX", "Nasdaq-100"], ["@DJ.1", ".DJI", "Dow Jones"], ["@TFS.1", ".RUT", "Russell 2000"], ["@NK.1", ".N225", "Nikkei 225"]];
+// [future, cash, label, exchange time zone, regular session open, close]
+export const IMPLIED = [["@SP.1", ".SPX", "S&P 500", "America/New_York", "09:30", "16:00"], ["@ND.1", ".NDX", "Nasdaq-100", "America/New_York", "09:30", "16:00"],
+  ["@DJ.1", ".DJI", "Dow Jones", "America/New_York", "09:30", "16:00"], ["@TFS.1", ".RUT", "Russell 2000", "America/New_York", "09:30", "16:00"], ["@NK.1", ".N225", "Nikkei 225", "Asia/Tokyo", "09:00", "15:30"]];
+// is the cash market inside its regular session now (weekday, local time between open and close)? Holidays are not known here:
+// on a holiday the cash index's last print is simply the previous close, which the implied move then uses
+export function inSession(now, tz, open, close) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", weekday: "short", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(now)).map((x) => [x.type, x.value]));
+  if (p.weekday === "Sat" || p.weekday === "Sun") return false;
+  const hm = `${String(+p.hour % 24).padStart(2, "0")}:${p.minute}`;
+  return hm >= open && hm < close;
+}
 // other symbols the terminal reads from CNBC (whitelist for /api/cnbc/history and /returns)
 export const EXTRA_SYMS = [".DXY", ".SPX", ".NDX", ".DJI", ".RUT", ".N225"];
 
@@ -108,9 +118,9 @@ export function referenceCloses(rows) {
 }
 
 // implied open: the futures' change since the minute of the cash index's last print, applied to that print
-export function impliedOpen(cash, fut, bars, now = Date.now()) {
+export function impliedOpen(cash, fut, bars, now = Date.now(), session = null) {
   if (!cash || !fut) return null;
-  const cashOpen = cash.session === "REG_MKT" && now - cash.time < 20 * 60_000;
+  const cashOpen = session ? inSession(now, ...session) : cash.session === "REG_MKT" && now - cash.time < 20 * 60_000;
   if (cashOpen) return { cashOpen: true };
   // bars: [[epoch ms of the bar's start, close]] oldest first (CNBC stamps a bar with its start, checked 20 Oct 2026 on hourly
   // bars); the last five-minute bar that ended by the cash print (one minute of tolerance)
@@ -158,8 +168,8 @@ export async function handleCnbc(url, env, ctx, H, json) {
     // five-minute futures bars of the last four days, to find the futures' price at the cash index's last print
     const bars = await Promise.all(IMPLIED.map(([f]) => cachedSource({ origin: url.origin, key: `cnbc/impl/b/${f}`, ttlMs: 5 * 60_000, staleMaxMs: 86400_000, ctx,
       load: async () => { const g = await fetchText(cnbcBarsUrl(f, "5M", now - 4 * 86400_000, now), { timeoutMs: 15000, headers: { accept: "application/json" } }); if (g.err) return { err: g.err }; try { const b = parseCnbcBars(JSON.parse(g.text)); return b.length ? { data: b.map((x) => [x[0], x[4]]) } : { err: "no_data" }; } catch { return { err: "provider_error" }; } } })));
-    const rows = IMPLIED.map(([f, c, label], i) => {
-      const fq = q.data[f], cq = q.data[c], im = impliedOpen(cq, fq, bars[i].data, now);
+    const rows = IMPLIED.map(([f, c, label, tz, o, cl], i) => {
+      const fq = q.data[f], cq = q.data[c], im = impliedOpen(cq, fq, bars[i].data, now, [tz, o, cl]);
       return { label, future: f, cash: c, contract: fq ? fq.contract : null, futLast: fq ? fq.last : null, futTime: fq ? iso(fq.time) : null, cashLast: cq ? cq.last : null, cashTime: cq ? iso(cq.time) : null, cashChgPct: cq ? cq.chgPct : null, ...(im || { error: "no_quote" }) };
     });
     return send({ rows, ...SRC, basis: "implied move = futures price now ÷ the futures price at the minute of the cash index's last print − 1 (five-minute bars), applied to that print; it ignores the futures' fair-value basis — DERIVED", fetchedAt: iso(q.fetchedAt) });
