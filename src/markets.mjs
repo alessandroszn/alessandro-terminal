@@ -10,7 +10,7 @@ import { parseEcbFx } from "./portfolio.mjs";
 import { fredSeries } from "./yields.mjs";
 
 export const FX_CCYS = ["USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "CNY", "HKD", "SGD", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "TRY", "INR", "BRL", "MXN", "ZAR", "KRW"];
-export const ecbFxUrl = (ccys = FX_CCYS) => `https://data-api.ecb.europa.eu/service/data/EXR/D.${ccys.join("+")}.EUR.SP00.A?lastNObservations=2&format=csvdata&detail=dataonly`;
+export const ecbFxUrl = (ccys = FX_CCYS, n = 2) => `https://data-api.ecb.europa.eu/service/data/EXR/D.${ccys.join("+")}.EUR.SP00.A?lastNObservations=${n}&format=csvdata&detail=dataonly`;
 
 // [FRED series, name, unit, group]
 export const IMF_MONTHLY = [
@@ -37,24 +37,33 @@ export function monthlyRow([id, name, unit, group], obs) {
   return { id, name, unit, group, freq: "M", date: d, value: v, prevDate: p ? p[0] : null, prev: p ? p[1] : null, chgPct: p ? pct(v, p[1]) : null, yoyPct: y ? pct(v, y[1]) : null };
 }
 
+// the last n daily fixings of every currency (the board needs two; the briefings 25, for a week's and a month's change)
+export const ecbFxKey = (n = 2) => (n === 2 ? "mkt/ecbfx/v1" : `mkt/ecbfx/n${n}`);
+export const getEcbFx = (origin, ctx, n = 2) => cachedSource({ origin, key: ecbFxKey(n), ttlMs: 2 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 10 * 60_000,
+  load: async () => { const f = await fetchText(ecbFxUrl(FX_CCYS, n), { timeoutMs: 20000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const d = parseEcbFx(f.text); return d.USD ? { data: d } : { err: "no_data" }; } });
+export const IMF_KEY = "mkt/imf/v1";
+export function getImf(origin, env, ctx) {
+  if (!env.FRED_KEY) return Promise.resolve({ err: "fred_not_configured" });
+  return cachedSource({ origin, key: IMF_KEY, ttlMs: 12 * 3600_000, staleMaxMs: 40 * 86400_000, ctx, failTtlMs: 15 * 60_000,
+    load: async () => {
+      const res = await Promise.all(IMF_MONTHLY.map(([id]) => fredSeries(env, id, 14)));
+      const auth = res.find((x) => x.err === "provider_auth"); if (auth) return { err: "provider_auth" };
+      const rows = IMF_MONTHLY.map((m, i) => monthlyRow(m, res[i].data));
+      return rows.some((x) => x.value != null) ? { data: rows } : { err: res.map((x) => x.err).find(Boolean) || "no_data" };
+    } });
+}
+
 export async function handleMarkets(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (url.pathname === "/api/markets/fx") {
-    const r = await cachedSource({ origin: url.origin, key: "mkt/ecbfx/v1", ttlMs: 2 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 10 * 60_000,
-      load: async () => { const f = await fetchText(ecbFxUrl(), { timeoutMs: 20000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const d = parseEcbFx(f.text); return d.USD ? { data: d } : { err: "no_data" }; } });
+    const r = await getEcbFx(url.origin, ctx);
     if (!r.data) return send({ error: r.err, status: "N/A" }, 502);
     return send({ base: "EUR", rates: fxRows(r.data), source: "ECB euro reference rates (ECB Data Portal, EXR)", sourceUrl: "https://data.ecb.europa.eu/data/datasets/EXR",
       basis: "units of each currency per 1 euro, daily fixing around 16:00 CET; pairs against the dollar and changes are DERIVED from the same fixing", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE" });
   }
   if (url.pathname === "/api/markets/cmdty") {
     if (!env.FRED_KEY) return send({ error: "fred_not_configured", status: "N/A" }, 503);
-    const r = await cachedSource({ origin: url.origin, key: "mkt/imf/v1", ttlMs: 12 * 3600_000, staleMaxMs: 40 * 86400_000, ctx, failTtlMs: 15 * 60_000,
-      load: async () => {
-        const res = await Promise.all(IMF_MONTHLY.map(([id]) => fredSeries(env, id, 14)));
-        const auth = res.find((x) => x.err === "provider_auth"); if (auth) return { err: "provider_auth" };
-        const rows = IMF_MONTHLY.map((m, i) => monthlyRow(m, res[i].data));
-        return rows.some((x) => x.value != null) ? { data: rows } : { err: res.map((x) => x.err).find(Boolean) || "no_data" };
-      } });
+    const r = await getImf(url.origin, env, ctx);
     if (!r.data) return send({ error: r.err, status: "N/A" }, 502);
     return send({ rows: r.data, source: "IMF Primary Commodity Prices (via FRED)", sourceUrl: "https://fred.stlouisfed.org/", basis: "monthly average prices; change against the previous month and the same month a year earlier (DERIVED)",
       fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE" });

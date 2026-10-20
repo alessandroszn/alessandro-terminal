@@ -137,29 +137,45 @@ const chgFrom = (s, back) => (s && s.length > back ? (s[s.length - 1][1] / s[s.l
 // the same EIA daily spot series as FRED republishes them (used when EIA_KEY is not set; futures contracts are EIA-only)
 export const EIA_ON_FRED = { RWTC: "DCOILWTICO", RBRTE: "DCOILBRENTEU", EER_EPMRU_PF4_Y35NY_DPG: "DGASNYH", EER_EPD2F_PF4_Y35NY_DPG: "DHOILNYH",
   EER_EPD2DXL0_PF4_Y35NY_DPG: "DDFUELNYH", EER_EPJK_PF4_RGC_DPG: "DJFUELUSGULF", EER_EPLLPA_PF4_Y44MB_DPG: "DPROPANEMBTX", RNGWHHD: "DHHNGSP" };
+const spotRow = (s, name, unit, x, series) => (x && x.length ? { series, name, unit, date: x[x.length - 1][0], value: x[x.length - 1][1], chg1: chgFrom(x, 1), chg5: chgFrom(x, 5), chg21: chgFrom(x, 21), history: x.slice(-260) } : { series, name, unit, status: "N/A", error: "no_data" });
+const fredEnergy = (origin, env, ctx) => cachedSource({ origin, key: "fred/energy/v1", ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000,
+  load: async () => {
+    const ids = EIA_SPOT.map(([, s]) => EIA_ON_FRED[s]), res = await Promise.all(ids.map((id) => fredSeries(env, id, 300)));
+    if (res.some((x) => x.err === "provider_auth")) return { err: "provider_auth" };
+    const d = {}; EIA_SPOT.forEach(([, s], i) => { if (res[i].data) d[s] = res[i].data; });
+    return Object.keys(d).length ? { data: d } : { err: res.map((x) => x.err).find(Boolean) || "no_data" };
+  } });
+const eiaSpot = (origin, env, ctx) => Promise.all([...new Set(EIA_SPOT.map(([r]) => r))].map((route) => cachedSource({ origin, key: `eia/spot/${route}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: () => eiaLoad(env, route, EIA_SPOT.filter(([r]) => r === route).map(([, s]) => s), 600) })));
+// the EIA daily spot prices (EIA with EIA_KEY, otherwise the same series on FRED): one row per series, each with its own date
+export async function getEnergySpot(origin, env, ctx) {
+  if (env.EIA_KEY) {
+    const res = await eiaSpot(origin, env, ctx), d = Object.assign({}, ...res.map((r) => r.data || {}));
+    if (!Object.keys(d).length) return { err: (res.find((r) => r.err) || {}).err || "no_data" };
+    const ok = res.filter((r) => r.data);
+    return { spot: EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, d[s], s)), source: "U.S. Energy Information Administration (EIA) spot prices", sourceUrl: "https://www.eia.gov/opendata/",
+      fetchedAt: Math.min(...ok.map((r) => r.fetchedAt)), cache: ok.some((r) => r.cache === "STALE") ? "STALE" : "HIT", partialError: res.find((r) => r.err && !r.data)?.err };
+  }
+  if (!env.FRED_KEY) return { err: "eia_not_configured" };
+  const r = await fredEnergy(origin, env, ctx);
+  if (!r.data) return { err: r.err };
+  return { spot: EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, r.data[s], EIA_ON_FRED[s])), source: "U.S. Energy Information Administration (EIA) spot prices, via FRED", sourceUrl: "https://fred.stlouisfed.org/",
+    fetchedAt: r.fetchedAt, cache: r.cache, viaFred: true };
+}
 async function energyFromFred(url, env, ctx, send) {
-  const r = await cachedSource({ origin: url.origin, key: "fred/energy/v1", ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000,
-    load: async () => {
-      const ids = EIA_SPOT.map(([, s]) => EIA_ON_FRED[s]), res = await Promise.all(ids.map((id) => fredSeries(env, id, 300)));
-      if (res.some((x) => x.err === "provider_auth")) return { err: "provider_auth" };
-      const d = {}; EIA_SPOT.forEach(([, s], i) => { if (res[i].data) d[s] = res[i].data; });
-      return Object.keys(d).length ? { data: d } : { err: res.map((x) => x.err).find(Boolean) || "no_data" };
-    } });
-  if (!r.data) return send({ error: r.err, status: "N/A" }, 502);
-  const spot = EIA_SPOT.map(([, s, name, unit]) => { const x = r.data[s]; return x && x.length ? { series: EIA_ON_FRED[s], name, unit, date: x[x.length - 1][0], value: x[x.length - 1][1], chg1: chgFrom(x, 1), chg5: chgFrom(x, 5), chg21: chgFrom(x, 21), history: x.slice(-260) } : { series: EIA_ON_FRED[s], name, unit, status: "N/A", error: "no_data" }; });
+  const e = await getEnergySpot(url.origin, env, ctx);
+  if (!e.spot) return send({ error: e.err, status: "N/A" }, 502);
   const curves = Object.entries(EIA_FUT).map(([id, [, , name, unit]]) => ({ id, name, unit, status: "N/A", error: "eia_not_configured" }));
-  return send({ spot, curves, source: "U.S. Energy Information Administration (EIA) spot prices, via FRED", sourceUrl: "https://fred.stlouisfed.org/", basis: "EIA publishes with a lag of about a week; dates are the price dates. Futures contracts need EIA_KEY (not on FRED)",
-    fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE" });
+  return send({ spot: e.spot, curves, source: e.source, sourceUrl: e.sourceUrl, basis: "EIA publishes with a lag of about a week; dates are the price dates. Futures contracts need EIA_KEY (not on FRED)",
+    fetchedAt: iso(e.fetchedAt), status: e.cache === "STALE" ? "STALE" : "LIVE" });
 }
 export async function handleEnergy(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (!env.EIA_KEY && env.FRED_KEY) return energyFromFred(url, env, ctx, send);
   if (!env.EIA_KEY) return send({ error: "eia_not_configured", status: "N/A", message: "EIA API key not set in the Worker (EIA_KEY)" }, 503);
-  const routes = [...new Set(EIA_SPOT.map(([r]) => r))];
-  const spotRes = await Promise.all(routes.map((route) => cachedSource({ origin: url.origin, key: `eia/spot/${route}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: () => eiaLoad(env, route, EIA_SPOT.filter(([r]) => r === route).map(([, s]) => s), 600) })));
+  const spotRes = await eiaSpot(url.origin, env, ctx);
   const futRes = await Promise.all(Object.entries(EIA_FUT).map(([id, [route, series]]) => cachedSource({ origin: url.origin, key: `eia/fut/${id}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: () => eiaLoad(env, route, series, 400) })));
   const spotData = Object.assign({}, ...spotRes.map((r) => r.data || {}));
-  const spot = EIA_SPOT.map(([, s, name, unit]) => { const x = spotData[s]; return x && x.length ? { series: s, name, unit, date: x[x.length - 1][0], value: x[x.length - 1][1], chg1: chgFrom(x, 1), chg5: chgFrom(x, 5), chg21: chgFrom(x, 21), history: x.slice(-260) } : { series: s, name, unit, status: "N/A" }; });
+  const spot = EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, spotData[s], s));
   const curves = Object.entries(EIA_FUT).map(([id, [, series, name, unit]], i) => {
     const d = futRes[i].data; if (!d) return { id, name, unit, status: "N/A", error: futRes[i].err };
     const dates = [...new Set(series.flatMap((s) => (d[s] || []).map(([p]) => p)))].sort();

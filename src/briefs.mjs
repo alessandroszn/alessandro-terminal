@@ -6,18 +6,19 @@
 //   POST /api/briefs/write?period=daily      write the due edition if it does not exist yet
 // REAL DATA → MODEL (Workers AI) → BRIEFING: the model only rewrites the DATA lines; every figure is
 // checked against them, links are kept only if they are in DATA, tickers become chips only if in DATA.
-import { cacheRead, cacheWrite, iso, easternDate, num } from "./lib.mjs";
+import { cacheRead, cacheWrite, iso, easternDate, num, kvStore } from "./lib.mjs";
 import { getYieldCurves } from "./yields.mjs";
 import { getCalendar, getWorldCalendar } from "./calendar.mjs";
 import { topHeadlines } from "./press.mjs";
 import { getUniverse, getCloses, getLive, alpacaConfigured, todayBarFinal, livePhase } from "./spx.mjs";
 import { BRIEF_MODEL, verifyNumbers } from "./briefing.mjs";
+import { marketInputs, marketLines, marketWindows } from "./briefmkt.mjs";
 
 export const PERIODS = {
-  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "300 to 450", schedule: "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "5D", eq: "1D" },
-  evening: { label: "Evening", sections: ["In one line", "How the day went", "What changed since this morning", "Tomorrow"], words: "250 to 400", schedule: "Written automatically on weekday evenings at 22:30 (Rome time), after the US close.", chipTf: "1D", eq: "1D" },
-  weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "450 to 700", schedule: "Written automatically on Saturday mornings at 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
-  monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "450 to 700", schedule: "Written automatically on the first Saturday of each month at 08:00 (Rome time).", chipTf: "6M", eq: "1M" },
+  daily: { label: "Daily", sections: ["In one line", "Equities", "Rates and currencies", "Commodities and crypto", "Today"], words: "350 to 550", schedule: "Written automatically on weekday mornings at 07:30 (Rome time).", chipTf: "5D", eq: "1D" },
+  evening: { label: "Evening", sections: ["In one line", "How the day went", "What changed since this morning", "Tomorrow"], words: "300 to 480", schedule: "Written automatically on weekday evenings at 22:30 (Rome time), after the US close.", chipTf: "1D", eq: "1D" },
+  weekly: { label: "Weekly", sections: ["The week in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next week"], words: "550 to 800", schedule: "Written automatically on Saturday mornings at 08:00 (Rome time).", chipTf: "1M", eq: "1W" },
+  monthly: { label: "Monthly", sections: ["The month in one paragraph", "Equities", "Rates", "Currencies", "Commodities and crypto", "What drove it", "Next month"], words: "550 to 800", schedule: "Written automatically on the first Saturday of each month at 08:00 (Rome time).", chipTf: "6M", eq: "1M" },
 };
 // the same editions in Italian: written by the model from the same DATA (numbers keep the decimal point, so the
 // number check is the same); section names in Italian
@@ -53,7 +54,7 @@ export function isSlotDay(period, d) {
 const WRITE_WINDOW_MIN = { daily: 15 * 60, evening: 9 * 60, weekly: 48 * 60, monthly: 48 * 60 };
 // the scheduled run (cron.mjs) writes each edition at slot + WRITE_OFFSET, retrying at +5 / +10 min;
 // until then the terminal does not write it itself (it would race the schedule)
-export const WRITE_OFFSET = { daily: 0, evening: 3, weekly: 0, monthly: 2 };
+export const WRITE_OFFSET = { daily: 0, evening: 4, weekly: 0, monthly: 2 };
 export const WRITE_RETRY = [0, 5, 10];
 export const autoUntilMs = (period, slotAtMs) => slotAtMs + (WRITE_OFFSET[period] + WRITE_RETRY[WRITE_RETRY.length - 1] + 2) * 60_000;
 // the latest edition whose writing time has passed
@@ -109,8 +110,9 @@ export function equitySummary(items, recent, { live = null, ref = null, todayET,
 // ---------- DATA lines ----------
 const f2 = (v) => (v == null || !Number.isFinite(v) ? "N/A" : (v >= 0 ? "+" : "") + v.toFixed(2));
 const raw = (v) => (v == null || !Number.isFinite(v) ? "N/A" : String(+Number(v).toFixed(6)));
-export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, curves, events, headlines, morning }) {
+export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, curves, events, headlines, morning, mk = null }) {
   const L = [], sources = [], symbols = new Set();
+  const M = marketLines(period, mk, { quoteSyms: quotes.map((q) => q.symbol) });
   L.push(`EDITION ${PERIODS[period].label} briefing for ${edition.d}, written ${iso(now)}`);
   if (eq && eq.n) {
     const span = eqMode === "live" ? `session in progress / latest IEX trades vs close of ${eq.baseDate}` : eqMode === "close" ? `session ${eq.lastDate} vs ${eq.baseDate} (consolidated closes)` : `${eq.lastDate || "latest"} vs ${eq.baseDate} (${PERIODS[period].eq} change, consolidated closes)`;
@@ -123,12 +125,16 @@ export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, cu
     eq.losers.forEach((r) => L.push(line("LOSER", r)));
     sources.push({ name: "S&P 500 constituents: Alpaca prices, iShares IVV weights (derived)", timestamp: eq.lastDate || iso(now) });
   } else L.push("EQUITY S&P 500 constituent prices: N/A (not available for this edition)");
+  L.push(...M.lines.filter((l) => l.startsWith("INDEX")));
   for (const q of quotes) {
     symbols.add(q.symbol);
     const h = fxHist && fxHist[q.symbol];
     L.push(`QUOTE \`${q.symbol}\` ${q.name || q.symbol}: last ${raw(q.price)}${q.currency ? " " + q.currency : ""}, day change ${f2(q.changePct)}% vs previous close ${raw(q.prevClose)}${h ? `, ${PERIODS[period].eq} change ${f2(h.chg)}% vs close ${raw(h.base)} on ${h.baseDate}` : ""} — data time ${q.timestamp} [Twelve Data]`);
   }
   if (quotes.length) sources.push({ name: "Twelve Data (FX, crypto, gold, watchlist)", timestamp: quotes.map((q) => q.timestamp).filter(Boolean).sort().pop() });
+  L.push(...M.lines.filter((l) => !l.startsWith("INDEX")));
+  M.symbols.forEach((s) => symbols.add(s));
+  sources.push(...M.sources);
   for (const c of Object.values(curves || {})) {
     const pts = c.points.filter((p) => p.value != null && ["3M", "2Y", "5Y", "10Y", "30Y"].includes(p.tenor));
     L.push(`YIELDS ${c.id} ${c.kind} on ${c.timestamp} (vs ${c.previousDate}): ` + pts.map((p) => `${p.tenor} ${raw(p.value)}%${p.changeBp != null ? ` (${p.changeBp >= 0 ? "+" : ""}${p.changeBp.toFixed(1)} bp)` : ""}`).join(", ") + ` [${c.source}]`);
@@ -143,7 +149,7 @@ export function buildData({ period, edition, now, eq, eqMode, quotes, fxHist, cu
   if (events.length) sources.push({ name: events.some((e) => e.source === "FF") ? "Forex Factory calendar (high impact)" : "BLS / BEA release schedules", timestamp: events[0].datetime, url: events[0].sourceUrl });
   for (const h of headlines) L.push(`HEADLINE ${h.timestamp} ${h.source}${h.section ? " (" + h.section + ")" : ""}: ${h.title} — ${h.url}`);
   if (headlines.length) sources.push({ name: "Headlines: " + [...new Set(headlines.map((h) => h.source))].join(", "), timestamp: headlines[0].timestamp });
-  if (morning) L.push(...morning.split("\n").filter((l) => /^(EQUITY|QUOTE|YIELDS)/.test(l)).map((l) => "MORNING " + l));
+  if (morning) L.push(...morning.split("\n").filter((l) => /^(EQUITY|INDEX|QUOTE|FX_ECB|YIELDS)/.test(l)).map((l) => "MORNING " + l));
   return { text: L.join("\n"), sources, symbols: [...symbols] };
 }
 
@@ -157,7 +163,9 @@ export function systemPrompt(period, lang = "en") {
     ...(it ? ["Write every number exactly as in DATA, with the decimal point (e.g. 0.70%), not the decimal comma. Write 'è salito dello 0.58%' / 'è sceso dello 0.61%'. Keep tickers, instrument codes and headline titles as they are; you may describe a headline in Italian but link it with its exact URL."] : []),
     `The first section is a single sentence. Total length ${p.words} words. Short paragraphs; bullets only for lists of events.`,
     "Use ONLY the facts in DATA. Never add a number, company, event, cause or claim that is not in DATA. Round prices, yields and percentages to at most two decimals (e.g. 0.58%); FX rates to four.",
-    "The S&P 500 figure in DATA is an IVV-weighted average of constituent prices, not the index level: never call it the index level or give a level for it.",
+    "The EQUITY figure in DATA is an IVV-weighted average of S&P 500 constituent prices, not the index: never call it the index or give a level for it. INDEX lines are the published index levels: use them for the level and the change of an index (S&P 500, Nasdaq, Dow, DAX, EURO STOXX 50, Nikkei 225…), with the date or time given; the VIX is a volatility index in points.",
+    "In the equities section, cover the United States, Europe and Asia from the INDEX lines before the sectors and single stocks.",
+    "FX_ECB lines are the ECB's daily reference rates (a fixing around 16:00 CET), not live prices: call them the ECB fixing. ENERGY lines are EIA spot prices published with a lag of about a week: always give their date and never present them as today's move. CRYPTO lines are closes of completed UTC days. CMDTY_MONTHLY lines are IMF monthly average prices.",
     "Write tickers in backticks exactly as in DATA, e.g. `NVDA`, `EUR/USD`.",
     "When you mention a headline, link it with Markdown using its exact URL from DATA, e.g. [FT](https://www.ft.com/...). Use no other URL.",
     "If DATA has nothing for a section, write one sentence saying that data is not available. Lines starting with MORNING are the morning edition's data, for comparison.",
@@ -206,9 +214,10 @@ export function attachWindows(period, eq, lang = "en") {
 const SECTION_OF = { daily: { eq: 1, rates: 2, fx: 2, cmd: 3, next: 4 }, evening: { eq: 1, cmd: 1, rates: 2, fx: 2, next: 3 }, weekly: { eq: 1, rates: 2, fx: 3, cmd: 4, news: 5, next: 6 }, monthly: { eq: 1, rates: 2, fx: 3, cmd: 4, news: 5, next: 6 } };
 const CB_DECISION = /federal funds rate|main refinancing rate|deposit facility rate|official bank rate|snb policy rate|overnight rate|boj policy rate|cash rate/i;
 const pc = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`, pp = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)} pp`, bp = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)} bp`;
-export function storyWindows(period, { eq, quotes = [], fxHist = null, curves = {}, events = [] } = {}) {
+export function storyWindows(period, { eq, quotes = [], fxHist = null, curves = {}, events = [], mk = null } = {}) {
   const P = PERIODS[period], map = SECTION_OF[period], tf = P.chipTf, metric = P.eq, out = [];
   const add = (key, type, state, en, it) => { const i = map[key]; if (i == null) return; out.push({ type, state, section: i, sectionName: P.sections[i], sectionName_it: PERIODS_IT[period].sections[i], label: en[0], why: en[1], label_it: it[0], why_it: it[1] }); };
+  marketWindows(period, mk, add, { quoteSyms: quotes.map((q) => q.symbol) }); // indices lead the equities, the ECB fixing the currencies, energy the commodities
   if (eq && eq.n) {
     add("eq", "MAP", { u: "SPX", metric, size: "weight", view: "map" },
       [`S&P 500 heat map · ${metric}`, `Constituents ${pc(eq.avg)} (IVV-weighted): ${eq.up} up, ${eq.down} down — where the moves were, by sector and weight.`],
@@ -309,6 +318,11 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
     const e = await cacheRead(origin, `quote/${encodeURIComponent(s)}`, ctx);
     if (e && e.rec && now - e.fetchedAt < 24 * 3600_000) quotes.push({ symbol: s, name: e.rec.name, price: e.rec.price, changePct: e.rec.changePct, prevClose: e.rec.prevClose, currency: e.rec.currency, timestamp: e.rec.asOf });
   }
+  // world indices, energy, the ECB fixing, crypto pairs, IMF prices: the copies the scheduled run staged (Workers KV),
+  // also when the terminal writes the edition — writing never calls these sources
+  let mk = null;
+  const mctx = ctx && ctx.store ? { ...ctx, readOnly: true } : env.BRIEFS ? { store: kvStore(env.BRIEFS), readOnly: true } : null;
+  if (mctx) { try { mk = await marketInputs(origin, env, mctx, period, edition, now); Object.assign(errors, mk.errors); } catch { errors.markets = "read_error"; } }
   let fxHist = null;
   if (period === "weekly" || period === "monthly") {
     const series = await tdDaily(env, MARKET_SYMS, now, origin, ctx);
@@ -323,7 +337,7 @@ async function gather(origin, env, ctx, period, edition, symbolsParam, now) {
   // calendar window per edition (US/Eastern dates)
   const todayET = easternDate(new Date(now)), horizon = { daily: [todayET, todayET], evening: [addDays(todayET, 1), addDays(todayET, 3)], weekly: [addDays(todayET, 1), addDays(todayET, 9)], monthly: [addDays(todayET, 1), addDays(todayET, 35)] }[period];
   const events = (cal.events || []).filter((e) => e.dateET >= horizon[0] && e.dateET <= horizon[1]).slice(0, 14);
-  return { eq, eqMode, quotes, fxHist, curves: y.curves || {}, events, headlines, errors };
+  return { eq, eqMode, quotes, fxHist, curves: y.curves || {}, events, headlines, mk, errors };
 }
 
 // ---------- archive (KV) ----------
@@ -362,7 +376,7 @@ export async function writeEdition(origin, env, ctx, period, edition, symbols, n
   try {
     const g = await gather(origin, env, ctx, period, edition, symbols, now);
     const morning = period === "evening" ? (await kvJson(env, `brief/daily-${edition.d}`))?.inputData || null : null;
-    const data = buildData({ period, edition, now, eq: g.eq, eqMode: g.eqMode, quotes: g.quotes, fxHist: g.fxHist, curves: g.curves, events: g.events, headlines: g.headlines, morning });
+    const data = buildData({ period, edition, now, eq: g.eq, eqMode: g.eqMode, quotes: g.quotes, fxHist: g.fxHist, curves: g.curves, events: g.events, headlines: g.headlines, morning, mk: g.mk });
     // English and Italian from the same DATA, in parallel; the edition exists if the English one was written
     const [en, it] = await Promise.all([compose(env, period, data.text, "en"), compose(env, period, data.text, "it")]);
     if (!en) return { status: 502, body: { error: "model_error", status: "N/A" } };

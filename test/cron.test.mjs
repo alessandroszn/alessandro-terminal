@@ -12,20 +12,25 @@ const at = (s) => Date.parse(s);
 const plan = (s) => cronPlan(at(s));
 
 // ---------------- plan (Rome time; DST from the time zone) ----------------
-let p = plan("2026-10-07T05:13:00Z"); // Wed 07:13 Rome (CEST)
-ok("daily: staging starts 07:13 Rome with the IVV universe", p.action === "step" && p.step === "universe" && p.first === true && p.periods.join() === "daily");
-ok("daily: one input per minute — universe, yields, German / UK / Japanese curves, calendar, 5 press sources, closes, FX, 2 retries", stepsFor(["daily"]).join() === "universe,yields,bonds:DE,bonds:UK,bonds:JP,calendar,press:FT,press:BLOOMBERG,press:WSJ,press:MARKETWATCH,press:CB,closes,fx,retry,retry");
+const mm = (m) => String(m).padStart(2, "0");
+const DAILY = stepsFor(["daily"]), D0 = 30 - DAILY.length - 2; // first staging minute (05:xx UTC = 07:xx Rome, CEST)
+let p = plan(`2026-10-07T05:${mm(D0)}:00Z`); // Wed 07:07 Rome (CEST)
+ok("daily: staging starts 07:07 Rome with the IVV universe", D0 === 7 && p.action === "step" && p.step === "universe" && p.first === true && p.periods.join() === "daily");
+ok("daily: one input per minute — universe, yields, German / UK / Japanese curves, calendar, 5 press sources, European and Asian indices, ECB fixing, energy, crypto, U.S. indices, closes, FX, 2 retries",
+  DAILY.join() === "universe,yields,bonds:DE,bonds:UK,bonds:JP,calendar,press:FT,press:BLOOMBERG,press:WSJ,press:MARKETWATCH,press:CB,idx:eu,idx:world,ecbfx,energy,crypto,idx:us,closes,fx,retry,retry");
 ok("daily: 2-minute pause before the write (KV propagation)", ["05:28", "05:29"].every((m) => plan(`2026-10-07T${m}:00Z`).action === "idle"));
 ok("daily: written at 07:30 Rome, retried at 07:35 and 07:40", ["05:30", "05:35", "05:40"].every((m) => { const x = plan(`2026-10-07T${m}:00Z`); return x.action === "write" && x.period === "daily"; }) && plan("2026-10-07T05:31:00Z").action === "idle");
-ok("daily in CET (November): same Rome times, one hour later in UTC", plan("2026-11-04T06:13:00Z").step === "universe" && plan("2026-11-04T06:30:00Z").action === "write" && plan("2026-11-04T05:30:00Z").action === "idle");
-p = plan("2026-10-07T20:14:00Z");
-ok("evening: staging 22:14 Rome without the closes (session not final yet)", p.step === "universe" && !stepsFor(["evening"]).includes("closes"));
-ok("evening: closes read at 22:30 (final), retry 22:31, written 22:33 / 22:38 / 22:43", plan("2026-10-07T20:30:00Z").step === "closes" && plan("2026-10-07T20:31:00Z").step === "retry" && ["20:33", "20:38", "20:43"].every((m) => plan(`2026-10-07T${m}:00Z`).period === "evening"));
-ok("evening in the week US is still on summer time (28 Oct: 22:30 Rome = 17:30 ET)", plan("2026-10-28T21:30:00Z").step === "closes" && plan("2026-10-28T21:33:00Z").period === "evening");
-p = plan("2026-10-03T05:40:00Z"); // first Saturday of October
-ok("first Saturday: weekly and monthly share the staging (1W and 1M references, FX daily series)", p.step === "universe" && p.periods.join() === "weekly,monthly" && ["ref:1W", "ref:1M", "fxdaily"].every((s) => stepsFor(p.periods).includes(s)));
+ok("daily in CET (November): same Rome times, one hour later in UTC", plan(`2026-11-04T06:${mm(D0)}:00Z`).step === "universe" && plan("2026-11-04T06:30:00Z").action === "write" && plan("2026-11-04T05:30:00Z").action === "idle");
+const EV0 = 30 - stepsFor(["evening"]).length - 2;
+p = plan(`2026-10-07T20:${mm(EV0)}:00Z`);
+ok("evening: staging from 22:09 Rome without the closes and the U.S. index levels (session not final yet)", EV0 === 9 && p.step === "universe" && !stepsFor(["evening"]).includes("closes") && !stepsFor(["evening"]).includes("idx:us"));
+ok("evening: closes read at 22:30 (final), U.S. indices 22:31, retry 22:32, written 22:34 / 22:39 / 22:44", plan("2026-10-07T20:30:00Z").step === "closes" && plan("2026-10-07T20:31:00Z").step === "idx:us" && plan("2026-10-07T20:32:00Z").step === "retry" && plan("2026-10-07T20:33:00Z").action === "idle" && ["20:34", "20:39", "20:44"].every((m) => plan(`2026-10-07T${m}:00Z`).period === "evening"));
+ok("evening in the week US is still on summer time (28 Oct: 22:30 Rome = 17:30 ET)", plan("2026-10-28T21:30:00Z").step === "closes" && plan("2026-10-28T21:34:00Z").period === "evening");
+const WM = stepsFor(["weekly", "monthly"]);
+p = plan(`2026-10-03T05:${mm(60 - WM.length - 2)}:00Z`); // first Saturday of October: 08:00 Rome = 06:00 UTC
+ok("first Saturday: weekly and monthly share the staging (1W and 1M references, FX daily series, index histories, crypto references, IMF prices)", p.step === "universe" && p.periods.join() === "weekly,monthly" && ["ref:1W", "ref:1M", "fxdaily", "idxh:SPX", "idxh:MXEF", "crypto:1W", "crypto:1M", "imf"].every((s) => WM.includes(s)) && !stepsFor(["weekly"]).includes("imf"), WM.join());
 ok("first Saturday: weekly at 08:00, monthly at 08:02", plan("2026-10-03T06:00:00Z").period === "weekly" && plan("2026-10-03T06:02:00Z").period === "monthly");
-ok("other Saturdays: weekly only; no daily / evening on weekends", plan("2026-10-10T05:50:00Z").periods.join() === "weekly" && plan("2026-10-10T05:30:00Z").action === "idle" && plan("2026-10-10T20:33:00Z").action === "idle");
+ok("other Saturdays: weekly only; no daily / evening on weekends", plan("2026-10-10T05:50:00Z").periods.join() === "weekly" && plan("2026-10-10T05:30:00Z").periods.join() === "weekly" && plan("2026-10-10T05:20:00Z").action === "idle" && plan("2026-10-10T20:33:00Z").action === "idle");
 ok("Sunday: nothing all day", Array.from({ length: 1440 }, (_, i) => cronPlan(at("2026-10-11T00:00:00Z") + i * 60_000)).every((x) => x.action === "idle"));
 
 // every minute that has work falls inside the Cron Trigger hours of wrangler.toml (both CET and CEST)
@@ -53,13 +58,20 @@ const FF = [{ title: "CPI m/m", country: "USD", date: "2026-10-07T08:30:00-04:00
 const rss = (src) => `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><item><title>${src} test headline</title><link>https://${src}.example/a</link><pubDate>Wed, 07 Oct 2026 04:00:00 GMT</pubDate></item></channel></rss>`;
 const tdQuote = (s, px) => ({ symbol: s, name: s, exchange: "Forex", currency: null, datetime: "2026-10-07", timestamp: 1791349200, open: String(px), high: String(px), low: String(px), close: String(px), previous_close: String(px), change: "0", percent_change: "-0.52", is_market_open: true });
 
-const source = (u) => /bundesbank/.test(u) ? "DE" : /boeapps\/database/.test(u) ? "UK" : /mof\.go\.jp/.test(u) ? "JP" : /ishares\.com/.test(u) ? "IVV" : /alpaca\.markets/.test(u) ? "ALPACA" : /treasury\.gov|data-api\.ecb/.test(u) ? "YIELDS" : /faireconomy|bls\.gov|bea\.gov/.test(u) ? "CALENDAR"
+const source = (u) => /cdn-api\.cboe\.com/.test(u) ? "CBOE" : /stoxx\.com/.test(u) ? "STOXX" : /indexes\.nikkei/.test(u) ? "NIKKEI" : /data-api\.ecb\.europa\.eu\/service\/data\/EXR/.test(u) ? "ECBFX"
+  : /stlouisfed/.test(u) ? "FRED" : /v1beta3\/crypto/.test(u) ? "ALPACA_CRYPTO" : /bundesbank/.test(u) ? "DE" : /boeapps\/database/.test(u) ? "UK" : /mof\.go\.jp/.test(u) ? "JP" : /ishares\.com/.test(u) ? "IVV" : /alpaca\.markets/.test(u) ? "ALPACA" : /treasury\.gov|data-api\.ecb/.test(u) ? "YIELDS" : /faireconomy|bls\.gov|bea\.gov/.test(u) ? "CALENDAR"
   : /ft\.com/.test(u) ? "FT" : /bloomberg\.com/.test(u) ? "BLOOMBERG" : /dowjones\.io.*mw_/.test(u) ? "MARKETWATCH" : /dowjones\.io/.test(u) ? "WSJ" : /federalreserve|www\.ecb\.europa\.eu|bankofengland/.test(u) ? "CB" : /twelvedata/.test(u) ? "TWELVEDATA" : "OTHER:" + u;
 let calls = [], failing = new Set();
 globalThis.fetch = async (u, opts = {}) => {
   u = String(u); calls.push(u); const s = source(u);
   if (failing.has(s) || s === "YIELDS" && u.includes("treasury.gov")) return new Response("", { status: 503 }); // Treasury times out from Cloudflare
   if (s === "IVV") return new Response(IVV);
+  if (s === "CBOE") { const sym = /quotes\/(_[A-Z]+)\.json/.exec(u)[1], px = { _SPX: 6700.5, _NDX: 24800.25, _DJX: 465.1, _RUT: 2450.75, _VIX: 16.4, _MXEA: 2900.2, _MXEF: 1350.6 }[sym];
+    return new Response(JSON.stringify({ timestamp: "2026-10-07 05:00:00", data: { current_price: px, prev_day_close: px - 10, open: px - 5, high: px + 1, low: px - 12, price_change: 10, price_change_percent: (10 / (px - 10)) * 100, last_trade_time: "2026-10-06T16:00:00" } })); }
+  if (s === "STOXX") { const f = /HistoricalData\/(h_3m[a-z0-9]+)\.txt/.exec(u)[1]; return new Response(`Date;Symbol;Indexvalue;\n05.10.2026;${f.slice(4).toUpperCase()};${f === "h_3mdax" ? "24200.5" : "5600.1"};\n06.10.2026;${f.slice(4).toUpperCase()};${f === "h_3mdax" ? "24310.5" : "5620.4"};\n`); }
+  if (s === "NIKKEI") return new Response('"Date of Data","Close","Open","High","Low"\n"2026/10/05","48000.1","47900","48100","47800"\n"2026/10/06","48210.5","48000","48300","47950"\n');
+  if (s === "ECBFX") return new Response("KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n" + [["USD", 1.1269, 1.1177], ["GBP", 0.8701, 0.8722], ["JPY", 176.1, 176.85], ["CHF", 0.9301, 0.9309]].map(([c, a, b]) => `EXR.D.${c}.EUR.SP00.A,D,${c},EUR,SP00,A,2026-10-05,${a}\nEXR.D.${c}.EUR.SP00.A,D,${c},EUR,SP00,A,2026-10-06,${b}`).join("\n") + "\n");
+  if (s === "ALPACA_CRYPTO") return new Response(JSON.stringify({ bars: { "BTC/USD": [{ t: "2026-10-05T00:00:00Z", c: 120000, v: 100 }, { t: "2026-10-06T00:00:00Z", c: 121000, v: 120 }], "SOL/USD": [{ t: "2026-10-05T00:00:00Z", c: 180, v: 90000 }, { t: "2026-10-06T00:00:00Z", c: 176.4, v: 80000 }] } }));
   if (s === "ALPACA") return new Response(JSON.stringify(BARS));
   if (s === "YIELDS") return new Response(ECB_CSV);
   if (s === "DE") return new Response(DE_CSV);
@@ -87,19 +99,25 @@ async function tick(iso, e = env) {
 }
 
 failing = new Set(["FT"]); // FT unavailable in its minute, back for the retry
-const runs = {};
-for (let m = 13; m <= 27; m++) { const r = await tick(`2026-10-07T05:${m}:00Z`); runs[m] = r; if (m === 20) failing = new Set(); }
-ok("staging: every run calls at most one source (CPU per run ≈ one terminal request)", Object.values(runs).every((r) => r.sources.length <= 1), JSON.stringify(Object.fromEntries(Object.entries(runs).map(([m, r]) => [m, r.sources]))));
-ok("staging: sources in order — IVV, yields, Bundesbank, Bank of England, Japan MOF, calendar, FT, Bloomberg, WSJ, MarketWatch, central banks, Alpaca closes, Twelve Data FX", [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].map((m) => runs[m].sources[0]).join() === "IVV,YIELDS,DE,UK,JP,CALENDAR,FT,BLOOMBERG,WSJ,MARKETWATCH,CB,ALPACA,TWELVEDATA", [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].map((m) => runs[m].sources[0]).join());
-ok("retry: the source that failed (FT) is fetched again in the retry minute, then nothing is missing", runs[26].sources.join() === "FT" && runs[27].calls.length === 0);
+const runs = {}, FT_MIN = D0 + DAILY.indexOf("press:FT"), R1 = D0 + DAILY.indexOf("retry");
+for (let m = D0; m <= 27; m++) { const r = await tick(`2026-10-07T05:${mm(m)}:00Z`); runs[m] = r; if (m === FT_MIN) failing = new Set(); }
+const stepAt = (m) => DAILY[m - D0];
+ok("staging: every run reads one input — one source, or for the Asian indices Nikkei and Cboe (CPU per run ≈ one terminal request)", Object.entries(runs).every(([m, r]) => r.sources.length <= 1 || (stepAt(+m) === "idx:world" && r.sources.sort().join() === "CBOE,NIKKEI")), JSON.stringify(Object.fromEntries(Object.entries(runs).map(([m, r]) => [m, r.sources]))));
+ok("staging: sources in order — IVV, yields, Bundesbank, Bank of England, Japan MOF, calendar, FT, Bloomberg, WSJ, MarketWatch, central banks, STOXX, Nikkei + Cboe, ECB, (energy: no FRED key here), Alpaca crypto, Cboe, Alpaca closes, Twelve Data FX", Array.from({ length: R1 - D0 }, (_, i) => runs[D0 + i].sources.slice().sort().join("+")).join() === "IVV,YIELDS,DE,UK,JP,CALENDAR,FT,BLOOMBERG,WSJ,MARKETWATCH,CB,STOXX,CBOE+NIKKEI,ECBFX,,ALPACA_CRYPTO,CBOE,ALPACA,TWELVEDATA", [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].map((m) => runs[m].sources[0]).join());
+ok("retry: the source that failed (FT) is fetched again in the first retry minute; the second retry takes the next input still missing (U.S. indices: the Nasdaq Composite needs FRED, not configured in this test)", runs[R1].sources.join() === "FT" && runs[R1 + 1].sources.join() === "CBOE", JSON.stringify([runs[R1].sources, runs[R1 + 1].sources]));
 ok("staged in KV (not in the per-location cache): universe, closes, curves, calendar, headlines, FX quotes", ["stage/spx/universe", "stage/spx/closes/recent/2026-10-07", "stage/yields/ea", "stage/calendar/FF", "stage/press/FT/Home", "stage/press/CB/Fed", "stage/quote/EUR%2FUSD"].every((k) => kv.has(k)) && !kv.has("stage/yields/us"));
-ok("heartbeat: first run of the pipeline recorded", JSON.parse(kv.get("cron/last")).at === "2026-10-07T05:13:00.000Z");
+ok("heartbeat: first run of the pipeline recorded", JSON.parse(kv.get("cron/last")).at === `2026-10-07T05:${mm(D0)}:00.000Z`);
 let r = await tick("2026-10-07T05:30:00Z");
 const ed = JSON.parse(kv.get("brief/daily-2026-10-07") || "null");
 ok("07:30 Rome: edition written by the schedule in English and Italian (two model calls on the same DATA), archived and indexed", !!ed && ed.writtenBy === "schedule" && JSON.parse(kv.get("index/daily"))[0].id === "daily-2026-10-07" && aiCalls === 2 && !!ed.i18n.it);
 ok("07:30: no source is called while writing (staged data only)", r.calls.length === 0, r.calls.join());
 ok("write: DATA from the staged inputs — S&P 500 summary, FX quote, world event, headlines from the top sources", /EQUITY S&P 500/.test(ed.inputData) && /\+3\.00|NVDA/.test(ed.inputData) && /QUOTE `EUR\/USD`/.test(ed.inputData) && /CPI m\/m/.test(ed.inputData) && /ft test headline/.test(ed.inputData) && /cb test headline/.test(ed.inputData) && !ed.inputErrors.equity, ed.inputData.slice(0, 400));
 ok("write: the US curve that could not be fetched is absent, not filled in; German, UK and Japanese curves from their staged minutes", !/YIELDS US/.test(ed.inputData) && /YIELDS EA/.test(ed.inputData) && /YIELDS DE .*10Y 3\.49%/.test(ed.inputData) && /YIELDS UK .*10Y 5\.3634%/.test(ed.inputData) && /YIELDS JP .*10Y 3\.1%/.test(ed.inputData), ed.inputData.split("\n").filter((l) => /YIELDS/.test(l)).join(" | "));
+ok("write: markets from their staged minutes — index levels (U.S. delayed quotes, STOXX and Nikkei closes), the ECB fixing (EUR crosses and dollar crosses through it), crypto closes beyond the live BTC/ETH quotes; what was missing is listed, not filled in",
+  /INDEX United States — S&P 500 \(SPX\): 6700\.5, \+0\.15% vs previous close 6690\.5; 15-minute delayed quote, last trade 2026-10-06 20:00 UTC \[Cboe/.test(ed.inputData) && /INDEX Europe — DAX \(DAX\): 24310\.5, .*close of 2026-10-06 \[STOXX/.test(ed.inputData) && /INDEX Asia & global — Nikkei 225 \(N225\): 48210\.5/.test(ed.inputData)
+  && /INDEX United States — Nasdaq Composite \(COMP\): N\/A \(not_staged\)/.test(ed.inputData) && /FX_ECB EUR\/GBP: 0\.8722 — ECB fixing of 2026-10-06, \+0\.24% vs the fixing of 2026-10-05/.test(ed.inputData) && /FX_ECB USD\/CHF: 0\.8329 — ECB fixing of 2026-10-06 \(DERIVED/.test(ed.inputData) && !/FX_ECB EUR\/USD/.test(ed.inputData)
+  && /CRYPTO `SOL\/USD`: close 176\.4 USD on the UTC day 2026-10-06, -2\.00% vs the close of 2026-10-05/.test(ed.inputData) && !/CRYPTO `BTC\/USD`/.test(ed.inputData) && !/^ENERGY/m.test(ed.inputData) && ed.inputErrors.energy === "eia_not_configured" && /COMP/.test(ed.inputErrors.indices)
+  && ed.windows.some((w) => w.type === "IDX" && w.state.id) && ed.windows.some((w) => w.type === "MKT" && /ECB/.test(w.label)) && ed.symbols.includes("SOL/USD"), ed.inputData.split("\n").filter((l) => /^(INDEX|FX_ECB|CRYPTO|ENERGY)/.test(l)).join("\n") + JSON.stringify(ed.inputErrors));
 r = await tick("2026-10-07T05:35:00Z");
 ok("07:35 retry slot: edition exists → not written again", aiCalls === 2 && r.calls.length === 0);
 
@@ -107,7 +125,7 @@ ok("07:35 retry slot: edition exists → not written again", aiCalls === 2 && r.
 const call = async (path, method = "GET") => { const res = await app.fetch(new Request("https://alessandrozanichelli.com" + path, { method }), env, { waitUntil: () => {} }); return { status: res.status, j: await res.json() }; };
 Date.now = () => at("2026-10-07T05:31:00Z");
 let g = await call("/api/briefs?period=daily");
-ok("index: due edition carries its scheduled write time and window; last scheduled run reported", g.j.due.auto.writeAt === "2026-10-07T05:30:00.000Z" && g.j.due.auto.until === "2026-10-07T05:42:00.000Z" && g.j.automatic.lastRun === "2026-10-07T05:13:00.000Z" && g.j.dueWritten === true);
+ok("index: due edition carries its scheduled write time and window; last scheduled run reported", g.j.due.auto.writeAt === "2026-10-07T05:30:00.000Z" && g.j.due.auto.until === "2026-10-07T05:42:00.000Z" && g.j.automatic.lastRun === `2026-10-07T05:${mm(D0)}:00.000Z` && g.j.dueWritten === true);
 kv.delete("brief/daily-2026-10-07"); kv.set("index/daily", "[]");
 let w = await call("/api/briefs/write?period=daily", "POST");
 ok("terminal write while the schedule is writing → 409 scheduled_write, model not called", w.status === 409 && w.j.error === "scheduled_write" && aiCalls === 2);
@@ -117,17 +135,19 @@ ok("after the scheduled window, the terminal writes a missing edition itself (fa
 
 // evening: no Alpaca call before the session is final; the 22:30 run reads the closes
 const evRuns = [];
-for (let m = 14; m <= 27; m++) evRuns.push(await tick(`2026-10-07T20:${m}:00Z`));
-ok("evening staging (22:14–22:27 Rome): no closes before the US session is final", !evRuns.some((x) => x.sources.includes("ALPACA")));
+for (let m = EV0; m <= 27; m++) evRuns.push(await tick(`2026-10-07T20:${mm(m)}:00Z`));
+ok("evening staging (22:09–22:27 Rome): no closes and no U.S. index quotes before the US session is final", !evRuns.some((x) => x.sources.includes("ALPACA")) && !evRuns.some((x) => x.calls.some((u) => /_SPX|_NDX|_DJX|_RUT|_VIX/.test(u))));
 r = await tick("2026-10-07T20:30:00Z");
 ok("evening 22:30 Rome (16:30 ET): today's consolidated closes read", r.sources.join() === "ALPACA" && JSON.parse(kv.get("stage/spx/closes/recent/2026-10-07")).fetchedAt === at("2026-10-07T20:30:00Z"));
-await tick("2026-10-07T20:31:00Z");
-r = await tick("2026-10-07T20:33:00Z");
-ok("evening written at 22:33 from staged data only", !!kv.get("brief/evening-2026-10-07") && JSON.parse(kv.get("brief/evening-2026-10-07")).writtenBy === "schedule" && r.calls.length === 0);
+r = await tick("2026-10-07T20:31:00Z");
+ok("evening 22:31 Rome: the U.S. index levels read after the close", r.sources.join() === "CBOE" && r.calls.some((u) => u.includes("_SPX")) && JSON.parse(kv.get("stage/idx/q/SPX")).fetchedAt === at("2026-10-07T20:31:00Z"));
+await tick("2026-10-07T20:32:00Z");
+r = await tick("2026-10-07T20:34:00Z");
+ok("evening written at 22:34 from staged data only", !!kv.get("brief/evening-2026-10-07") && JSON.parse(kv.get("brief/evening-2026-10-07")).writtenBy === "schedule" && r.calls.length === 0);
 
 // no model → nothing written; idle minutes do nothing
 kv.clear();
-for (let m = 13; m <= 27; m++) await tick(`2026-10-08T05:${m}:00Z`, { ...env, AI: undefined });
+for (let m = D0; m <= 27; m++) await tick(`2026-10-08T05:${mm(m)}:00Z`, { ...env, AI: undefined });
 await tick("2026-10-08T05:30:00Z", { ...env, AI: undefined });
 ok("no model binding → no edition written (no text invented)", !kv.has("brief/daily-2026-10-08"));
 r = await tick("2026-10-08T12:00:00Z");
@@ -137,16 +157,16 @@ ok("idle minute: no source, no KV write", r.calls.length === 0);
 // failed once was never fetched again): UK keeps failing, the calendar fails in its minute and is back for the retries
 kv.clear();
 const runs9 = {};
-for (let m = 13; m <= 27; m++) { failing = new Set(m <= 18 ? ["UK", "CALENDAR"] : ["UK"]); runs9[m] = await tick(`2026-10-09T05:${m}:00Z`); }
+for (let m = D0; m <= 27; m++) { failing = new Set(m <= D0 + DAILY.indexOf("calendar") ? ["UK", "CALENDAR"] : ["UK"]); runs9[m] = await tick(`2026-10-09T05:${mm(m)}:00Z`); }
 failing = new Set();
 const ffCalls = (r) => r.calls.filter((u) => u.includes("faireconomy")).length;
-ok("retries rotate over the inputs still missing: the first retry tries the Bank of England, the second the calendar (staged)", runs9[26].sources.join() === "UK" && ffCalls(runs9[27]) === 1 && !!kv.get("stage/calendar/FF"), JSON.stringify([runs9[26].sources, runs9[27].sources]));
+ok("retries rotate over the inputs still missing: the first retry tries the Bank of England, the second the calendar (staged)", runs9[R1].sources.join() === "UK" && ffCalls(runs9[R1 + 1]) === 1 && !!kv.get("stage/calendar/FF"), JSON.stringify([runs9[R1].sources, runs9[R1 + 1].sources]));
 
 // Forex Factory refuses the scheduled runs: this week's export as the terminal archived it is staged instead (with its time)
 kv.clear(); aiCalls = 0;
 const FF12 = [{ title: "Retail Sales m/m", country: "EUR", date: "2026-10-12T05:00:00-04:00", impact: "High", forecast: "0.4%", previous: "0.1%" }];
 kv.set("cal/ff/2026-10-11", JSON.stringify(FF12)); kv.set("calat/ff/2026-10-11", String(at("2026-10-11T18:00:00Z")));
-for (let m = 13; m <= 27; m++) { failing = new Set(["CALENDAR"]); await tick(`2026-10-12T05:${m}:00Z`); }
+for (let m = D0; m <= 27; m++) { failing = new Set(["CALENDAR"]); await tick(`2026-10-12T05:${mm(m)}:00Z`); }
 failing = new Set();
 await tick("2026-10-12T05:30:00Z");
 const ed12 = JSON.parse(kv.get("brief/daily-2026-10-12") || "null");
@@ -154,7 +174,7 @@ const issues = JSON.parse(kv.get("cron/issues") || "[]");
 ok("Forex Factory unreachable from the schedule → this week's archived export (fetched Sun 18:00 by the terminal) is used and said so", !!ed12 && /Retail Sales m\/m/.test(ed12.inputData) && !ed12.inputErrors.calendarWorld && ed12.inputErrors.calendarWorldCopyOf === "2026-10-11T18:00:00.000Z", JSON.stringify(ed12 && ed12.inputErrors));
 ok("SYS issue log: the calendar step's result (refused + archive used) is recorded, newest first, at most 20", issues.length >= 1 && issues.length <= 20 && issues.some((x) => x.step === "calendar" && /^ff_.*archive_2026-10-11T18:00/.test(x.result)), JSON.stringify(issues.slice(0, 3)));
 kv.delete("calat/ff/2026-10-11"); kv.delete("stage/calendar/FF");
-for (let m = 18; m <= 18; m++) { failing = new Set(["CALENDAR"]); await tick(`2026-10-13T05:${m}:00Z`); }
+{ const m = D0 + DAILY.indexOf("calendar"); failing = new Set(["CALENDAR"]); await tick(`2026-10-13T05:${mm(m)}:00Z`); }
 failing = new Set();
 ok("an archived export without its fetch time is not used (age unknown)", !kv.get("stage/calendar/FF"));
 

@@ -71,7 +71,7 @@ The Twelve Data key is sent only in the `Authorization: apikey …` header, neve
 | Backtest (BT) | Twelve Data daily history, split- and dividend-adjusted (1Y / 5Y) | buy & hold or SMA crossover (long / flat); signal at a close, executed at the next close; costs only as set; total return, CAGR, volatility, Sharpe (risk-free 0), max drawdown, trades, time in market, vs buy & hold (all DERIVED) |
 | Alerts (ALRT) · Notes (NOTE) | your lists (Workers KV) · Twelve Data quotes | price alerts ≥ / ≤ checked in the page on each live quote (only LIVE quotes fire; price and time recorded; toast + desktop notification if allowed; ≤ 10 symbols); notes, optionally tied to a symbol |
 | System (SYS) | `/api/status` | which sources are configured (yes/no only — never key values), Twelve Data credits (checked on request: 1 credit, reused 5 min), last scheduled run, this page's budget |
-| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents, FX/crypto/gold, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips; windows that explain each section (chosen from the edition's own data: heat map, leading sector, contributors compared, biggest mover, curves vs previous publication, euro-area 2s10s, largest FX move, gold, crypto board, the next high-impact release opened in the calendar, central banks on a rate-decision day) appear under their section with a one-line reason built from the same figures; ▦ Open all as a view lays out the briefing on the left and its windows on the right, ↩ MY LAYOUT brings the previous windows back; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. Written automatically at its time (see Scheduled briefings). |
+| Briefing | Cloudflare Workers AI (Llama 3.3 70B), archive in Workers KV | editions in the reference format: Daily (weekdays from 07:30 Rome: In one line · Equities · Rates and currencies · Commodities and crypto · Today), Evening (from 22:30: In one line · How the day went · What changed since this morning · Tomorrow), Weekly (Saturday), Monthly (first Saturday). Written once from real data only (S&P 500 constituents; world index levels — S&P 500, Nasdaq-100, Dow, Nasdaq Composite, Russell 2000, VIX, EURO STOXX 50, STOXX 600, DAX, MDAX, EURO STOXX Banks, Nikkei 225, MSCI EAFE / EM — with the week's / month's change from each index's own history in the weekly / monthly; the ECB fixing (EUR crosses and dollar crosses through it, with the week's / month's change); EIA energy spot prices with their own date (published with a lag); Alpaca crypto pairs (completed UTC days); IMF monthly metals and crops in the monthly; FX/crypto/gold quotes, curves, calendar, FT, Bloomberg, WSJ, MarketWatch and central-bank headlines with links); tickers become chips; windows that explain each section (chosen from the edition's own data: the largest benchmark-index move (IDX), heat map, leading sector, contributors compared, biggest mover, curves vs previous publication, euro-area 2s10s, largest ECB move (markets board), largest FX move, oil with its date (CMDTY), gold, crypto board, the next high-impact release opened in the calendar, central banks on a rate-decision day) appear under their section with a one-line reason built from the same figures; ▦ Open all as a view lays out the briefing on the left and its windows on the right, ↩ MY LAYOUT brings the previous windows back; every figure checked, links outside the data removed. An edition is written only inside its window, never later with newer data. Written automatically at its time (see Scheduled briefings). |
 
 ## Function menu (T07)
 `☰ FUNCTIONS` in the taskbar or the dock, `MENU` in the command line, or the `m` key: every function by
@@ -87,19 +87,23 @@ The top of the screen is one row: brand, a compact command line, the taskbar (�
 Editions are written at their time whether or not the terminal is open: Daily 07:30 and Evening 22:30
 (Mon–Fri), Weekly 08:00 (Saturday), Monthly 08:00 (first Saturday), Rome time (CET/CEST handled by the
 time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21 * * *`, UTC).
-- Free plan = 10 ms CPU per run, so **one run does one thing**: from ~15 minutes before the slot, each
-  minute fetches one source with the same loaders the terminal uses (IVV universe, yields, the German, UK and Japanese curves (one each), world calendar,
-  FT, Bloomberg, WSJ, MarketWatch, central banks, Alpaca closes, Twelve Data FX; weekly/monthly also the
-  1W/1M references and FX daily series), plus two retry minutes for anything that failed.
+- Free plan = 10 ms CPU per run, so **one run does one thing**: from ~21 minutes before the slot (daily; ~36 on the
+  first Saturday), each minute fetches one input with the same loaders the terminal uses (IVV universe, yields, the
+  German, UK and Japanese curves (one each), world calendar, FT, Bloomberg, WSJ, MarketWatch, central banks, the
+  European and the Asian indices, the ECB fixing (25 days), energy, crypto closes, the U.S. indices, Alpaca closes,
+  Twelve Data FX; weekly/monthly also the 1W/1M references, FX daily series, crypto closes a week / a month ago, each
+  U.S. and MSCI index history (one file per minute, a 60-row tail kept for the edition) and, monthly, IMF prices),
+  plus two retry minutes that take turns over the inputs still missing.
 - Inputs are staged in Workers KV (`stage/…`, ≤ 3 days), not in the per-location cache: scheduled runs
   execute in any Cloudflare location.
 - At the slot the edition is written **from staged data only** (no source is called), retried at +5 and
   +10 minutes if the write failed. Evening: today's consolidated closes are read at 22:30 (16:30 ET, session
-  final) and the edition is written at 22:33. Monthly is written at 08:02, after the weekly.
+  final), the U.S. index levels at 22:31, a retry at 22:32, and the edition is written at 22:34. Monthly is written at 08:02, after the weekly.
 - The terminal does not write an edition while the scheduled run is due (`409 scheduled_write`); it shows
   it as SCHEDULED and writes it itself only if it is still missing ~12 minutes after its time. REWRITE still
   works. Each edition records `writtenBy: schedule | terminal`; `/api/briefs` reports the last scheduled run.
-- Usage: ~300 runs/day, ~70 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition.
+- Writing an edition (scheduled or from the terminal) reads the markets inputs only from these staged copies; each copy is read once.
+- Usage: ~300 runs/day, ~130 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition (the markets inputs cost none).
 
 ## Languages (EN / IT)
 - Toggle in the top bar, remembered in the browser (Italian by default for an Italian browser).
@@ -221,6 +225,7 @@ node test/calendar-world.test.mjs # T06: world calendar (Forex Factory export no
 node test/i18n.test.mjs         # T06: interface translations (stable, data-safe)
 node test/maps.test.mjs         # T06: Nasdaq-100 / Dow / ETF / crypto maps, xlsx reader, world exchanges, portfolio
 node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET/CEST, staging, write, hand-off)
+node test/briefmkt.test.mjs     # markets in the briefings: indices, ECB fixing, energy, crypto, IMF (staged, period changes, windows)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, FRED), BOND changes/spreads, CFTC COT, ETF list
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
