@@ -17,6 +17,12 @@ const URLS = {
   cnbcBars: "https://ts-api.cnbc.com/harmony/app/bars/IT10Y-IT/1D/20260801000000/20261020000000/adjusted/EST5EDT.json",
   cnbcBars2: "https://ts-api.cnbc.com/harmony/app/bars/US10Y/1D/20260101000000/20261020000000/adjusted/EST5EDT.json",
   ffNext: "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
+  cnbcBars5y: "https://ts-api.cnbc.com/harmony/app/bars/US10Y/1D/20211020000000/20261020000000/adjusted/EST5EDT.json",
+  fedCal: "https://www.federalreserve.gov/json/calendar.json",
+};
+const BIS = {
+  d: "https://stats.bis.org/api/v1/data/WS_CBPOL/D./all?startPeriod=2025-09-01&detail=dataonly&format=csv",
+  m: "https://stats.bis.org/api/v1/data/WS_CBPOL/M./all?startPeriod=2006-01&detail=dataonly&format=csv",
 };
 const T = (cc, list, suf) => list.map((t) => `${cc}${t}${suf}`);
 const CNBC_ALL = [
@@ -45,6 +51,18 @@ export async function handleDiag(url, env, ctx, H, json) {
         for (const x of q) { if (!first && x.last) first = x; out[x.symbol] = x.code === 0 && x.last ? [x.last, x.last_time, x.change, x.previous_day_closing, x.curmktstatus] : ["code " + x.code]; } } catch (e) { out["err" + i] = String(e && e.message); }
     }
     const r = json({ n: CNBC_ALL.length, got: Object.keys(out).length, first, out }, H); r.headers.set("cache-control", "no-store"); return r;
+  }
+  if (url.searchParams.get("bis") === "1") {
+    const out = {};
+    for (const [k, u] of Object.entries(BIS)) {
+      try {
+        const r = await fetch(u, { headers: { "user-agent": UA, accept: "text/csv" } }); const t = await r.text(); const by = {};
+        const lines = t.split(/\r?\n/); const head = lines[0];
+        for (const l of lines.slice(1)) { const c = l.split(","); if (c.length < 4) continue; const a = c[1]; const x = (by[a] = by[a] || { n: 0, first: c[2], last: null, v: null }); x.n++; x.last = c[2]; x.v = c[3]; }
+        out[k] = { status: r.status, size: t.length, head, areas: Object.keys(by).length, by };
+      } catch (e) { out[k] = { error: String(e && e.message) }; }
+    }
+    const r = json(out, H); r.headers.set("cache-control", "no-store"); return r;
   }
   const one = async (u) => {
     try {
