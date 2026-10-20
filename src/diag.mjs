@@ -12,6 +12,11 @@ const URLS = {
   bisV1: "https://stats.bis.org/api/v1/data/WS_CBPOL/D.US+XM+GB+JP+AU+NZ+CN+IN/all?startPeriod=2026-10-01&detail=dataonly",
   bisV2csv: "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/D.US+XM+JP?startPeriod=2026-10-01&format=csv",
   bisM: "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.US?startPeriod=2006-01&format=csv",
+  bisV1csv: "https://stats.bis.org/api/v1/data/WS_CBPOL/D.US+XM/all?startPeriod=2026-10-01&detail=dataonly&format=csv",
+  bisAll: "https://stats.bis.org/api/v1/data/WS_CBPOL/D./all?startPeriod=2026-10-12&detail=dataonly",
+  cnbcBars: "https://ts-api.cnbc.com/harmony/app/bars/IT10Y-IT/1D/20260801000000/20261020000000/adjusted/EST5EDT.json",
+  cnbcBars2: "https://ts-api.cnbc.com/harmony/app/bars/US10Y/1D/20260101000000/20261020000000/adjusted/EST5EDT.json",
+  ffNext: "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
 };
 const T = (cc, list, suf) => list.map((t) => `${cc}${t}${suf}`);
 const CNBC_ALL = [
