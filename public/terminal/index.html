@@ -1957,7 +1957,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     win._load=()=>{get7('/api/finra/shorts',6*3600000,['MOV']);scrData({ex:'ALL'},['MOV']);};
     if(!d||!Array.isArray(d.rows)){setProv(win,{'ds:MOV-short':e.err||d?S.NA:S.LOADING});body.innerHTML=tabs+(e.err||d?naB(tl('short interest unavailable','short interest non disponibile'),(d&&d.error)||e.err):`<div class="empty">${tl('Loading FINRA short interest…','Caricamento dello short interest FINRA…')}</div>`);bind();return;}
     const by={};D.rows.forEach(r=>{by[r[0]]=r;by[r[0].replace(/\^/g,'.').replace(/\//g,'.')]=r;});const minCap=Number(st.sc)||0;
-    const rows=d.rows.map(x=>{const n=by[x[0]],px=n&&fin(n[2])?n[2]:null,cap=n&&fin(n[5])?n[5]:null,shares=fin(px)&&px>0&&fin(cap)&&cap>0?cap/px:null;return{sym:x[0],name:(n&&n[1]||x[1]||'').replace(/ (Common Stock|Ordinary Shares|Class [A-Z] Common Stock|Common Shares)$/i,''),si:x[2],prev:x[3],chg:x[4],adv:x[5],days:x[6],mkt:x[7],px,cap,chgDay:n?n[3]:null,pct:fin(shares)?x[2]/shares*100:null};})
+    const rows=d.rows.map(x=>{const n=by[x[0]],px=n&&fin(n[2])?n[2]:null,cap=n&&fin(n[5])?n[5]:null,shares=fin(px)&&px>0&&fin(cap)&&cap>0?cap/px:null;return{sym:x[0],name:(n&&n[1]||x[1]||'').replace(/ (Common Stock|Ordinary Shares|Class [A-Z] Common Stock|Common Shares)( New)?$/i,''),si:x[2],prev:x[3],chg:x[4],adv:x[5],days:x[6],mkt:x[7],px,cap,chgDay:n?n[3]:null,pct:fin(shares)?x[2]/shares*100:null};})
       .filter(r=>!minCap||(fin(r.cap)&&r.cap>=minCap));
     const k={pct:'pct',si:'si',days:'days',chg:'chg'}[st.ss];rows.sort((a,b)=>(fin(b[k])?b[k]:-1e18)-(fin(a[k])?a[k]:-1e18));const shown=rows.slice(0,100),s2=d.status==='STALE'?S.STALE:S.LIVE;
     body.innerHTML=tabs+`<div class="tfbar" style="margin:4px 0"><span class="k" style="margin-right:6px">${tl('SORT','ORDINA')}</span>${tb7('ssrt',SHORT_SORT,st.ss)}<span class="k" style="margin:0 6px 0 14px">${tl('SIZE','DIMENSIONE')}</span>${tb7('scap',SHORT_CAP,st.sc)}${D.loading.length?`<span class="k" style="margin-left:10px">${tl('loading the screener for market caps…','caricamento dello screener per le capitalizzazioni…')}</span>`:''}</div>
@@ -3296,6 +3296,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(BY[parts[0]]){if(parts[1]&&FUNCSET.has(parts[1]))applyFunc(parts[1],parts[0]);else openSecurity(parts[0]);return true;}
     if(FUNCMAP[parts[0]]==='SRCH'){openSearch(raw.trim().split(/\s+/).slice(1).join(' '));return true;}
     if(FUNCSET.has(parts[0])&&parts.length===1){applyFunc(parts[0]);return true;}
+    // a CNBC listing typed as C:<code> (e.g. C:700-HK, C:7203.T) opens directly: the symbol master does not know these codes
+    if(parts.length<=2&&/^C:[A-Z0-9][A-Z0-9.\-]{0,15}$/.test(parts[0])){if(parts[1]&&FUNCSET.has(parts[1]))applyFunc(parts[1],parts[0]);else openSecurity(parts[0]);return true;}
     // anything else: search the provider's symbol master (a quotable exact ticker opens directly)
     if(!SRCH_RE.test(raw.trim()))return false;
     const w=openOrFocus('SRCH',{q:''});runSearch(w,raw,true);return true;}
