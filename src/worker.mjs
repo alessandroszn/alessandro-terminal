@@ -33,7 +33,7 @@ import { verifyAccess } from "./access.mjs";
 import { handleSpx } from "./spx.mjs";
 import { handleHeadlines } from "./press.mjs";
 import { handleBriefs } from "./briefs.mjs";
-import { handleCentralBanks, handleSpread, handleEnergy } from "./macro.mjs";
+import { handleCentralBanks, handleSpread, handleEnergy, handleEnergyStocks } from "./macro.mjs";
 import { handleEarnings } from "./earnings.mjs";
 import { handleDes, handleOptions } from "./company.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
@@ -622,6 +622,7 @@ export const app = {
     if (url.pathname.startsWith("/api/finra/")) return handleFinra(url, env, ctx, H, json);
     if (url.pathname === "/api/sprd") return handleSpread(url, env, ctx, H, json);
     if (url.pathname === "/api/energy") return handleEnergy(url, env, ctx, H, json);
+    if (url.pathname === "/api/energy/stocks") return handleEnergyStocks(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
     if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);

@@ -3,7 +3,7 @@
 // Provider responses are test fixtures in the providers' formats; nothing here is shown in the terminal.
 //   node test/functions.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { parseEcbRate, parseNyFed, parseBoe, parseSnb, parseBoc, parseSpread, parseEia, EIA_SPOT, EIA_FUT, lastChange } from "../src/macro.mjs";
+import { parseEcbRate, parseNyFed, parseBoe, parseSnb, parseBoc, parseSpread, parseEia, EIA_SPOT, EIA_STOCKS, stockRow, spotRow, lastChange } from "../src/macro.mjs";
 import { normalizeEarnings, reaction } from "../src/earnings.mjs";
 import { normalizeProfile, pickFact, parseOcc } from "../src/company.mjs";
 import { validateAlert, validateNote, validateBoards, sourcesStatus, LIMITS } from "../src/userdata.mjs";
@@ -49,10 +49,25 @@ ok("EA 2s10s: both legs on the same date, spread in bp; a one-leg day is left ou
 const EIA = { response: { data: [{ period: "2026-09-30", series: "RWTC", value: "65.2" }, { period: "2026-09-29", series: "RWTC", value: 64.9 }, { period: "2026-09-30", series: "RBRTE", value: null }] } };
 const pe = parseEia(EIA);
 ok("EIA v2: series sorted by date, empty values dropped", pe.RWTC.length === 2 && pe.RWTC[0][0] === "2026-09-29" && pe.RWTC[1][1] === 65.2 && !pe.RBRTE);
-ok("EIA lists: spot crude/products/gas, futures contracts 1–4 for crude and gas", EIA_SPOT.length === 8 && EIA_FUT.crude[1].length === 4 && EIA_FUT.gas[1].length === 4);
+ok("EIA lists: 8 spot series; 9 weekly series (6 petroleum stocks, gas storage, refinery utilization, crude production)", EIA_SPOT.length === 8 && EIA_STOCKS.length === 9 && EIA_STOCKS.filter((x) => x[5] === "stock").length === 7);
+// weekly rows (EIA units), oldest first: a week ending every Friday from 2020-10-02 to 2026-10-16
+const WEEKS = []; for (let t = Date.parse("2020-10-02T00:00:00Z"); t <= Date.parse("2026-10-16T00:00:00Z"); t += 7 * 86400_000) WEEKS.push(new Date(t).toISOString().slice(0, 10));
+const lvl = (d) => 400000 + (Number(d.slice(0, 4)) - 2020) * 1000 + (d === "2026-10-16" ? 3200 : 0); // each year 1,000 higher; the latest week +3,200 over the one before
+const crudeX = WEEKS.map((d) => [d, lvl(d)]), NOW_W = Date.parse("2026-10-22T15:00:00Z");
+const sr = stockRow("WCESTUS1", "Crude oil (excl. SPR)", "M bbl", 1000, "stock", crudeX, NOW_W);
+ok("stockRow: thousand barrels → million, the week's change, vs the week nearest a year earlier", sr.value === 409.2 && sr.chgWeek === 3.2 && sr.yearAgoDate === "2025-10-17" && sr.vsYearAgo === 4.2 && sr.date === "2026-10-16");
+ok("stockRow: 5-year average = the same week in each of the five previous years (2021–2025), vs it in % (DERIVED)", sr.avg5 === 403 && sr.vsAvg5Pct === Math.round((409200 / 403000 - 1) * 1000) / 10 && sr.history.length === 60);
+const srShort = stockRow("WCESTUS1", "Crude", "M bbl", 1000, "stock", crudeX.slice(-150), NOW_W);
+ok("stockRow: fewer than five years of history → no 5-year average (not a shorter one)", srShort.avg5 === null && srShort.vsAvg5Pct === null && srShort.vsYearAgo === 4.2);
+const srRate = stockRow("WPULEUS3", "Refinery utilization", "%", 1, "rate", WEEKS.map((d) => [d, 90.1]), NOW_W);
+ok("stockRow: a rate (utilization) has no % vs average; its levels as published", srRate.value === 90.1 && srRate.vsAvg5Pct === null && srRate.avg5 === 90.1);
+const srOld = stockRow("WCESTUS1", "Crude", "M bbl", 1000, "stock", crudeX.slice(0, -10), NOW_W);
+ok("stockRow: a series whose latest week is over four weeks old → N/A (source_discontinued), never shown as current", srOld.status === "N/A" && srOld.error === "source_discontinued" && srOld.value === undefined && srOld.lastDate === "2026-08-07");
+const spOld = spotRow("RWTC", "WTI", "$/bbl", [["2024-04-04", 85], ["2024-04-05", 86]], "RWTC", NOW_W);
+ok("spotRow: a spot series that stopped (last price 2024) → N/A with its last date, not a value", spOld.status === "N/A" && spOld.error === "source_discontinued" && spOld.lastDate === "2024-04-05" && spOld.value === undefined);
 
 // ---------- routed handlers with mocked providers ----------
-const seen = [];
+const seen = []; let eiaWeeklyDown = false;
 const ENERGY_ROWS = (series, n) => ({ response: { data: series.flatMap((s, k) => Array.from({ length: n }, (_, i) => ({ period: `2026-${String(8 + Math.floor(i / 28)).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`, series: s, value: 60 + k + i / 100 }))) } });
 globalThis.fetch = async (u, o = {}) => {
   u = String(u); seen.push({ u, h: o.headers || {} });
@@ -62,6 +77,14 @@ globalThis.fetch = async (u, o = {}) => {
   if (u.startsWith("https://data.snb.ch/")) { if (!/fromDate=\d{4}-\d{2}-\d{2}/.test(u)) return new Response("whole cube", { status: 200 }); return new Response("", { status: 503 }); }
   if (u.startsWith("https://www.bankofcanada.ca/")) return new Response(JSON.stringify(BOC));
   if (u.includes("/YC/")) return new Response(sp);
+  if (u.startsWith("https://api.eia.gov/v2/") && new URL(u).searchParams.get("frequency") === "weekly") {
+    const q = new URL(u).searchParams, ser = q.getAll("facets[series][]"), len = Number(q.get("length"));
+    if (eiaWeeklyDown && u.includes("/natural-gas/")) return new Response("", { status: 500 });
+    // EIA v2 rows as EIA sends them: newest first, facet columns, values as strings, cut at `length`
+    const rows = ser.flatMap((s) => WEEKS.map((d) => ({ period: d, duoarea: "NUS", "area-name": "U.S.", series: s, "series-description": s + " (Thousand Barrels)", value: String(s === "WPULEUS3" ? 90.1 : s === "NW2_EPG0_SWO_R48_BCF" ? 3500 : lvl(d)), units: "MBBL" })));
+    rows.sort((a, b) => (a.period < b.period ? 1 : -1));
+    return new Response(JSON.stringify({ response: { total: rows.length, frequency: "weekly", data: rows.slice(0, len) } }));
+  }
   if (u.startsWith("https://api.eia.gov/v2/")) { const ser = [...new URL(u).searchParams.getAll("facets[series][]")]; return new Response(JSON.stringify(ENERGY_ROWS(ser, 30))); }
   return new Response("", { status: 404 });
 };
@@ -75,11 +98,28 @@ ok("/api/sprd: EA history LIVE; US N/A without a FRED key", r.status === 200 && 
 r = await call("/api/energy", undefined, env);
 ok("/api/energy without EIA_KEY → 503 N/A, no provider call", r.status === 503 && r.j.error === "eia_not_configured" && !seen.some((x) => x.u.includes("api.eia.gov")));
 const KEY_EIA = "eia-test-key-000", envE = { ...env, EIA_KEY: KEY_EIA };
+const realNowF = Date.now; Date.now = () => Date.parse("2026-09-04T12:00:00Z"); // the spot fixture's dates (Aug–2 Sep) are recent at this moment
 r = await call("/api/energy", undefined, envE);
+Date.now = realNowF;
 const wti = r.j && r.j.spot.find((x) => x.series === "RWTC");
 ok("/api/energy: spot rows with date, value and 1D/1W/1M changes (DERIVED from EIA values)", r.status === 200 && wti.date && Number.isFinite(wti.value) && Number.isFinite(wti.chg1) && Number.isFinite(wti.chg21) && wti.history.length === 30);
-const cr = r.j && r.j.curves.find((c) => c.id === "crude");
-ok("/api/energy: futures curve = contracts 1–4 on the latest date, a week and a month before", cr.latest.length === 4 && cr.latest.every((x) => Number.isFinite(x.value)) && cr.dates.week < cr.dates.latest && cr.dates.month < cr.dates.week);
+ok("/api/energy: EIA's NYMEX futures (ended 2024-04-05) are not requested; N/A naming why", r.j.futures.status === "N/A" && r.j.futures.error === "source_discontinued" && !r.j.curves && !seen.some((x) => /pri\/fut\/data\/.*R(CL|NG)C\d/.test(decodeURIComponent(x.u))));
+r = await call("/api/energy", undefined, envE);
+ok("/api/energy: a month later the same fixture is old → each spot row N/A (source_discontinued), status N/A", r.j.status === "N/A" && r.j.spot.every((x) => x.status === "N/A" && x.error === "source_discontinued"));
+r = await call("/api/energy/stocks", undefined, env);
+ok("/api/energy/stocks without EIA_KEY → 503 N/A naming EIA_KEY, no provider call", r.status === 503 && r.j.error === "eia_not_configured" && !seen.some((x) => x.u.includes("frequency=weekly")));
+const realNowS = Date.now; Date.now = () => NOW_W;
+r = await call("/api/energy/stocks", undefined, envE);
+const st0 = r.j && Object.fromEntries(r.j.rows.map((x) => [x.series, x])), wk = seen.filter((x) => x.u.includes("frequency=weekly"));
+ok("/api/energy/stocks: nine rows in order, LIVE; one request per EIA route (4), weekly, five years of weeks", r.status === 200 && r.j.status === "LIVE" && r.j.rows.length === 9 && r.j.rows[0].series === "WCESTUS1" && wk.length === 4 && wk.every((x) => /length=\d+/.test(x.u)) && wk.some((x) => x.u.includes("/petroleum/stoc/wstk/") && x.u.includes("length=1650")), wk.map((x) => x.u.split("?")[0]).join());
+ok("/api/energy/stocks: crude in M bbl with the week's change, vs a year ago and vs the 5-year average", st0.WCESTUS1.value === 409.2 && st0.WCESTUS1.chgWeek === 3.2 && st0.WCESTUS1.vsYearAgo === 4.2 && st0.WCESTUS1.avg5 === 403 && st0.NW2_EPG0_SWO_R48_BCF.unit === "Bcf" && st0.NW2_EPG0_SWO_R48_BCF.value === 3500 && st0.WPULEUS3.value === 90.1);
+ok("/api/energy/stocks: the response says what is DERIVED and links EIA's report; the key never in it", /DERIVED/.test(r.j.basis) && r.j.sourceUrl.startsWith("https://www.eia.gov/") && !r.text.includes(KEY_EIA) && wk.every((x) => x.u.includes(KEY_EIA)));
+ok("/api/energy/stocks: the cache keeps derived rows (about 60 weeks each), not five years of raw weeks", r.j.rows.every((x) => !x.history || x.history.length <= 60));
+eiaWeeklyDown = true; Date.now = () => NOW_W + 7 * 3600_000; // past the 6-hour TTL: the gas route fails now, the petroleum routes refresh
+r = await call("/api/energy/stocks", undefined, envE);
+const gasRow = r.j && r.j.rows.find((x) => x.series === "NW2_EPG0_SWO_R48_BCF");
+ok("/api/energy/stocks: one route failing after a good load → its last copy STALE, the response says STALE", r.status === 200 && r.j.status === "STALE" && gasRow.value === 3500);
+Date.now = realNowS; eiaWeeklyDown = false;
 ok("/api/energy: the EIA key travels only in the server's request to EIA, never in the response", seen.some((x) => x.u.includes("api.eia.gov") && x.u.includes(KEY_EIA)) && !r.text.includes(KEY_EIA));
 
 // ---------- earnings ----------

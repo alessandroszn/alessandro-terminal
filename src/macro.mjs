@@ -4,7 +4,11 @@
 //   GET /api/sprd        2s10s history, daily, about a year: euro area (ECB AAA spot curve) and United States
 //                        (FRED, Federal Reserve H.15 constant-maturity 2Y and 10Y; needs FRED_KEY, else N/A)
 //   GET /api/energy      EIA (U.S. Energy Information Administration): daily spot prices (crude, products, natural gas)
-//                        and NYMEX futures contracts 1–4 (crude, natural gas) — the futures curve. Needs EIA_KEY.
+//                        (EIA's NYMEX futures series ended 2024-04-05: not requested; curves are FCRV/CNBC). Needs EIA_KEY,
+//                        or FRED's copy of the same spot series.
+//   GET /api/energy/stocks  EIA weekly inventories (crude, Cushing, SPR, gasoline, distillate, jet fuel, natural gas in
+//                        storage), refinery utilization and crude production: latest week, weekly change, vs a year ago and
+//                        vs the 5-year average for that week (DERIVED). Needs EIA_KEY.
 // Every value is the institution's published figure with its date; nothing is filled in between publications.
 import { fetchText, cachedSource, parseCsv, iso } from "./lib.mjs";
 import { fredSeries } from "./yields.mjs";
@@ -114,9 +118,13 @@ export const EIA_SPOT = [
   ["petroleum/pri/spt", "EER_EPD2DXL0_PF4_Y35NY_DPG", "Ultra-low sulfur diesel (NY Harbor)", "$/gal"], ["petroleum/pri/spt", "EER_EPJK_PF4_RGC_DPG", "Jet fuel (Gulf Coast)", "$/gal"],
   ["petroleum/pri/spt", "EER_EPLLPA_PF4_Y44MB_DPG", "Propane (Mont Belvieu)", "$/gal"], ["natural-gas/pri/fut", "RNGWHHD", "Natural gas (Henry Hub)", "$/MMBtu"],
 ];
-export const EIA_FUT = { crude: ["petroleum/pri/fut", ["RCLC1", "RCLC2", "RCLC3", "RCLC4"], "WTI crude futures (NYMEX)", "$/bbl"], gas: ["natural-gas/pri/fut", ["RNGC1", "RNGC2", "RNGC3", "RNGC4"], "Natural gas futures (NYMEX)", "$/MMBtu"] };
+// EIA's NYMEX futures series (RCLC1-4, RNGC1-4) stop at 2024-04-05 ("Futures prices after April 5, 2024, are not available"):
+// they are not requested; the curves by contract month are FCRV (CNBC). A spot series that stops updating is N/A, not stale-as-live.
+export const EIA_FUTURES_NOTE = { status: "N/A", error: "source_discontinued", lastDate: "2024-04-05", note: "EIA no longer publishes NYMEX futures prices after 2024-04-05; futures curves by contract month: FCRV (CNBC)" };
+const SPOT_MAX_AGE_DAYS = 21, STOCK_MAX_AGE_DAYS = 28;
+const ageDays = (d, now) => (now - Date.parse(d + "T00:00:00Z")) / 86400_000;
 // the key can only travel in the URL of the server's request to EIA (EIA ignores headers); it is never logged or returned
-const eiaUrl = (route, series, key, length) => `https://api.eia.gov/v2/${route}/data/?${new URLSearchParams([["api_key", key], ["frequency", "daily"], ["data[0]", "value"], ...series.map((s) => ["facets[series][]", s]), ["sort[0][column]", "period"], ["sort[0][direction]", "desc"], ["length", String(length)]])}`;
+const eiaUrl = (route, series, key, length, freq = "daily") => `https://api.eia.gov/v2/${route}/data/?${new URLSearchParams([["api_key", key], ["frequency", freq], ["data[0]", "value"], ...series.map((s) => ["facets[series][]", s]), ["sort[0][column]", "period"], ["sort[0][direction]", "desc"], ["length", String(length)]])}`;
 export function parseEia(j) {
   const rows = j && j.response && Array.isArray(j.response.data) ? j.response.data : [];
   const out = {};
@@ -124,9 +132,9 @@ export function parseEia(j) {
   for (const k of Object.keys(out)) out[k].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   return out;
 }
-async function eiaLoad(env, route, series, length) {
+async function eiaLoad(env, route, series, length, freq = "daily") {
   if (!env.EIA_KEY) return { err: "eia_not_configured" };
-  const f = await fetchText(eiaUrl(route, series, env.EIA_KEY, length), { timeoutMs: 15000, headers: { accept: "application/json" } });
+  const f = await fetchText(eiaUrl(route, series, env.EIA_KEY, length, freq), { timeoutMs: 15000, headers: { accept: "application/json" } });
   if (f.err) return { err: f.http === 403 ? "provider_auth" : f.err };
   let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
   if (j && j.error) return { err: "provider_error" };
@@ -137,7 +145,9 @@ const chgFrom = (s, back) => (s && s.length > back ? (s[s.length - 1][1] / s[s.l
 // the same EIA daily spot series as FRED republishes them (used when EIA_KEY is not set; futures contracts are EIA-only)
 export const EIA_ON_FRED = { RWTC: "DCOILWTICO", RBRTE: "DCOILBRENTEU", EER_EPMRU_PF4_Y35NY_DPG: "DGASNYH", EER_EPD2F_PF4_Y35NY_DPG: "DHOILNYH",
   EER_EPD2DXL0_PF4_Y35NY_DPG: "DDFUELNYH", EER_EPJK_PF4_RGC_DPG: "DJFUELUSGULF", EER_EPLLPA_PF4_Y44MB_DPG: "DPROPANEMBTX", RNGWHHD: "DHHNGSP" };
-const spotRow = (s, name, unit, x, series) => (x && x.length ? { series, name, unit, date: x[x.length - 1][0], value: x[x.length - 1][1], chg1: chgFrom(x, 1), chg5: chgFrom(x, 5), chg21: chgFrom(x, 21), history: x.slice(-260) } : { series, name, unit, status: "N/A", error: "no_data" });
+export const spotRow = (s, name, unit, x, series, now = Date.now()) => (!x || !x.length ? { series, name, unit, status: "N/A", error: "no_data" }
+  : ageDays(x[x.length - 1][0], now) > SPOT_MAX_AGE_DAYS ? { series, name, unit, status: "N/A", error: "source_discontinued", lastDate: x[x.length - 1][0] }
+  : { series, name, unit, date: x[x.length - 1][0], value: x[x.length - 1][1], chg1: chgFrom(x, 1), chg5: chgFrom(x, 5), chg21: chgFrom(x, 21), history: x.slice(-260) });
 const fredEnergy = (origin, env, ctx) => cachedSource({ origin, key: "fred/energy/v1", ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000,
   load: async () => {
     const ids = EIA_SPOT.map(([, s]) => EIA_ON_FRED[s]), res = await Promise.all(ids.map((id) => fredSeries(env, id, 300)));
@@ -164,25 +174,68 @@ export async function getEnergySpot(origin, env, ctx) {
 async function energyFromFred(url, env, ctx, send) {
   const e = await getEnergySpot(url.origin, env, ctx);
   if (!e.spot) return send({ error: e.err, status: "N/A" }, 502);
-  const curves = Object.entries(EIA_FUT).map(([id, [, , name, unit]]) => ({ id, name, unit, status: "N/A", error: "eia_not_configured" }));
-  return send({ spot: e.spot, curves, source: e.source, sourceUrl: e.sourceUrl, basis: "EIA publishes with a lag of about a week; dates are the price dates. Futures contracts need EIA_KEY (not on FRED)",
+  return send({ spot: e.spot, futures: EIA_FUTURES_NOTE, source: e.source, sourceUrl: e.sourceUrl, basis: "EIA publishes with a lag of about a week; dates are the price dates",
     fetchedAt: iso(e.fetchedAt), status: e.cache === "STALE" ? "STALE" : "LIVE" });
 }
+// ---------- weekly inventories (EIA Weekly Petroleum Status Report, Weekly Natural Gas Storage Report) ----------
+// [route, series, name, display unit, divisor from EIA's unit (thousand barrels → million), kind]
+export const EIA_STOCKS = [
+  ["petroleum/stoc/wstk", "WCESTUS1", "Crude oil (excl. SPR)", "M bbl", 1000, "stock"],
+  ["petroleum/stoc/wstk", "W_EPC0_SAX_YCUOK_MBBL", "Crude oil at Cushing, OK", "M bbl", 1000, "stock"],
+  ["petroleum/stoc/wstk", "WCSSTUS1", "Strategic Petroleum Reserve", "M bbl", 1000, "stock"],
+  ["petroleum/stoc/wstk", "WGTSTUS1", "Motor gasoline", "M bbl", 1000, "stock"],
+  ["petroleum/stoc/wstk", "WDISTUS1", "Distillate fuel oil", "M bbl", 1000, "stock"],
+  ["petroleum/stoc/wstk", "WKJSTUS1", "Jet fuel (kerosene-type)", "M bbl", 1000, "stock"],
+  ["natural-gas/stor/wkly", "NW2_EPG0_SWO_R48_BCF", "Natural gas in storage (Lower 48)", "Bcf", 1, "stock"],
+  ["petroleum/pnp/wiup", "WPULEUS3", "Refinery utilization", "%", 1, "rate"],
+  ["petroleum/sum/sndw", "WCRFPUS2", "Crude oil production", "M b/d", 1000, "rate"],
+];
+const DAY_MS = 86400_000, STOCK_WEEKS = 275; // five years of weeks (261) plus a margin: enough for the 5-year average
+// the observation nearest to a date (within 4 days), for "a year ago" and the same week of earlier years
+// (ts holds the observations' times, computed once: a few hundred Date.parse per series, not thousands)
+const nearest = (s, ts, t) => { let best = null, bd = 4 * DAY_MS + DAY_MS / 2; for (let i = 0; i < s.length; i++) { const x = Math.abs(ts[i] - t); if (x < bd) { bd = x; best = s[i]; } } return best; };
+// one series of weekly observations [[date, value]] (EIA units) → the row shown, in display units; DERIVED changes
+export function stockRow(series, name, unit, div, kind, x, now = Date.now()) {
+  if (!x || !x.length) return { series, name, unit, status: "N/A", error: "no_data" };
+  if (ageDays(x[x.length - 1][0], now) > STOCK_MAX_AGE_DAYS) return { series, name, unit, status: "N/A", error: "source_discontinued", lastDate: x[x.length - 1][0] };
+  const v = (y) => (y == null ? null : Math.round((y / div) * 1000) / 1000), [d, last] = x[x.length - 1], ts = x.map(([dd]) => Date.parse(dd + "T00:00:00Z")), t = ts[ts.length - 1];
+  const prev = x.length > 1 ? x[x.length - 2][1] : null, ya = nearest(x, ts, t - 364 * DAY_MS);
+  const past = [1, 2, 3, 4, 5].map((k) => nearest(x, ts, t - 364 * k * DAY_MS)).filter(Boolean), avg5 = past.length === 5 ? past.reduce((a, p) => a + p[1], 0) / 5 : null;
+  return { series, name, unit, kind, date: d, value: v(last), chgWeek: prev == null ? null : v(last - prev), vsYearAgo: ya ? v(last - ya[1]) : null, yearAgoDate: ya ? ya[0] : null,
+    avg5: avg5 == null ? null : v(avg5), vsAvg5Pct: avg5 && kind === "stock" ? Math.round((last / avg5 - 1) * 1000) / 10 : null, history: x.slice(-60).map(([dd, y]) => [dd, v(y)]) };
+}
+// one EIA route → its rows, already derived: the cache keeps ~60 points per series, not five years of raw weeks
+async function loadStockRoute(env, route) {
+  const defs = EIA_STOCKS.filter(([r]) => r === route), r = await eiaLoad(env, route, defs.map(([, s]) => s), STOCK_WEEKS * defs.length, "weekly");
+  if (!r.data) return r;
+  const out = {};
+  for (const [, s, name, unit, div, kind] of defs) if (r.data[s]) out[s] = stockRow(s, name, unit, div, kind, r.data[s]);
+  return Object.keys(out).length ? { data: out } : { err: "no_data" };
+}
+export async function handleEnergyStocks(url, env, ctx, H, json) {
+  const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
+  if (!env.EIA_KEY) return send({ error: "eia_not_configured", status: "N/A", message: "EIA API key not set in the Worker (EIA_KEY)" }, 503);
+  const routes = [...new Set(EIA_STOCKS.map(([r]) => r))];
+  const res = await Promise.all(routes.map((route) => cachedSource({ origin: url.origin, key: `eia/stocks2/${route}`, ttlMs: 6 * 3600_000, staleMaxMs: 14 * 86400_000, ctx, failTtlMs: 15 * 60_000,
+    load: () => loadStockRoute(env, route) })));
+  const d = Object.assign({}, ...res.map((r) => r.data || {})), errors = {};
+  routes.forEach((r, i) => { if (!res[i].data) errors[r] = res[i].err; });
+  const rows = EIA_STOCKS.map(([, s, name, unit]) => d[s] || { series: s, name, unit, status: "N/A", error: "no_data" });
+  const ok = rows.some((r) => r.value != null);
+  return send({ rows, errors, source: "U.S. Energy Information Administration (EIA) — Weekly Petroleum Status Report, Weekly Natural Gas Storage Report", sourceUrl: "https://www.eia.gov/petroleum/supply/weekly/",
+    basis: "levels as EIA publishes them for the week ending on the date shown (released Wednesdays for petroleum, Thursdays for natural gas); weekly change, change from a year earlier and the 5-year average for the same week are DERIVED from EIA's own series",
+    status: !ok ? "N/A" : res.some((r) => r.cache === "STALE") ? "STALE" : Object.keys(errors).length ? "PARTIAL" : "LIVE" }, ok ? 200 : 502);
+}
+
 export async function handleEnergy(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (!env.EIA_KEY && env.FRED_KEY) return energyFromFred(url, env, ctx, send);
   if (!env.EIA_KEY) return send({ error: "eia_not_configured", status: "N/A", message: "EIA API key not set in the Worker (EIA_KEY)" }, 503);
   const spotRes = await eiaSpot(url.origin, env, ctx);
-  const futRes = await Promise.all(Object.entries(EIA_FUT).map(([id, [route, series]]) => cachedSource({ origin: url.origin, key: `eia/fut/${id}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, failTtlMs: 15 * 60_000, load: () => eiaLoad(env, route, series, 400) })));
   const spotData = Object.assign({}, ...spotRes.map((r) => r.data || {}));
   const spot = EIA_SPOT.map(([, s, name, unit]) => spotRow(s, name, unit, spotData[s], s));
-  const curves = Object.entries(EIA_FUT).map(([id, [, series, name, unit]], i) => {
-    const d = futRes[i].data; if (!d) return { id, name, unit, status: "N/A", error: futRes[i].err };
-    const dates = [...new Set(series.flatMap((s) => (d[s] || []).map(([p]) => p)))].sort();
-    const at = (date) => series.map((s, k) => { const v = (d[s] || []).find(([p]) => p === date); return { contract: k + 1, value: v ? v[1] : null }; });
-    const last = dates[dates.length - 1], pick = (n) => dates.filter((x) => x <= last).slice(-1 - n)[0];
-    return { id, name, unit, dates: { latest: last, week: pick(5), month: pick(21) }, latest: at(last), week: at(pick(5)), month: at(pick(21)), status: futRes[i].cache === "STALE" ? "STALE" : "LIVE" };
-  });
-  const anyErr = [...spotRes, ...futRes].find((r) => r.err && !r.data);
-  return send({ spot, curves, source: "U.S. Energy Information Administration (EIA) — daily spot and NYMEX futures prices", sourceUrl: "https://www.eia.gov/opendata/", basis: "EIA publishes with a lag of about a week; dates are the price dates", ...(anyErr ? { partialError: anyErr.err } : {}), status: spot.some((x) => x.value != null) || curves.some((c) => c.status !== "N/A") ? "LIVE" : "N/A" });
+  const anyErr = spotRes.find((r) => r.err && !r.data), ok = spotRes.filter((r) => r.data);
+  return send({ spot, futures: EIA_FUTURES_NOTE, source: "U.S. Energy Information Administration (EIA) — daily spot prices", sourceUrl: "https://www.eia.gov/opendata/", basis: "EIA publishes with a lag of about a week; dates are the price dates",
+    ...(ok.length ? { fetchedAt: iso(Math.min(...ok.map((r) => r.fetchedAt))) } : {}), ...(anyErr ? { partialError: anyErr.err } : {}),
+    status: !spot.some((x) => x.value != null) ? "N/A" : ok.some((r) => r.cache === "STALE") ? "STALE" : anyErr ? "PARTIAL" : "LIVE" });
 }

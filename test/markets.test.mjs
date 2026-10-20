@@ -45,8 +45,10 @@ r = await call("/api/markets/cmdty", env);
 ok("/api/markets/cmdty: IMF monthly rows via FRED (change DERIVED), a series without data N/A; the key never in the response", r.status === 200 && r.j.rows.length === IMF_MONTHLY.length && r.j.rows[0].value === 200 && r.j.rows[0].chgPct === 11.1111 && r.j.rows.find((x) => x.id === "PCOCOUSDM").status === "N/A" && !r.text.includes(KEYF));
 r = await call("/api/markets/cmdty", { ALLOWED_ORIGIN: env.ALLOWED_ORIGIN });
 ok("/api/markets/cmdty without FRED_KEY → 503 N/A", r.status === 503 && r.j.error === "fred_not_configured");
+const realNowM = Date.now; Date.now = () => Date.parse("2026-10-08T12:00:00Z"); // the fixture's dates are recent at this moment
 r = await call("/api/energy", env);
-ok("/api/energy without EIA_KEY but with FRED: the EIA spot series from FRED (holiday '.' skipped), futures N/A naming EIA_KEY", r.status === 200 && /via FRED/.test(r.j.source) && r.j.spot[0].series === "DCOILWTICO" && r.j.spot[0].value === 96.24 && r.j.spot[0].date === "2026-10-06" && Math.abs(r.j.spot[0].chg1 - (96.24 / 96.13 - 1) * 100) < 1e-9 && r.j.spot.find((x) => x.series === "DJFUELUSGULF").status === "N/A" && r.j.curves.every((c) => c.status === "N/A" && c.error === "eia_not_configured") && !r.text.includes(KEYF), r.text.slice(0, 400));
+Date.now = realNowM;
+ok("/api/energy without EIA_KEY but with FRED: the EIA spot series from FRED (holiday '.' skipped), futures N/A (EIA stopped publishing them)", r.status === 200 && /via FRED/.test(r.j.source) && r.j.spot[0].series === "DCOILWTICO" && r.j.spot[0].value === 96.24 && r.j.spot[0].date === "2026-10-06" && Math.abs(r.j.spot[0].chg1 - (96.24 / 96.13 - 1) * 100) < 1e-9 && r.j.spot.find((x) => x.series === "DJFUELUSGULF").status === "N/A" && r.j.futures.status === "N/A" && r.j.futures.error === "source_discontinued" && !r.j.curves && !r.text.includes(KEYF), r.text.slice(0, 400));
 r = await call("/api/energy", { ALLOWED_ORIGIN: env.ALLOWED_ORIGIN });
 ok("/api/energy with neither key → 503 eia_not_configured", r.status === 503 && r.j.error === "eia_not_configured");
 

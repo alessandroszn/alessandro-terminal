@@ -213,10 +213,16 @@ const ENERGY_FIX = () => ({ spot: [
   { series: "RWTC", name: "WTI crude (Cushing)", unit: "$/bbl", date: dShift(today, -7), value: 62.31, chg1: 0.4, chg5: -1.2, chg21: 2.5, history: hist(60, 80) },
   { series: "RBRTE", name: "Brent crude (Europe)", unit: "$/bbl", status: "N/A" },
   { series: "RNGWHHD", name: "Natural gas (Henry Hub)", unit: "$/MMBtu", date: dShift(today, -7), value: 2.871, chg1: -0.5, chg5: 1.1, chg21: -3.2, history: hist(2.5, 80) },
-], curves: [
-  { id: "crude", name: "WTI crude futures (NYMEX)", unit: "$/bbl", dates: { latest: dShift(today, -7), week: dShift(today, -14), month: dShift(today, -37) }, latest: [62.3, 62.0, 61.8, 61.6].map((v, i) => ({ contract: i + 1, value: v })), week: [63, 62.8, 62.5, 62.3].map((v, i) => ({ contract: i + 1, value: v })), month: [60, 60.2, 60.3, 60.4].map((v, i) => ({ contract: i + 1, value: v })), status: "LIVE" },
-  { id: "gas", name: "Natural gas futures (NYMEX)", unit: "$/MMBtu", status: "N/A", error: "no_data" },
-], source: "EIA", sourceUrl: "https://www.eia.gov/opendata/", status: "LIVE" });
+], futures: { status: "N/A", error: "source_discontinued", lastDate: "2024-04-05" }, source: "EIA", sourceUrl: "https://www.eia.gov/opendata/", status: "LIVE" });
+// /api/energy/stocks as the Worker shapes it (levels in display units; w/w, vs a year ago, vs the 5-year average DERIVED)
+const invHist = (base, step) => Array.from({ length: 60 }, (_, i) => [dShift(today, -7 * (60 - i) - 5), +(base + step * i).toFixed(3)]);
+const STOCKS_FIX = () => ({ rows: [
+  { series: "WCESTUS1", name: "Crude oil (excl. SPR)", unit: "M bbl", kind: "stock", date: dShift(today, -5), value: 409.2, chgWeek: 3.2, vsYearAgo: 4.2, yearAgoDate: dShift(today, -369), avg5: 403, vsAvg5Pct: 1.5, history: invHist(400, 0.15) },
+  { series: "W_EPC0_SAX_YCUOK_MBBL", name: "Crude oil at Cushing, OK", unit: "M bbl", kind: "stock", date: dShift(today, -5), value: 22.4, chgWeek: -0.7, vsYearAgo: -1.1, avg5: 33.6, vsAvg5Pct: -33.3, history: invHist(25, -0.04) },
+  { series: "WKJSTUS1", name: "Jet fuel (kerosene-type)", unit: "M bbl", status: "N/A", error: "source_discontinued", lastDate: "2026-08-07" },
+  { series: "NW2_EPG0_SWO_R48_BCF", name: "Natural gas in storage (Lower 48)", unit: "Bcf", kind: "stock", date: dShift(today, -4), value: 3712, chgWeek: 87, vsYearAgo: 101, avg5: 3650, vsAvg5Pct: 1.7, history: invHist(3000, 12) },
+  { series: "WPULEUS3", name: "Refinery utilization", unit: "%", kind: "rate", date: dShift(today, -5), value: 89.6, chgWeek: -1.2, vsYearAgo: 0.4, avg5: 88.1, vsAvg5Pct: null, history: invHist(90, 0) },
+], errors: {}, source: "U.S. Energy Information Administration (EIA)", sourceUrl: "https://www.eia.gov/petroleum/supply/weekly/", basis: "DERIVED", status: "LIVE" });
 const ERN_FIX = () => ({ from: dShift(today, -4), to: dShift(today, 12), today, count: 3, rows: [
   { sym: "JPM", name: "JPMORGAN CHASE & CO", weight: 1.5, index: ["S&P 500"], date: dShift(today, -1), hour: "before open", quarter: "Q3 2026", epsEstimate: 4.9, epsActual: 5.39, revenueEstimate: 4.6e10, revenueActual: 4.7e10 },
   { sym: "NFLX", name: "NETFLIX INC", weight: 0.9, index: ["S&P 500", "Nasdaq-100"], date: dShift(today, 2), hour: "after close", quarter: "Q3 2026", epsEstimate: 6.9, epsActual: null, revenueEstimate: 1.1e10, revenueActual: null },
@@ -277,6 +283,7 @@ const t07Api = (u, method, body, st) => {
   if (p === "/api/cb/world") return { body: CBW_FIX() };
   if (p === "/api/cb/history") return { body: { series: Object.fromEntries((u.searchParams.get("ids") || "").split(",").filter((id) => ["US", "XM", "GB", "JP"].includes(id)).map((id, k) => [id, ["2006-01", "2006-02", "2020-03", "2025-09", "2025-10", "2026-09"].map((m, i) => [m, +(k + 4.5 - i * 0.5).toFixed(2)])])), freq: "M", source: "BIS — central bank policy rates (WS_CBPOL)", sourceUrl: "https://data.bis.org/topics/CBPOL", status: "LIVE", fetchedAt: new Date().toISOString() } };
   if (p === "/api/sprd") return { body: SPRD_FIX() };
+  if (p === "/api/energy/stocks") return st.noEia ? { status: 503, body: { error: "eia_not_configured", status: "N/A" } } : { body: STOCKS_FIX() };
   if (p === "/api/energy") return st.noEia ? { status: 503, body: { error: "eia_not_configured", status: "N/A" } } : { body: ENERGY_FIX() };
   if (p === "/api/earnings") return { body: ERN_FIX() };
   if (p === "/api/earnings/reactions") return { body: { reactions: { [`JPM|${dShift(today, -1)}`]: { session: dShift(today, -1), chg: 2.31 } }, status: "DERIVED" } };
@@ -886,6 +893,8 @@ const OK_API = {
   await cmd(page, "CMDTY"); await page.waitForTimeout(2500);
   const cm = await winOf(page, "COMMODITIES");
   ok("[H] CMDTY: front-month futures from CNBC with contract month, unit, change, 1W/1M/3M/YTD/1Y DERIVED from daily bars, time and real-time mark", /ENERGY · FUTURES \(CNBC\)/.test(cm.text) && /WTI crude oil\s+Dec 2026\s+88\.42\s+\$\/bbl\s+\+0\.75%\s+[+-]\d+\.\d\d%\s+[+-]\d+\.\d\d%/.test(cm.text) && /Gold\s+Dec 2026\s+4,130\.50\s+\$\/oz/.test(cm.text) && /\d\d:\d\d RT\s+LIVE/.test(cm.text), cm.text.slice(0, 900));
+  ok("[H] CMDTY: U.S. weekly inventories (EIA) — level, unit, w/w, vs a year ago, vs the 5-year average (% for stocks, the unit for rates)", /U\.S\. INVENTORIES · EIA WEEKLY/.test(cm.text) && /Crude oil \(excl\. SPR\)\s+\d\d \w{3} \d{4}\s+409\.2\s+M bbl\s+\+3\.2\s+\+4\.2\s+\+1\.5%/.test(cm.text) && /Cushing, OK\s+\d\d \w{3} \d{4}\s+22\.4\s+M bbl\s+-0\.7\s+-1\.1\s+-33\.3%/.test(cm.text) && /Natural gas in storage \(Lower 48\)\s+\d\d \w{3} \d{4}\s+3,712\s+Bcf\s+\+87\s+\+101\s+\+1\.7%/.test(cm.text) && /Refinery utilization\s+\d\d \w{3} \d{4}\s+89\.6\s+%\s+-1\.2\s+\+0\.4\s+\+1\.5\b/.test(cm.text), cm.text.slice(cm.text.indexOf("INVENTORIES"), cm.text.indexOf("INVENTORIES") + 900));
+  ok("[H] CMDTY: a weekly series EIA stopped publishing is N/A with its last date, never a value", /Jet fuel \(kerosene-type\)\s+N\/A — EIA has not published this series since 07 Aug 2026/.test(cm.text) && /DERIVED from EIA's own series/.test(cm.text) && (await page.$$eval(".win table.inv svg.spark", (x) => x.length)) === 4);
   await shotWin(page, "COMMODITIES", "t07-cmdty");
   await cmd(page, "FCRV"); await page.waitForTimeout(2500);
   await shotWin(page, "FUTURES CURVES", "t07-fcrv");
@@ -1009,7 +1018,7 @@ const OK_API = {
   const cm = await winOf(page, "COMMODITIES");
   await cmd(page, "FCRV"); await page.waitForTimeout(600);
   const fc = await winOf(page, "FUTURES CURVES");
-  ok("[H] no EIA key → the EIA spot rows are N/A naming the missing key; CNBC futures and curves unaffected", /N\/A — EIA prices unavailable \(EIA API key not set in the Worker\)/.test(cm.text) && /WTI crude oil\s+Dec 2026\s+88\.42/.test(cm.text) && /WTI CRUDE OIL · CURVE BY CONTRACT MONTH/.test(fc.text) && errors.length === 0, cm.text.slice(cm.text.indexOf("SPOT") - 200, cm.text.indexOf("SPOT") + 400));
+  ok("[H] no EIA key → the EIA spot rows and the weekly inventories are N/A naming the missing key (Secret EIA_KEY); CNBC futures and curves unaffected", /N\/A — EIA prices unavailable \(EIA API key not set in the Worker\)/.test(cm.text) && /N\/A — EIA weekly inventories unavailable \(EIA API key not set in the Worker\) — they appear once the free EIA key is added to the Worker as the Secret EIA_KEY/.test(cm.text) && !/409\.2/.test(cm.text) && /WTI crude oil\s+Dec 2026\s+88\.42/.test(cm.text) && /WTI CRUDE OIL · CURVE BY CONTRACT MONTH/.test(fc.text) && errors.length === 0, cm.text.slice(cm.text.indexOf("SPOT") - 200, cm.text.indexOf("SPOT") + 400));
   await page.close();
 }
 

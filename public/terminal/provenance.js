@@ -113,6 +113,7 @@
     network: "could not reach /api",
     expired: "last real value is older than 24 h",
     eia_not_configured: "EIA API key not set in the Worker",
+    source_discontinued: "the source no longer publishes this series",
     finnhub_not_configured: "Finnhub API key not set in the Worker",
     not_sec_registrant: "not an SEC registrant",
     no_underlying_price: "no price for the underlying",
