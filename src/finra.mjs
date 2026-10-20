@@ -87,21 +87,23 @@ export async function handleFinra(url, env, ctx, H, json, deps = {}) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const f = deps.fetch || fetch, now = deps.now || Date.now(), p = url.pathname;
   if (p === "/api/finra/shorts") {
-    let detail = null;
-    const r = await cachedSource({ origin: url.origin, key: "finra/si/top4", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 60_000, ctx, load: async () => {
+    let detail = null; const steps = [];
+    const r = await cachedSource({ origin: url.origin, key: "finra/si/top5", ttlMs: 12 * 3600_000, staleMaxMs: 20 * DAY, failTtlMs: 60_000, ctx, load: async () => {
       let date = null;
       for (const c of settlementCandidates(now).slice(0, 10)) {
         const one = await finraQuery({ limit: 1, fields: ["settlementDate"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: c }] }, f);
+        steps.push(`${c}:${one.err ? one.err + (one.http ? " " + one.http : "") : one.data.length}`);
         if (one.err) { detail = one.detail || null; return { err: one.err }; }
         if (one.data.length) { date = c; break; }
       }
       if (!date) return { err: "no_data" };
       const q = await finraQuery({ limit: 2500, fields: FIELDS, sortFields: ["-currentShortPositionQuantity"], compareFilters: [{ compareType: "EQUAL", fieldName: "settlementDate", fieldValue: date }] }, f);
+      steps.push(`top:${q.err ? q.err + (q.http ? " " + q.http : "") : q.data.length}`);
       if (q.err) { detail = q.detail || null; return { err: q.err }; }
       const rows = q.data.map(compactSi).filter((x) => x[0] && x[2] != null && isListed(x[7]));
       return rows.length ? { data: { date, rows } } : { err: "no_data" };
     } });
-    if (!r.data) return send({ status: "N/A", error: r.err, ...(detail ? { detail } : {}), ...SRC }, 502);
+    if (!r.data) return send({ status: "N/A", error: r.err, ...(detail ? { detail } : {}), ...(steps.length ? { steps } : {}), ...SRC }, 502);
     return send({ settlementDate: r.data.date, cols: ["symbol", "name", "shortInterest", "previous", "changePct", "avgDailyVolume", "daysToCover", "market"], rows: r.data.rows, ...SRC,
       basis: "FINRA consolidated short interest: shares short as of the settlement date (reported by brokers, published about 8 business days later), the previous settlement's figure, FINRA's average daily volume and days to cover; exchange-listed securities, the 2,500 largest positions", status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
   }
