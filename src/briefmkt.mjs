@@ -16,11 +16,11 @@ export const BRIEF_FX = [["EUR", "GBP"], ["EUR", "JPY"], ["EUR", "CHF"], ["USD",
 const GROUP_NAME = { us: "United States", vol: "United States", eu: "Europe", sec: "Europe", sec2: "Europe", asia: "Asia-Pacific", world: "Americas & global" };
 // the indices an edition reports (the IDX window has more): the benchmarks of each region with a time or a date
 // (S&P/ASX 200 is left out: its source publishes no time); the STOXX Europe 600 sectors give the best and worst three
-export const BRIEF_IDX = ["SPX", "NDX", "DJI", "COMP", "RUT", "VIX", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "NIFTY", "IBOV", "MXEF", "MXACW"];
+export const BRIEF_IDX = ["SPX", "NDX", "DJI", "COMP", "RUT", "VIX", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "IBOV", "MXEF", "MXACW"];
 export const BRIEF_GROUPS = ["us", "eu", "sec", "sec2", "asia", "world"];
 const SECTOR_GROUPS = ["sec", "sec2"];
 // indices whose week / month change needs their own history staged (the others come with their group's series)
-export const BRIEF_HIST = BRIEF_IDX.filter((id) => ["cboe", "six", "sse", "b3", "nse"].includes((INDICES.find((x) => x.id === id) || {}).src));
+export const BRIEF_HIST = BRIEF_IDX.filter((id) => ["cboe", "six", "sse"].includes((INDICES.find((x) => x.id === id) || {}).src));
 const LONG = { weekly: { span: "1W", days: 7, crypto: "1W" }, monthly: { span: "1M", days: 30, crypto: "1M" } };
 
 const shift = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
@@ -177,7 +177,7 @@ export function marketLines(period, mk, { quoteSyms = [] } = {}) {
 // ---------- windows ----------
 const pc = (v) => `${f2(v)}%`;
 // the benchmark indices a window can lead with (not the VIX, not a sector or mid-cap index)
-const HEADLINE = ["SPX", "NDX", "DJI", "COMP", "RUT", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "NIFTY", "IBOV", "MXEF", "MXACW"];
+const HEADLINE = ["SPX", "NDX", "DJI", "COMP", "RUT", "SX5E", "SXXP", "DAX", "SMI", "IBEX", "N225", "SHCOMP", "CSI300", "IBOV", "MXEF", "MXACW"];
 export function marketWindows(period, mk, add, { quoteSyms = [] } = {}) {
   if (!mk) return;
   const L = LONG[period], span = L ? L.span : "1D";

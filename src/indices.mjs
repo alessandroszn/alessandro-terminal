@@ -1,5 +1,5 @@
-// WORLD INDICES (IDX) — approved 7 Oct 2026 (Cboe, STOXX, Nikkei, FRED) and 20 Oct 2026 (SIX, Shanghai Stock Exchange, B3, NSE,
-// ASX): free publications of the index providers and the exchanges, nothing estimated.
+// WORLD INDICES (IDX) — approved 7 Oct 2026 (Cboe, STOXX, Nikkei, FRED) and 20 Oct 2026 (SIX, Shanghai Stock Exchange, B3, ASX;
+// NSE was approved too but refuses the server): free publications of the index providers and the exchanges, nothing estimated.
 //   GET /api/indices?g=us|vol|eu|sec|sec2|asia|world   the indices of one group: last level, change, day range, time, source
 //   GET /api/indices                                   the catalog only (groups, names, sources, what is not connected)
 //   GET /api/indices/history?id=SPX                    daily closes (open/high/low too when published) for the chart and the
@@ -12,10 +12,11 @@
 //   Nikkei Inc. daily CSV: Nikkei 225 · FRED: Nasdaq Composite (and the official closes standing in when Cboe does not answer)
 //   SIX (six-group.com data service, 15-min delayed snapshot + daily closes): SMI, SPI, IBEX 35 (BME belongs to SIX)
 //   Shanghai Stock Exchange (yunhq.sse.com.cn, port 32042): SSE Composite, CSI 300 — snapshot and daily bars
-//   B3 (cotacao.b3.com.br + the daily closes of B3's index statistics, one year per file): Ibovespa
-//   NSE end-of-day file (nsearchives.nseindia.com, one file per day, no history): Nifty 50, Nifty Bank
+//   B3 (the daily closes of B3's index statistics, one year per file): Ibovespa, as its daily close — B3's quote service
+//     (cotacao.b3.com.br) answers the server with an error (Cloudflare 526, checked 20 Oct 2026)
 //   ASX's data vendor (asx.api.markitdigital.com): S&P/ASX 200 — level and change without a time (PARTIAL), no history
-// Not connected (no free official source): FTSE 100, CAC 40, FTSE MIB, Hang Seng, KOSPI, S&P/TSX.
+// Not connected: FTSE 100, CAC 40, FTSE MIB, Hang Seng, KOSPI, S&P/TSX (no free official source); Nifty 50 (NSE answers the
+// server with an error, Cloudflare 520, checked 20 Oct 2026).
 // The index providers and exchanges reserve redistribution: the values are shown only in this private terminal, each with its source.
 // A group stays small (≤ 12 fetches with the FRED stand-ins) so one request keeps within the Worker's limits.
 import { fetchText, cachedSource, parseCsv, iso, easternToUtc } from "./lib.mjs";
@@ -69,14 +70,15 @@ export const INDICES = [
   { id: "XJO", g: "asia", name: "S&P/ASX 200", ccy: "AUD", src: "asx", code: "xjo", owner: "S&P Dow Jones Indices" },
   { id: "SHCOMP", g: "asia", name: "SSE Composite", ccy: "CNY", src: "sse", code: "000001", owner: "China Securities Index Co. (SSE)" },
   { id: "CSI300", g: "asia", name: "CSI 300", ccy: "CNY", src: "sse", code: "000300", owner: "China Securities Index Co." },
-  { id: "NIFTY", g: "asia", name: "Nifty 50", ccy: "INR", src: "nse", nse: "Nifty 50", owner: "NSE Indices" },
-  { id: "BANKNIFTY", g: "asia", name: "Nifty Bank", ccy: "INR", src: "nse", nse: "Nifty Bank", owner: "NSE Indices" },
   { id: "IBOV", g: "world", name: "Ibovespa", ccy: "BRL", src: "b3", sym: "IBOV", owner: "B3" },
   cb("MXEA", "world", "MSCI EAFE", "_MXEA", "USD", "MSCI"),
   cb("MXEF", "world", "MSCI Emerging Markets", "_MXEF", "USD", "MSCI"),
   cb("MXACW", "world", "MSCI ACWI", "_MXACW", "USD", "MSCI"),
 ];
-export const NOT_CONNECTED = [["UKX", "FTSE 100", "eu"], ["CAC", "CAC 40", "eu"], ["FTSEMIB", "FTSE MIB", "eu"], ["HSI", "Hang Seng", "asia"], ["KOSPI", "KOSPI", "asia"], ["TSX", "S&P/TSX Composite", "world"]];
+// [id, name, group, reason]
+export const NOT_CONNECTED = [["UKX", "FTSE 100", "eu"], ["CAC", "CAC 40", "eu"], ["FTSEMIB", "FTSE MIB", "eu"], ["HSI", "Hang Seng", "asia"], ["KOSPI", "KOSPI", "asia"],
+  ["NIFTY", "Nifty 50", "asia", "NSE refuses requests from the server (checked 20 Oct 2026)"], ["TSX", "S&P/TSX Composite", "world"]];
+const NC_REASON = "no free official source";
 const SRC = {
   cboe: { name: "Cboe (15-min delayed)", url: "https://www.cboe.com/us/indices/" },
   stoxx: { name: "STOXX (daily close)", url: "https://www.stoxx.com/" },
@@ -84,8 +86,7 @@ const SRC = {
   fred: { name: "FRED (daily close)", url: "https://fred.stlouisfed.org/" },
   six: { name: "SIX (15-min delayed)", url: "https://www.six-group.com/en/market-data/indices.html" },
   sse: { name: "Shanghai Stock Exchange (delayed)", url: "https://english.sse.com.cn/" },
-  b3: { name: "B3 (delayed)", url: "https://www.b3.com.br/en_us/market-data-and-indices/indices/" },
-  nse: { name: "NSE (daily close file)", url: "https://www.nseindia.com/" },
+  b3: { name: "B3 (daily close)", url: "https://www.b3.com.br/en_us/market-data-and-indices/indices/" },
   asx: { name: "ASX (≥20-min delayed, no time)", url: "https://www.asx.com.au/markets/trade-our-cash-market/overview/indices" },
 };
 // approved 20 Oct 2026 (exchange websites' own data services; not documented APIs — N/A whenever they refuse)
@@ -93,9 +94,7 @@ export const SIX_SNAP = (valor) => `https://www.six-group.com/fqs/snap.json?sele
 export const SIX_HIST = (valor, from) => `https://www.six-group.com/fqs/charts.json?select=ValorId&where=ValorId=${valor}&fromdate=${from}&netting=1440`;
 export const SSE_SNAP = (code) => `https://yunhq.sse.com.cn:32042/v1/sh1/snap/${code}`;
 export const SSE_DAYK = (code, n) => `https://yunhq.sse.com.cn:32042/v1/sh1/dayk/${code}?begin=-${n}&end=-1&select=date,open,high,low,close`;
-export const B3_QUOTE = (sym) => `https://cotacao.b3.com.br/mds/api/v1/instrumentQuotation/${sym}`;
 export const B3_YEAR = (sym, year) => `https://sistemaswebb3-listados.b3.com.br/indexStatisticsProxy/IndexCall/GetPortfolioDay/${btoa(JSON.stringify({ index: sym, language: "pt-br", year: String(year) }))}`;
-export const NSE_FILE = (d) => `https://nsearchives.nseindia.com/content/indices/ind_close_all_${d.slice(8, 10)}${d.slice(5, 7)}${d.slice(0, 4)}.csv`;
 export const ASX_HEADER = (code) => `https://asx.api.markitdigital.com/asx-research/1.0/companies/${code}/header`;
 export const ASX_STATS = (code) => `https://asx.api.markitdigital.com/asx-research/1.0/companies/${code}/key-statistics`;
 const fredUrlOf = (s) => `https://fred.stlouisfed.org/series/${s}`;
@@ -219,31 +218,12 @@ export function parseSseSnap(j) {
 export function parseSseDayk(j) {
   return (j && Array.isArray(j.kline) ? j.kline : []).map((x) => { const d = ymdNum(x[0]), o = pos(x[1]), h = pos(x[2]), l = pos(x[3]), c = pos(x[4]); return d && c ? (o && h && l ? [d, o, h, l, c] : [d, null, null, null, c]) : null; }).filter(Boolean).sort(byDate);
 }
-// B3 now {Msg:{dtTm "yyyy-mm-dd hh:mm:ss" Brasília (UTC−3)}, Trad:[{scty:{SctyQtn:{curPrc, prcFlcn %, opngPric, minPric, maxPric}}}]}
 const ptNum = (x) => { const t = String(x == null ? "" : x).trim(); if (!t) return null; const n = Number(t.replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
-export function parseB3Quote(j) {
-  const t = j && Array.isArray(j.Trad) && j.Trad[0], q = t && t.scty && t.scty.SctyQtn, m = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(String((j && j.Msg && j.Msg.dtTm) || ""));
-  const last = q && pos(q.curPrc);
-  if (!last || !m) return null;
-  const pc = Number(q.prcFlcn);
-  return { last, chgPct: q.prcFlcn != null && Number.isFinite(pc) ? pc : null, open: pos(q.opngPric), high: pos(q.maxPric), low: pos(q.minPric), date: m[1], asOf: iso(fixedToUtc(m[1], m[2] + m[3] + m[4], -3)) };
-}
 // B3 daily closes of one year {results:[{day, rateValue1…rateValue12: "187.952,91"}]}
 export function parseB3Year(j, year) {
   const out = [];
   for (const r of j && Array.isArray(j.results) ? j.results : []) for (let mo = 1; mo <= 12; mo++) { const v = ptNum(r["rateValue" + mo]); if (v && r.day >= 1 && r.day <= 31) out.push([`${year}-${String(mo).padStart(2, "0")}-${String(r.day).padStart(2, "0")}`, v]); }
   return out.sort(byDate);
-}
-// NSE end-of-day file: Index Name, Index Date (dd-mm-yyyy), Open, High, Low, Closing, Points Change, Change(%), …
-export function parseNse(text) {
-  const out = {};
-  for (const r of parseCsv(String(text || "")).slice(1)) {
-    const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(String(r[1] || "").trim()), c = pos(r[5]), ch = Number(r[6]);
-    if (!m || !c) continue;
-    const prev = Number.isFinite(ch) && r[6] !== "" && r[6] !== "-" ? r2(c - ch) : null;
-    out[String(r[0]).trim()] = { ...withChg(c, prev), open: pos(r[2]), high: pos(r[3]), low: pos(r[4]), date: `${m[3]}-${m[2]}-${m[1]}` };
-  }
-  return out;
 }
 // ASX (its data vendor): level and change now; previous close and day range from the key statistics; no time is published
 export function parseAsx(h, k) {
@@ -288,7 +268,7 @@ const cboeHist = (url, ctx, ix) => cache(url, ctx, `idx/h/${ix.id}`, 6 * 3600_00
   return s.length >= 2 ? { data: s } : { err: "no_data" };
 }, 15 * 60_000);
 
-// SIX, SSE, B3, NSE, ASX (approved 20 Oct 2026)
+// SIX, SSE, B3, ASX (approved 20 Oct 2026)
 const sixSnap = (url, ctx, ix) => cache(url, ctx, `idx/six/q/${ix.id}`, 60_000, 7 * DAY, async () => {
   const r = await getJson(SIX_SNAP(ix.valor), 8000); if (r.err) return { err: r.err };
   const q = parseSixSnap(r.j); return q ? { data: q } : { err: "no_data" };
@@ -306,38 +286,12 @@ const sseHist = (url, ctx, ix) => cache(url, ctx, `idx/sse/h/${ix.id}`, 6 * 3600
   const r = await getJson(SSE_DAYK(ix.code, HIST_ROWS), 20000); if (r.err) return { err: r.err };
   const s = parseSseDayk(r.j); return s.length >= 2 ? { data: s } : { err: "no_data" };
 }, 15 * 60_000);
-const b3Quote = (url, ctx, ix) => cache(url, ctx, `idx/b3/q/${ix.id}`, 60_000, 7 * DAY, async () => {
-  const r = await getJson(B3_QUOTE(ix.sym), 8000); if (r.err) return { err: r.err };
-  const q = parseB3Quote(r.j); return q ? { data: q } : { err: "no_data" };
-}, 2 * 60_000);
 // B3 publishes the daily closes one calendar year at a time: this year and the last one
-const b3Hist = (url, ctx, ix) => cache(url, ctx, `idx/b3/h/${ix.id}`, 6 * 3600_000, 14 * DAY, async () => {
+const b3Hist = (url, ctx, ix) => cache(url, ctx, `idx/b3/h/${ix.id}`, 30 * 60_000, 14 * DAY, async () => {
   const y = new Date().getUTCFullYear(), res = await Promise.all([y - 1, y].map((yr) => getJson(B3_YEAR(ix.sym, yr), 15000).then((r) => (r.err ? r : { data: parseB3Year(r.j, yr) }))));
   const s = res.flatMap((r) => r.data || []);
   return s.length >= 2 ? { data: s } : { err: (res.find((r) => r.err) || {}).err || "no_data" };
 }, 15 * 60_000);
-const istDay = (t) => new Date(t + 330 * 60_000).toISOString().slice(0, 10); // India: UTC+5:30
-async function nseFileOn(d) {
-  const f = await fetchText(NSE_FILE(d), { timeoutMs: 8000, headers: { accept: "text/csv,text/plain" } });
-  if (f.err) return { err: f.err, http: f.http };
-  const rows = parseNse(f.text);
-  return rows["Nifty 50"] ? { data: { date: d, rows } } : { err: "no_data" };
-}
-// the latest file: today's (India) once published, otherwise the last weekday's (≤ 5 files tried, stops on a refusal)
-async function nseBack(t0, tries = 7) {
-  let last = "no_data";
-  for (let i = 0, t = t0; i < tries; i++, t -= DAY) {
-    const d = istDay(t), w = new Date(d + "T12:00:00Z").getUTCDay();
-    if (w === 0 || w === 6) continue;
-    const r = await nseFileOn(d);
-    if (r.data) return r;
-    last = r.err; if (r.http && r.http !== 404) break;
-  }
-  return { err: last };
-}
-export const nseLatest = (url, ctx) => cache(url, ctx, "idx/nse/latest", 30 * 60_000, 10 * DAY, () => nseBack(Date.now()), 10 * 60_000);
-// the file of the last session on or before a date (the briefings' week / month references)
-export const nseOn = (url, ctx, d) => cache(url, ctx, `idx/nse/d/${d}`, 30 * DAY, 30 * DAY, () => nseBack(Date.parse(d + "T12:00:00Z") - 330 * 60_000), 10 * 60_000);
 const asxRow = (url, ctx, ix) => cache(url, ctx, `idx/asx/${ix.id}`, 60_000, 7 * DAY, async () => {
   const [h, k] = await Promise.all([getJson(ASX_HEADER(ix.code), 8000), getJson(ASX_STATS(ix.code), 8000)]);
   if (h.err) return { err: h.err };
@@ -346,7 +300,7 @@ const asxRow = (url, ctx, ix) => cache(url, ctx, `idx/asx/${ix.id}`, 60_000, 7 *
 
 const base = (ix) => ({ id: ix.id, name: ix.name, group: ix.g, ccy: ix.ccy, owner: ix.owner });
 // one index: its primary source, or for Cboe the FRED close when Cboe does not answer
-async function indexRow(url, env, ctx, ix, now, shared = {}) {
+async function indexRow(url, env, ctx, ix, now) {
   const stale = (r) => r.cache === "STALE";
   if (ix.src === "cboe") {
     const r = await cboeQuote(url, ctx, ix);
@@ -368,20 +322,8 @@ async function indexRow(url, env, ctx, ix, now, shared = {}) {
     return { ...base(ix), ...r.data, kind: "delayed", delayMin: ix.src === "six" ? 15 : ix.src === "asx" ? 20 : null, source: SRC[ix.src].name, sourceUrl: SRC[ix.src].url,
       status: noTime ? "PARTIAL" : stale(r) || tooOld(r.data.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
   }
-  if (ix.src === "b3") { // the level now; the previous close from B3's own daily closes (change DERIVED), else the change as published
-    const [q, h] = await Promise.all([b3Quote(url, ctx, ix), b3Hist(url, ctx, ix)]);
-    if (!q.data) return na("b3", q.err);
-    const before = h.data ? h.data.filter(([d]) => d < q.data.date) : [], pc = before.length ? before[before.length - 1] : null;
-    const x = pc ? withChg(q.data.last, pc[1]) : { last: q.data.last, prev: null, chg: null, chgPct: q.data.chgPct };
-    return { ...base(ix), ...q.data, ...x, prevDate: pc ? pc[0] : null, kind: "delayed", delayMin: null, source: SRC.b3.name, sourceUrl: SRC.b3.url,
-      status: stale(q) || tooOld(q.data.date, now) ? "STALE" : "LIVE", fetchedAt: iso(q.fetchedAt) };
-  }
-  if (ix.src === "nse") {
-    const r = await (shared.nse || (shared.nse = nseLatest(url, ctx))), x = r.data && r.data.rows[ix.nse]; // one file for both Nifty rows
-    if (!x) return na("nse", r.err || "no_data");
-    return { ...base(ix), ...x, kind: "close", source: SRC.nse.name, sourceUrl: SRC.nse.url, status: stale(r) || tooOld(x.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
-  }
-  const r = ix.src === "stoxx" ? await stoxxSeries(url, ctx, ix) : ix.src === "nikkei" ? await nikkeiSeries(url, ctx) : await fredIdx(url, env, ctx, ix.series);
+  // daily closes: STOXX, Nikkei, FRED, B3 (its quote service refuses the server: Ibovespa is its daily close)
+  const r = ix.src === "stoxx" ? await stoxxSeries(url, ctx, ix) : ix.src === "nikkei" ? await nikkeiSeries(url, ctx) : ix.src === "b3" ? await b3Hist(url, ctx, ix) : await fredIdx(url, env, ctx, ix.series);
   const s = ix.src === "fred" ? `FRED · ${ix.owner} (daily close)` : SRC[ix.src].name, su = ix.src === "fred" ? fredUrlOf(ix.series) : SRC[ix.src].url;
   const c = r.data && closeRow(r.data);
   if (!c) return { ...base(ix), source: s, sourceUrl: su, status: "N/A", error: r.err || "no_data" };
@@ -389,8 +331,8 @@ async function indexRow(url, env, ctx, ix, now, shared = {}) {
 }
 
 export async function getIndexGroup(url, env, ctx, g, now = Date.now()) {
-  const list = INDICES.filter((x) => x.g === g), shared = {};
-  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now, shared)));
+  const list = INDICES.filter((x) => x.g === g);
+  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now)));
 }
 
 export async function getIndexHistory(url, env, ctx, ix) {
@@ -404,8 +346,7 @@ export async function getIndexHistory(url, env, ctx, ix) {
   else if (ix.src === "six") { r = await sixHist(url, ctx, ix); source = "SIX (daily closes)"; sourceUrl = SRC.six.url; }
   else if (ix.src === "sse") { r = await sseHist(url, ctx, ix); source = "Shanghai Stock Exchange (daily)"; sourceUrl = SRC.sse.url; }
   else if (ix.src === "b3") { r = await b3Hist(url, ctx, ix); source = "B3 (daily closes)"; sourceUrl = SRC.b3.url; note = "B3 publishes the daily closes one year at a time: this year and the last one are kept"; }
-  else if (ix.src === "nse" || ix.src === "asx") return { ...base(ix), source: SRC[ix.src].name, sourceUrl: SRC[ix.src].url, status: "N/A", error: "no_history",
-    note: ix.src === "nse" ? "NSE publishes one file per day: no free history" : "ASX publishes no free history" };
+  else if (ix.src === "asx") return { ...base(ix), source: SRC.asx.name, sourceUrl: SRC.asx.url, status: "N/A", error: "no_history", note: "ASX publishes no free history" };
   else { r = await fredIdx(url, env, ctx, ix.series); source = `FRED · ${ix.owner} (daily close)`; sourceUrl = fredUrlOf(ix.series); }
   if (!r.data) return { ...base(ix), source, sourceUrl, status: "N/A", error: r.err || "no_data" };
   const pts = r.data, ohlc = pts.some((p) => p.length === 5 && p[1] != null);
@@ -415,7 +356,7 @@ export async function getIndexHistory(url, env, ctx, ix) {
 
 export function indexCatalog() {
   return { groups: GROUPS.map(([id, name]) => ({ id, name, indices: INDICES.filter((x) => x.g === id).map((x) => ({ id: x.id, name: x.name, src: x.src })) })),
-    notConnected: NOT_CONNECTED.map(([id, name, g]) => ({ id, name, group: g, reason: "no free official source" })) };
+    notConnected: NOT_CONNECTED.map(([id, name, g, why]) => ({ id, name, group: g, reason: why || NC_REASON })) };
 }
 
 export async function handleIndices(url, env, ctx, H, json) {
@@ -426,16 +367,11 @@ export async function handleIndices(url, env, ctx, H, json) {
     const h = await getIndexHistory(url, env, ctx, ix);
     return send(h, h.points ? 200 : 502);
   }
-  if (url.searchParams.get("diag") === "1") { // temporary: what the exchanges answer the Worker (status, type, first bytes)
-    const one = async (u, h = {}) => { try { const r = await fetch(u, { headers: { "user-agent": "AlessandroTerminal/1.0 (+https://alessandrozanichelli.com/terminal)", ...h } }); const t = await r.text(); return [r.status, r.headers.get("content-type"), t.slice(0, 160)]; } catch (e) { return ["err", String(e && e.message)]; } };
-    const d = new Date(Date.now() - 86400_000 + 330 * 60_000).toISOString().slice(0, 10);
-    return send({ b3q: await one(B3_QUOTE("IBOV"), { accept: "application/json" }), b3y: await one(B3_YEAR("IBOV", 2026), { accept: "application/json" }), nse: await one(NSE_FILE(d), { accept: "text/csv,text/plain" }), d });
-  }
   const g = url.searchParams.get("g");
   if (!g) return send({ ...indexCatalog(), basis: BASIS });
   if (!GROUPS.some(([id]) => id === g)) return send({ error: "bad_request", message: "unknown group" }, 400);
   const rows = await getIndexGroup(url, env, ctx, g);
   const ok = rows.some((r) => r.status !== "N/A");
-  return send({ group: g, indices: rows, notConnected: NOT_CONNECTED.filter((x) => x[2] === g).map(([id, name]) => ({ id, name, reason: "no free official source" })), basis: BASIS, status: ok ? "LIVE" : "N/A" }, ok ? 200 : 502);
+  return send({ group: g, indices: rows, notConnected: NOT_CONNECTED.filter((x) => x[2] === g).map(([id, name, , why]) => ({ id, name, reason: why || NC_REASON })), basis: BASIS, status: ok ? "LIVE" : "N/A" }, ok ? 200 : 502);
 }
-const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, volatility indices, MSCI EAFE, EM and ACWI), STOXX and Nikkei daily closes, SIX 15-minute delayed (SMI, SPI, IBEX 35), Shanghai Stock Exchange (SSE Composite, CSI 300), B3 (Ibovespa), NSE daily close file (Nifty), ASX (S&P/ASX 200, no time published), FRED daily closes; changes against the previous close (DERIVED where computed); the index providers reserve redistribution — shown only in this private terminal";
+const BASIS = "levels as each source publishes them: Cboe 15-minute delayed quotes (US indices, volatility indices, MSCI EAFE, EM and ACWI), STOXX and Nikkei daily closes, SIX 15-minute delayed (SMI, SPI, IBEX 35), Shanghai Stock Exchange (SSE Composite, CSI 300), B3 daily close (Ibovespa), ASX (S&P/ASX 200, no time published), FRED daily closes; changes against the previous close (DERIVED where computed); the index providers reserve redistribution — shown only in this private terminal";
