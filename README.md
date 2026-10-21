@@ -113,14 +113,15 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 
 ## iPhone app (installable web app, no cost)
 - Install: open alessandrozanichelli.com/terminal/ in Safari → Share → Add to Home Screen. It opens full screen
-  (`display: standalone`, status bar over the dark header), with its icon and launch image; no App Store, no Apple
+  (`display: standalone`, opaque black status bar: the app starts below it), with its icon and launch image; no App Store, no Apple
   developer account. Updates arrive with every deploy.
 - Sign-in: the same Cloudflare Access policy. The installed app keeps its own cookies, so the e-mail code is asked once
   per Access session (24 h today; the session length is set in Access). The manifest is fetched with credentials.
 - Layout at ≤ 880 px (phone, and the installed app): one window at a time, full screen; a tab bar (MARKETS, WATCH, NEWS,
   PORTF., MENU, WINDOWS with the count); WINDOWS is a sheet to switch, close, close all, reopen, reload; the function
   menu full screen with a close button; fields at 16 px (iOS does not zoom); no field focused automatically (no
-  keyboard pop-ups); notch, home indicator and landscape insets respected. Wider (a rotated tablet, a desktop):
+  keyboard pop-ups); home indicator and landscape insets respected. The height is the window's own (`innerHeight` →
+  `--app-h`), never vh / dvh, which leave a gap at the bottom of home-screen apps on recent iOS. Wider (a rotated tablet, a desktop):
   floating windows as before.
 - `public/terminal/sw.js` (service worker, scope /terminal/): keeps only the interface (page, scripts, chart library,
   icons) so the app opens without a network or on a slow one (network first, cached copy after 3.5 s or offline). It

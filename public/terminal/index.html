@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0a0b0e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="AZ Terminal">
 <meta name="format-detection" content="telephone=no">
 <link rel="apple-touch-icon" href="app/icon-180.png">
@@ -404,7 +404,10 @@
      a tab bar at the bottom, the notch and the home indicator respected, no zoom on typing ---- */
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body.phone{-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
-  body.phone #app{height:100vh;height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  /* the height is the window's own (JS sets --app-h from innerHeight): viewport units (vh, dvh) leave a gap at the
+     bottom of a home-screen app on recent iOS */
+  html.phone,html.phone body{height:var(--app-h,100%)}
+  body.phone #app{height:var(--app-h,100%);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
   body.phone #cmdbar{flex-wrap:wrap;row-gap:7px;column-gap:8px;padding:calc(6px + env(safe-area-inset-top)) 10px 8px}
   body.phone .brand{font-size:12px;letter-spacing:.1em}
   body.phone .brand small,body.phone .tclock,body.phone #mktsOpen,body.phone .tnext,body.phone .tsep,body.phone #tabs,body.phone #strip,body.phone #status{display:none}
@@ -3312,7 +3315,16 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(f){if(activeId!==f.id)activeId=f.id;if(phFront!==f.id){phFront=f.id;requestAnimationFrame(()=>reflowWin(f));}delete deskEl.dataset.empty;}
     else{phFront=null;deskEl.dataset.empty=tl('No window open — tap a function below, or type a ticker or a function above.','Nessuna finestra aperta — tocca una funzione qui sotto, o scrivi un ticker o una funzione in alto.');}
     paintPhoneTabs();renderWinSheet();}
-  function setPhone(){const p=isMobile();if(p===phoneOn())return;document.body.classList.toggle('phone',p);renderLauncher();
+  // the app's height = the window's (innerHeight), set as --app-h; re-read on rotation and when the app comes back
+  // Installed on the home screen, iOS can shrink the window after the keyboard closes (by the status bar's height) and
+  // not give it back: there the app keeps the tallest height it was given in that orientation (it never legitimately
+  // shrinks). In Safari the window's height is followed as it is (its bars come and go).
+  const PH_MAX={};
+  function fitPhone(){const r=document.documentElement;if(!phoneOn()){r.style.removeProperty('--app-h');r.classList.remove('phone');return;}r.classList.add('phone');
+    let h=window.innerHeight;const sa=navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+    if(sa){const o=window.innerWidth>window.innerHeight?'l':'p';PH_MAX[o]=Math.max(PH_MAX[o]||0,h);h=PH_MAX[o];}
+    r.style.setProperty('--app-h',h+'px');}
+  function setPhone(){const p=isMobile();if(p===phoneOn()){fitPhone();return;}document.body.classList.toggle('phone',p);fitPhone();renderLauncher();
     if(p)phoneSync();else{wins.forEach(w=>{if(!w.el)return;w.el.classList.remove('front');applyRect(w);requestAnimationFrame(()=>reflowWin(w));});if(deskEl)delete deskEl.dataset.empty;toggleWinSheet(false);}}
   const PHONE_TABS=()=>[['MKT','◫',tl('MARKETS','MERCATI')],['WL','☆','WATCH'],['N','≣',tl('NEWS','NOTIZIE')],['PF','◔',tl('PORTF.','PORTAF.')],['MENU','☰','MENU'],['WIN','⧉',tl('WINDOWS','FINESTRE')]];
   function paintPhoneTabs(){const f=wins.find(w=>w.id===activeId&&!w.min);$$('#fnbar .ptab').forEach(b=>{const c=b.dataset.code;b.classList.toggle('on',!!f&&c===f.type);if(c==='WIN'){const n=b.querySelector('.pt-n');if(n){n.textContent=String(wins.length);n.hidden=!wins.length;}}});}
@@ -3448,7 +3460,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   {const tb=$('#tabs');tb.addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&tb.scrollWidth>tb.clientWidth){tb.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});tb.addEventListener('scroll',tabsOvf,{passive:true});window.addEventListener('resize',tabsOvf);}
 
   /* ---------- boot ---------- */
-  function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();document.body.classList.toggle('phone',isMobile());renderLauncher();
+  function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();document.body.classList.toggle('phone',isMobile());fitPhone();renderLauncher();
+    window.addEventListener('orientationchange',()=>setTimeout(fitPhone,250));window.addEventListener('pageshow',fitPhone);
+    document.addEventListener('focusout',()=>{if(phoneOn())setTimeout(fitPhone,160);});
     // a phone starts with the watchlist and the markets board in front; a desk with four windows tiled
     if(isMobile()){openWindow('WL',{});openWindow('MKT',{});}else{openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});}
     if(!isMobile())tileAll();
@@ -3487,7 +3501,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       return p;};
     window.addEventListener('online',()=>{NET.at=0;netProbe();});window.addEventListener('offline',()=>setNetBar('offline'));
     // back from the background after a while (the app on the home screen): check before the user sees N/A everywhere
-    document.addEventListener('visibilitychange',()=>{if(document.hidden)NET.hiddenAt=Date.now();else if(NET.hiddenAt&&Date.now()-NET.hiddenAt>5*60000){NET.at=0;netProbe();}});}
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){NET.hiddenAt=Date.now();return;}fitPhone();if(NET.hiddenAt&&Date.now()-NET.hiddenAt>5*60000){NET.at=0;netProbe();}});}
   if(document.fonts&&document.fonts.ready){document.fonts.ready.then(()=>wins.forEach(w=>{if(!w.min)reflowWin(w);}));}
   boot();
 })();
