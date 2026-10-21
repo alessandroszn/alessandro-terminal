@@ -408,7 +408,9 @@
      bottom of a home-screen app on recent iOS */
   html.phone,html.phone body{height:var(--app-h,100%)}
   body.phone #app{height:var(--app-h,100%);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
-  body.phone #cmdbar{flex-wrap:wrap;row-gap:7px;column-gap:8px;padding:calc(6px + env(safe-area-inset-top)) 10px 8px}
+  /* the app starts below an opaque status bar (inset 0). If iOS still draws it over the page (inset > 0), iOS 26
+     blurs what lies just under the clock: the header starts below that band, which stays plain background */
+  body.phone #cmdbar{flex-wrap:wrap;row-gap:7px;column-gap:8px;padding:calc(6px + env(safe-area-inset-top) + min(env(safe-area-inset-top), 30px)) 10px 8px;background:var(--bg)}
   body.phone .brand{font-size:12px;letter-spacing:.1em}
   body.phone .brand small,body.phone .tclock,body.phone #mktsOpen,body.phone .tnext,body.phone .tsep,body.phone #tabs,body.phone #strip,body.phone #status{display:none}
   body.phone .status-right{gap:8px}
