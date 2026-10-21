@@ -1466,6 +1466,21 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[Q] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
   await page.close();
+  // a ticker typed before the lists have arrived: resolved when they do (a European ticker is never taken for a U.S. symbol)
+  {
+    const { page, errors } = await openTerminal(api);
+    await page.waitForTimeout(600);
+    await cmd(page, "EFP VWCE");
+    await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("ETF PROFILE")); return w && /Vanguard FTSE All-World/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 20000 }).catch(() => null);
+    await page.waitForTimeout(800); let w = await winOf(page, "ETF PROFILE");
+    ok("[Q] EFP VWCE typed before the ETF lists load: the Xetra fund (IE00BK5BQT80), never a U.S. symbol", w && /Vanguard FTSE All-World/.test(w.text) && /IE00BK5BQT80/.test(w.text) && !/U\.S\. ETFs/.test(w.text), w && w.text.slice(0, 700));
+    await page.fill(".efp-in", "SPY"); await page.press(".efp-in", "Enter"); await page.waitForTimeout(800); w = await winOf(page, "ETF PROFILE");
+    ok("[Q] …SPY: the U.S. fund, no justETF data said", /SPDR S&P 500 ETF Trust/.test(w.text) && /no reference data for U\.S\. ETFs/.test(w.text), w.text.slice(0, 500));
+    await page.fill(".efp-in", "ZZZQ"); await page.press(".efp-in", "Enter"); await page.waitForTimeout(600); w = await winOf(page, "ETF PROFILE");
+    ok("[Q] …a ticker in neither list: said, with the ISIN asked for", /“ZZZQ” is not an ETF in the Xetra or U\.S\. lists/.test(w.text), w.text.slice(0, 400));
+    ok("[Q] …no JavaScript errors", errors.length === 0, errors.join(" | "));
+    await page.close();
+  }
   for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2"]) PV.kv.delete(k);
 }
 
