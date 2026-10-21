@@ -113,8 +113,10 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 
 ## iPhone app (installable web app, no cost)
 - Install: open alessandrozanichelli.com/terminal/ in Safari → Share → Add to Home Screen. It opens full screen
-  (`display: standalone`; translucent status bar over the page's own background, so the band under the clock takes the
-  theme's colour; the header starts below the band iOS blurs), with its icon and launch image; no App Store, no Apple
+  (`display: standalone`). No `apple-mobile-web-app-status-bar-style`: since iOS 26.1 a translucent status bar gets
+  a gradient and blurs the page under it (Apple: remove the tag); without it the status bar is opaque in the page's
+  colour (`theme-color`, kept in step with the theme) and the app starts below it. Changing that tag needs the app
+  removed from the Home Screen and added again., with its icon and launch image; no App Store, no Apple
   developer account. Updates arrive with every deploy.
 - Sign-in: the same Cloudflare Access policy. The installed app keeps its own cookies, so the e-mail code is asked once
   per Access session (24 h today; the session length is set in Access). The manifest is fetched with credentials.
