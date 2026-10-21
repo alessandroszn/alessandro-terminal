@@ -439,7 +439,8 @@
   body.phone input,body.phone select,body.phone textarea{font-size:16px!important}
   body.phone button,body.phone a,body.phone [role=button]{touch-action:manipulation}
   body.phone .tf,body.phone .sr-b{min-height:30px}
-  body.phone #dock{position:sticky;bottom:0;z-index:40;height:auto;padding:3px 4px calc(3px + env(safe-area-inset-bottom));gap:0}
+  /* the tab bar sits low, as in iOS apps: into the home-indicator area, its labels just clear of the indicator */
+  body.phone #dock{position:sticky;bottom:0;z-index:40;height:auto;padding:3px 4px max(3px, calc(env(safe-area-inset-bottom) - 18px));gap:0}
   body.phone #fnbar{gap:2px;overflow:visible}
   body.phone .fn.ptab{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:0;border-radius:8px;padding:6px 0;min-height:50px;font-size:9px;letter-spacing:.05em;line-height:1;position:relative}
   body.phone .fn.ptab b{font-size:17px;font-weight:400;line-height:1;color:var(--fg)}
