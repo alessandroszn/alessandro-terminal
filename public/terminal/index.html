@@ -4,6 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
+<!-- installable app (iPhone: Safari → Share → Add to Home Screen). The manifest is fetched with the Access cookie. -->
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#0a0b0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AZ Terminal">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="app/icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="app/icon-32.png">
+<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1320x2868.png">
+<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1206x2622.png">
+<link rel="apple-touch-startup-image" media="(device-width: 420px) and (device-height: 912px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1260x2736.png">
+<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="app/launch-1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="app/launch-828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="app/launch-750x1334.png">
 </head>
 <body>
 <title>Alessandro Terminal</title>
@@ -377,18 +397,66 @@
     #tabs{order:5;flex:1 1 100%}
   }
   @media (max-width:880px){
-    .cmd-wrap{flex:1 1 200px}
-    body{overflow:auto}
-    #app{height:auto;min-height:100%}
-    #desk{overflow:visible;display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--bg)}
-    .win{position:relative!important;left:auto!important;top:auto!important;width:auto!important;height:auto!important;box-shadow:none}
-    .win-body{max-height:72vh}
-    .win.ismax{height:auto!important}
-    .w-grip{display:none}
-    .win-head{cursor:default}
     .mov-grid{grid-template-columns:1fr}
     .stat-grid{grid-template-columns:repeat(2,1fr)}
   }
+  /* ---- phone (≤ 880 px, and the app installed on the iPhone home screen): one window at a time, full screen,
+     a tab bar at the bottom, the notch and the home indicator respected, no zoom on typing ---- */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body.phone{-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  body.phone #app{height:100vh;height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  body.phone #cmdbar{flex-wrap:wrap;row-gap:7px;column-gap:8px;padding:calc(6px + env(safe-area-inset-top)) 10px 8px}
+  body.phone .brand{font-size:12px;letter-spacing:.1em}
+  body.phone .brand small,body.phone .tclock,body.phone #mktsOpen,body.phone .tnext,body.phone .tsep,body.phone #tabs,body.phone #strip,body.phone #status{display:none}
+  body.phone .status-right{gap:8px}
+  body.phone .lang button{padding:5px 9px;font-size:11px}
+  body.phone .cmd-wrap{order:5;flex:1 1 100%}
+  body.phone .cmd-wrap::before{left:11px}
+  body.phone #cmd{font-size:16px;padding:9px 10px 9px 26px;border-radius:8px;letter-spacing:.03em}
+  body.phone #desk{background:var(--bg)}
+  body.phone #desk[data-empty]::after{content:attr(data-empty);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
+  body.phone .win{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;border:0;border-radius:0;box-shadow:none;min-width:0;min-height:0;display:none}
+  body.phone .win.front{display:flex}
+  body.phone .win-head{cursor:default;touch-action:manipulation;padding:4px 2px 4px 12px;font-size:11px;min-height:44px}
+  body.phone .w-min,body.phone .w-max,body.phone .w-grip{display:none}
+  body.phone .w-close{font-size:17px;min-width:44px;min-height:40px}
+  body.phone .win-body{padding:10px 10px 18px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  body.phone input,body.phone select,body.phone textarea{font-size:16px!important}
+  body.phone button,body.phone a,body.phone [role=button]{touch-action:manipulation}
+  body.phone .tf,body.phone .sr-b{min-height:30px}
+  body.phone #dock{height:auto;padding:3px 4px calc(3px + env(safe-area-inset-bottom));gap:0}
+  body.phone #fnbar{gap:2px;overflow:visible}
+  body.phone .fn.ptab{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:0;border-radius:8px;padding:6px 0;min-height:50px;font-size:9px;letter-spacing:.05em;line-height:1;position:relative}
+  body.phone .fn.ptab b{font-size:17px;font-weight:400;line-height:1;color:var(--fg)}
+  body.phone .fn.ptab.on,body.phone .fn.ptab.on b{color:var(--amber)}
+  body.phone .fn.ptab .pt-n{position:absolute;top:4px;left:calc(50% + 7px);min-width:16px;height:16px;border-radius:8px;background:var(--amber);color:#000;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  body.phone .fm-card{inset:0;left:0;top:0;width:100%;max-height:none;height:100%;border:0;border-radius:0;padding:calc(10px + env(safe-area-inset-top)) 12px calc(18px + env(safe-area-inset-bottom))}
+  body.phone .fm-in{max-width:none;flex:1 1 100%;order:3}
+  body.phone .fm-hint{display:none}
+  body.phone .fm-i{min-height:42px;align-items:center;font-size:12.5px}
+  body.phone .help-card{max-height:100%;padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));border-radius:0}
+  body.phone #help{padding:0}
+  body.phone #toasts{bottom:calc(70px + env(safe-area-inset-bottom));right:10px;left:10px;max-width:none}
+  .fm-x{margin-left:auto;background:none;border:1px solid var(--line-2);color:var(--muted);border-radius:4px;font:inherit;font-size:13px;padding:4px 10px;cursor:pointer}
+  /* open windows (phone): a sheet from the bottom */
+  #wsheet{position:fixed;inset:0;z-index:9000;display:none;background:#05060899;align-items:flex-end}
+  #wsheet.on{display:flex}
+  .ws-card{width:100%;max-height:82dvh;overflow:auto;background:var(--panel);border-top:1px solid var(--line-2);border-radius:14px 14px 0 0;padding:12px 12px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -18px 50px #000a}
+  .ws-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:11px;letter-spacing:.12em;color:var(--amber)}
+  .ws-top button,.ws-acts button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--fg);border-radius:6px;font:inherit;font-size:11px;letter-spacing:.06em;padding:9px 12px;cursor:pointer}
+  .ws-acts button[disabled]{opacity:.35}
+  .ws-row{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line)}
+  .ws-row.on .ws-open span{color:var(--amber)}
+  .ws-open{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:10px;min-height:50px;background:none;border:0;color:var(--fg);font:inherit;font-size:12.5px;text-align:left;padding:0 4px;cursor:pointer}
+  .ws-open code{flex:0 0 auto;color:#000;background:var(--amber);font-family:inherit;font-weight:700;font-size:10px;border-radius:3px;padding:2px 6px}
+  .ws-open span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ws-x{flex:0 0 auto;min-width:44px;min-height:44px;background:none;border:0;color:var(--muted);font-size:15px;cursor:pointer}
+  .ws-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  /* the network or the sign-in, when /api stops answering (the installed app can stay open for days) */
+  #netbar{display:none;align-items:center;gap:10px;padding:8px 12px;background:var(--amber-soft);border-bottom:1px solid var(--amber);color:var(--fg);font-size:11.5px;line-height:1.4}
+  #netbar.on{display:flex}
+  #netbar b{color:var(--amber)}
+  #netbar button{margin-left:auto;flex:0 0 auto;background:var(--amber);color:#000;border:0;border-radius:5px;font:inherit;font-weight:700;font-size:11px;padding:8px 12px;cursor:pointer}
   @media (prefers-reduced-motion:reduce){
     #strip .track{animation:none;padding-left:14px}
     #cmd.err{animation:none}
@@ -468,7 +536,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   <div id="cmdbar">
     <div class="brand">ALESSANDRO<span class="b-dot">°</span>TERMINAL <small>MKTS</small></div>
     <div class="cmd-wrap">
-      <input id="cmd" autocomplete="off" spellcheck="false" aria-label="Command line"
+      <input id="cmd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Command line"
              placeholder="Ticker, company or function" title="Ticker, company name or function — e.g. NVDA, Novartis, NESN, WL, HELP">
     </div>
     <div id="tabs" aria-label="Open windows"></div>
@@ -479,6 +547,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     </div>
   </div>
 
+  <div id="netbar" role="status" aria-live="polite"></div>
   <div id="desk" aria-label="Workspace"></div>
 
   <div id="strip" hidden><span class="lbl">TAPE</span><div class="track-wrap notranslate"><div class="track" id="tape"></div></div></div>
@@ -493,6 +562,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   <div class="help-card">
     <h2>ALESSANDRO°TERMINAL</h2>
     <p class="sub">A command-driven, multi-window market workspace. Type in the command line, use the dock at the bottom (☰ FUNCTIONS has every function), or the taskbar up top.</p>
+    <div class="help-grp">IPHONE APP</div>
+    <div class="help-row"><code>install</code><span>In Safari: Share → Add to Home Screen. It opens full screen with its own icon; sign in once with the e-mail code</span></div>
+    <div class="help-row"><code>tab bar</code><span>Markets, Watchlist, News, Portfolio, Menu (every function) and Windows (switch, close, reopen, reload)</span></div>
+    <div class="help-row"><code>offline</code><span>The interface opens without a network; data is never stored on the phone, so it shows N/A until the connection is back</span></div>
     <div class="help-grp">WINDOWS</div>
     <div class="help-row"><code>drag title</code><span>Move a window; drag the corner grip to resize</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
@@ -622,7 +695,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   };
   const THEME_VARS={bg:'--bg',panel:'--panel',panel2:'--panel-2',line:'--line',line2:'--line-2',fg:'--fg',muted:'--muted',dim:'--dim',grid:'--grid',soft:'--amber-soft'};
   function setThemeVars(t){const root=document.documentElement.style;root.setProperty('--amber',t.accent);root.setProperty('--focus-ring',t.accent);root.setProperty('--up',t.up);root.setProperty('--down',t.down);
-    Object.entries(THEME_VARS).forEach(([k,v])=>{if(t[k])root.setProperty(v,t[k]);else root.removeProperty(v);});}
+    Object.entries(THEME_VARS).forEach(([k,v])=>{if(t[k])root.setProperty(v,t[k]);else root.removeProperty(v);});
+    const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t.bg||'#0a0b0e');}
 
   /* window-manager state */
   let wins=[], zTop=10, winSeq=1, activeId=0, closedStack=[], deskEl;
@@ -875,7 +949,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       rightPriceScale:{borderColor:C.line,scaleMargins:{top:0.12,bottom:0.08}},
       timeScale:{borderColor:C.line,rightOffset:4,minBarSpacing:0.3},
       crosshair:{mode:0,vertLine:{color:C.dim,labelBackgroundColor:C['line-2']||C.line},horzLine:{color:C.dim,labelBackgroundColor:C['line-2']||C.line}},
-      localization:{locale:I18N.locale()}},extra||{});}
+      localization:{locale:I18N.locale()},
+      // on a phone a vertical swipe over a chart scrolls the window (pan and pinch-zoom stay on the chart)
+      ...(isMobile()?{handleScroll:{vertTouchDrag:false}}:{})},extra||{});}
   // intraday bars arrive in UTC; they are drawn on the exchange's own clock (the chart's time axis has no time zones)
   const TZF={};
   function tzOffMin(tz,ms){try{const f=TZF[tz]||(TZF[tz]=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric'}));const p={};f.formatToParts(new Date(ms)).forEach(x=>{p[x.type]=x.value;});return Math.round((Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-Math.floor(ms/60000)*60000)/60000);}catch(e){return 0;}}
@@ -2348,12 +2424,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function menuItems(){const q=MN.q.trim().toUpperCase();const out=[];menuDef().forEach(([id,label,items])=>items.forEach(([code,name,na])=>{if(!q||code.includes(q)||name.toUpperCase().includes(q))out.push({cat:id,label,code,name,na});}));return out;}
   function renderMenu(){const box=$('#fnmenu');if(!box)return;const list=menuItems();MN.sel=Math.min(MN.sel,Math.max(0,list.length-1));
     const cols=menuDef().map(([id,label])=>{const its=list.filter(x=>x.cat===id);return its.length?`<div class="fm-col"><h4>${label}</h4>${its.map(x=>{const i=list.indexOf(x);return`<button class="fm-i${i===MN.sel?' sel':''}" data-fn="${x.code}" title="${x.code}"><code>${x.code}</code><span>${esc(x.name)}</span>${x.na?`<i class="fm-na" title="${tl('no approved source: the window explains why','nessuna fonte approvata: la finestra spiega perché')}">N/A</i>`:''}</button>`;}).join('')}</div>`:'';}).join('');
-    box.innerHTML=`<div class="fm-card" role="dialog" aria-label="${tl('Functions','Funzioni')}"><div class="fm-top"><b class="fm-t">${tl('FUNCTIONS','FUNZIONI')}</b><input class="sr-in fm-in" data-k="fmq" value="${esc(MN.q)}" placeholder="${tl('filter — code or name','filtra — codice o nome')}" aria-label="${tl('filter functions','filtra le funzioni')}" autocomplete="off" spellcheck="false"><span class="k fm-hint">${tl('↑↓ Enter · Esc closes · also typed in the command line (e.g. DES AAPL)','↑↓ Invio · Esc chiude · anche dalla riga di comando (es. DES AAPL)')}</span></div><div class="fm-grid">${cols||`<div class="empty">${tl('No function matches.','Nessuna funzione corrisponde.')}</div>`}</div></div>`;
+    box.innerHTML=`<div class="fm-card" role="dialog" aria-label="${tl('Functions','Funzioni')}"><div class="fm-top"><b class="fm-t">${tl('FUNCTIONS','FUNZIONI')}</b><button type="button" class="fm-x" aria-label="${tl('Close','Chiudi')}">✕</button><input class="sr-in fm-in" data-k="fmq" value="${esc(MN.q)}" placeholder="${tl('filter — code or name','filtra — codice o nome')}" aria-label="${tl('filter functions','filtra le funzioni')}" autocomplete="off" spellcheck="false"><span class="k fm-hint">${tl('↑↓ Enter · Esc closes · also typed in the command line (e.g. DES AAPL)','↑↓ Invio · Esc chiude · anche dalla riga di comando (es. DES AAPL)')}</span></div><div class="fm-grid">${cols||`<div class="empty">${tl('No function matches.','Nessuna funzione corrisponde.')}</div>`}</div></div>`;
     const inp=box.querySelector('.fm-in');inp.oninput=()=>{MN.q=inp.value;MN.sel=0;renderMenu();const i=$('#fnmenu .fm-in');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}};
     inp.onkeydown=e=>{const L=menuItems();if(e.key==='ArrowDown'){e.preventDefault();MN.sel=Math.min(L.length-1,MN.sel+1);renderMenu();$('#fnmenu .fm-in').focus();}else if(e.key==='ArrowUp'){e.preventDefault();MN.sel=Math.max(0,MN.sel-1);renderMenu();$('#fnmenu .fm-in').focus();}else if(e.key==='Enter'){e.preventDefault();const x=L[MN.sel];if(x){toggleMenu(false);applyFunc(x.code);}}};
-    $$('.fm-i',box).forEach(b=>b.onclick=()=>{toggleMenu(false);applyFunc(b.dataset.fn);});}
+    $$('.fm-i',box).forEach(b=>b.onclick=()=>{toggleMenu(false);applyFunc(b.dataset.fn);});box.querySelector('.fm-x').onclick=()=>toggleMenu(false);}
   function toggleMenu(on){let box=$('#fnmenu');if(!box){box=document.createElement('div');box.id='fnmenu';document.body.appendChild(box);box.addEventListener('click',e=>{if(e.target.id==='fnmenu')toggleMenu(false);});}
-    if(on==null)on=!box.classList.contains('on');box.classList.toggle('on',on);if(on){MN.q='';MN.sel=0;renderMenu();setTimeout(()=>{const i=$('#fnmenu .fm-in');i&&i.focus();},0);}else $('#cmd').focus();}
+    if(on==null)on=!box.classList.contains('on');box.classList.toggle('on',on);if(on){MN.q='';MN.sel=0;renderMenu();if(!isMobile())setTimeout(()=>{const i=$('#fnmenu .fm-in');i&&i.focus();},0);}else focusCmd();}
   function openMap(u){const ex=wins.find(w=>w.type==='MAP');if(ex){ex.state.u=u;ex.state.size=null;if(ex.min)toggleMin(ex);bringFront(ex);paintWin(ex);return ex;}return openWindow('MAP',Object.assign(defaultState('MAP'),{u}));}
   // one window per function; a new ticker replaces the one shown
   function openSym(type,sym){const ex=wins.find(w=>w.type===type);if(!ex)return openWindow(type,sym?{sym}:{});if(ex.min)toggleMin(ex);bringFront(ex);if(sym&&ex.state.sym!==sym){ex.state.sym=sym;ex.state.exp=null;ex.state.msg='';paintWin(ex);}return ex;}
@@ -3226,7 +3302,30 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
-  function bringFront(w){activeId=w.id;w.z=++zTop;if(w.el)w.el.style.zIndex=w.z;$$('.tb-win').forEach(c=>c.classList.toggle('active',+c.dataset.id===activeId));}
+  function bringFront(w){activeId=w.id;w.z=++zTop;if(w.el)w.el.style.zIndex=w.z;$$('.tb-win').forEach(c=>c.classList.toggle('active',+c.dataset.id===activeId));if(phoneOn())phoneSync();}
+  /* ---------- phone (≤ 880 px; the app on the iPhone home screen): one window at a time ---------- */
+  const phoneOn=()=>document.body.classList.contains('phone');let phFront=null;
+  const focusCmd=()=>{if(!isMobile())$('#cmd').focus();}; // on a phone a focused field opens the keyboard
+  // the front window is the one shown; closing or minimising it shows the most recent other one
+  function phoneSync(){if(!phoneOn()||!deskEl)return;const live=wins.filter(w=>!w.min),f=live.find(w=>w.id===activeId)||live.slice().sort((a,b)=>b.z-a.z)[0];
+    wins.forEach(x=>x.el&&x.el.classList.toggle('front',x===f));
+    if(f){if(activeId!==f.id)activeId=f.id;if(phFront!==f.id){phFront=f.id;requestAnimationFrame(()=>reflowWin(f));}delete deskEl.dataset.empty;}
+    else{phFront=null;deskEl.dataset.empty=tl('No window open — tap a function below, or type a ticker or a function above.','Nessuna finestra aperta — tocca una funzione qui sotto, o scrivi un ticker o una funzione in alto.');}
+    paintPhoneTabs();renderWinSheet();}
+  function setPhone(){const p=isMobile();if(p===phoneOn())return;document.body.classList.toggle('phone',p);renderLauncher();
+    if(p)phoneSync();else{wins.forEach(w=>{if(!w.el)return;w.el.classList.remove('front');applyRect(w);requestAnimationFrame(()=>reflowWin(w));});if(deskEl)delete deskEl.dataset.empty;toggleWinSheet(false);}}
+  const PHONE_TABS=()=>[['MKT','◫',tl('MARKETS','MERCATI')],['WL','☆','WATCH'],['N','≣',tl('NEWS','NOTIZIE')],['PF','◔',tl('PORTF.','PORTAF.')],['MENU','☰','MENU'],['WIN','⧉',tl('WINDOWS','FINESTRE')]];
+  function paintPhoneTabs(){const f=wins.find(w=>w.id===activeId&&!w.min);$$('#fnbar .ptab').forEach(b=>{const c=b.dataset.code;b.classList.toggle('on',!!f&&c===f.type);if(c==='WIN'){const n=b.querySelector('.pt-n');if(n){n.textContent=String(wins.length);n.hidden=!wins.length;}}});}
+  function toggleWinSheet(on){let box=$('#wsheet');if(!box){if(!on)return;box=document.createElement('div');box.id='wsheet';document.body.appendChild(box);box.addEventListener('click',e=>{if(e.target.id==='wsheet')toggleWinSheet(false);});}
+    if(on==null)on=!box.classList.contains('on');box.classList.toggle('on',on);if(on)renderWinSheet();}
+  function renderWinSheet(){const box=$('#wsheet');if(!box||!box.classList.contains('on'))return;
+    const rows=wins.slice().sort((a,b)=>b.z-a.z).map(w=>`<div class="ws-row${w.id===activeId?' on':''}"><button type="button" class="ws-open" data-id="${w.id}"><code>${esc(WINTYPES[w.type].tag)}</code><span>${esc(WINTYPES[w.type].title(w))}</span></button><button type="button" class="ws-x" data-x="${w.id}" aria-label="${tl('Close','Chiudi')}">✕</button></div>`).join('');
+    box.innerHTML=`<div class="ws-card" role="dialog" aria-label="${tl('Open windows','Finestre aperte')}"><div class="ws-top"><b>${tl('OPEN WINDOWS','FINESTRE APERTE')} · ${wins.length}</b><button type="button" class="ws-done">${tl('DONE','FATTO')}</button></div>${rows||`<div class="empty">${tl('No window open.','Nessuna finestra aperta.')}</div>`}
+      <div class="ws-acts"><button type="button" data-a="close"${wins.length?'':' disabled'}>${tl('CLOSE ALL','CHIUDI TUTTE')}</button><button type="button" data-a="undo"${closedStack.length?'':' disabled'}>${tl('↩ REOPEN','↩ RIAPRI')}</button><button type="button" data-a="reload">${tl('↻ RELOAD','↻ RICARICA')}</button><button type="button" data-a="help">? ${tl('HELP','AIUTO')}</button></div></div>`;
+    box.querySelector('.ws-done').onclick=()=>toggleWinSheet(false);
+    $$('.ws-open',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.id);if(w){if(w.min)toggleMin(w);bringFront(w);}toggleWinSheet(false);});
+    $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
+    $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
     el.innerHTML=`<div class="win-head"><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
     deskEl.appendChild(el);w.el=el;w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
@@ -3243,8 +3342,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{ex:'ALL',sector:'ALL',cap:'ALL',dir:'ALL',country:'ALL',sort:'cap',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
-  function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);ex.el.scrollIntoView&&isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow('GP',state);}
-    const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);isMobile()&&ex.el.scrollIntoView({behavior:reduce?'auto':'smooth'});return ex;}return openWindow(type,state||defaultState(type));}
+  function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
+    const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow(type,state||defaultState(type));}
   function closeWin(w,batch){lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
   function closeAll(){if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
   function undoClose(){const item=closedStack.pop();if(!item)return;const arr=Array.isArray(item)?item:[item];arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);});renderTaskbar();}
@@ -3276,7 +3375,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     window.addEventListener('pointermove',rmove);window.addEventListener('pointerup',up);}
 
   /* ---------- taskbar + launcher ---------- */
-  function renderTaskbar(){const bar=$('#tabs');bar.innerHTML='';
+  function renderTaskbar(){phoneSync();const bar=$('#tabs');bar.innerHTML='';
     // (☰ FUNCTIONS lives in the dock at the bottom; here only the window tools, as icons)
     [['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
     if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
@@ -3284,12 +3383,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);tabsOvf();return;}
     wins.forEach(w=>{const c=document.createElement('button');c.className='tb-win'+(w.id===activeId?' active':'')+(w.min?' ismin':'');c.dataset.id=w.id;
       c.innerHTML=`<i></i>${WINTYPES[w.type].tag}${w.type==='GP'?' '+w.state.ticker:''}`;
-      c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);if(isMobile())w.el.scrollIntoView({behavior:reduce?'auto':'smooth'});};
+      c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);};
       bar.appendChild(c);});
     const a=bar.querySelector('.tb-win.active');if(a&&(a.offsetLeft<bar.scrollLeft||a.offsetLeft+a.offsetWidth>bar.scrollLeft+bar.clientWidth))bar.scrollLeft=a.offsetLeft-bar.clientWidth/2;tabsOvf();}
   function tabsOvf(){const b=$('#tabs');if(b)b.classList.toggle('ovf',b.scrollWidth>b.clientWidth+2&&b.scrollLeft+b.clientWidth<b.scrollWidth-2);}
   // a few functions, one click away (Nico's dock); everything else is in ☰ FUNCTIONS or the command line
   function renderLauncher(){const fn=$('#fnbar');fn.innerHTML='';
+    if(phoneOn()){PHONE_TABS().forEach(([code,g,label])=>{const b=document.createElement('button');b.type='button';b.className='fn ptab';b.dataset.code=code;b.innerHTML=`<b aria-hidden="true">${g}</b>${esc(label)}${code==='WIN'?'<i class="pt-n" hidden></i>':''}`;b.setAttribute('aria-label',label);
+      b.onclick=()=>{if(code==='MENU')toggleMenu(true);else if(code==='WIN')toggleWinSheet(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});paintPhoneTabs();return;}
     [['MENU',tl('☰ FUNCTIONS','☰ FUNZIONI')],['IDX','INDICES'],['WL','WATCHLIST'],['YLD','YIELDS'],['CAL','CALENDAR'],['MAP','HEAT MAPS'],['BRF','BRIEFING'],['N','NEWS'],['MKT','MARKETS'],['PF','PORTFOLIO'],['HELP','? HELP']].forEach(([code,label])=>{
       const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;if(code==='MENU'){b.id='fnMenuBtn';b.title=tl('all functions by category (m)','tutte le funzioni per categoria (m)');}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
@@ -3327,7 +3428,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!SRCH_RE.test(raw.trim()))return false;
     const w=openOrFocus('SRCH',{q:''});runSearch(w,raw,true);return true;}
 
-  function toggleHelp(on){$('#help').classList.toggle('on',on);if(on)$('#helpClose').focus();else $('#cmd').focus();}
+  function toggleHelp(on){$('#help').classList.toggle('on',on);if(on)$('#helpClose').focus();else focusCmd();}
 
   /* ---------- tape + clock ---------- */
   function renderTape(){const movers=UNI.filter(t=>fin(t.chg)).sort((a,b)=>Math.abs(b.chg)-Math.abs(a.chg)).slice(0,8);tapeItems={};movers.forEach(t=>tapeItems[t.sym]=instStatus(t));
@@ -3338,17 +3439,18 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const n=$('#tsNext');if(n)n.textContent=tl('next','prossimo');}
 
   /* ---------- events ---------- */
-  $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const ok=runCmd(e.target.value);if(ok)e.target.value='';else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
+  $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const ok=runCmd(e.target.value);if(ok){e.target.value='';if(isMobile())e.target.blur();}else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
   $('#helpClose').addEventListener('click',()=>toggleHelp(false));
   $('#help').addEventListener('click',e=>{if(e.target.id==='help')toggleHelp(false);});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}});
-  let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);toggleWinSheet(false);if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}});
+  let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{setPhone();wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
   // the taskbar in the top row scrolls sideways (wheel too) and fades at the edge when windows overflow
   {const tb=$('#tabs');tb.addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&tb.scrollWidth>tb.clientWidth){tb.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});tb.addEventListener('scroll',tabsOvf,{passive:true});window.addEventListener('resize',tabsOvf);}
 
   /* ---------- boot ---------- */
-  function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();renderLauncher();
-    openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});
+  function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();document.body.classList.toggle('phone',isMobile());renderLauncher();
+    // a phone starts with the watchlist and the markets board in front; a desk with four windows tiled
+    if(isMobile()){openWindow('WL',{});openWindow('MKT',{});}else{openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});}
     if(!isMobile())tileAll();
     setTape(tapeOn());renderTape();tickClock();setInterval(tickClock,1000);
     $('#tsLabel').onclick=()=>openOrFocus('SYS',defaultState('SYS'));$('#mktsOpen').onclick=()=>openOrFocus('EXCH',defaultState('EXCH'));$('#nextEv').onclick=()=>openOrFocus('CAL',defaultState('CAL'));setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
@@ -3363,8 +3465,29 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // alerts are checked on the server; this page reads what fired (toasts, desktop notifications): every 2 minutes with ALRT
     // open (with quotes), otherwise every 5 minutes when there are alerts
     setTimeout(()=>alrtLoad(true,false),4000);setInterval(()=>{if(document.hidden)return;const open=wins.some(w=>w.type==='ALRT'&&!w.min);if(open)alrtLoad(false,true);else if(ALR.d&&ALR.d.alerts.length&&Date.now()-ALR.at>=300000)alrtLoad(true,false);},60000);
-    setTimeout(()=>$('#cmd').focus(),60);
+    setTimeout(focusCmd,60);netWatch();
+    // the installable app: the interface is kept on the device by a service worker (never /api data)
+    if('serviceWorker' in navigator&&location.protocol==='https:'&&location.pathname.startsWith('/terminal'))navigator.serviceWorker.register('/terminal/sw.js',{scope:'/terminal/'}).catch(()=>{});
     DATA.init();}
+  /* ---------- the network and the sign-in, seen from /api ----------
+     When /api stops answering, say why instead of leaving every window N/A: the Cloudflare Access session expired
+     (sign in again: reload, the e-mail code) or there is no network. /api/health answers only to a signed-in session. */
+  const NET={probing:false,at:0,state:null,hiddenAt:0};
+  function setNetBar(st){NET.state=st;const b=$('#netbar');if(!b)return;b.classList.toggle('on',!!st);if(!st){b.innerHTML='';return;}
+    b.innerHTML=st==='session'?`<span><b>${tl('SESSION EXPIRED','SESSIONE SCADUTA')}</b> — ${tl('sign in again to see the data (code by e-mail).','accedi di nuovo per vedere i dati (codice via email).')}</span><button type="button">${tl('SIGN IN','ACCEDI')}</button>`
+      :`<span><b>${tl('NO NETWORK','NESSUNA RETE')}</b> — ${tl('data is N/A until the connection is back.','i dati restano N/A finché la connessione non torna.')}</span><button type="button">${tl('RETRY','RIPROVA')}</button>`;
+    b.querySelector('button').onclick=()=>location.reload();}
+  async function netProbe(){if(NET.probing||Date.now()-NET.at<15000)return;NET.probing=true;NET.at=Date.now();let st=null;
+    try{const r=await NET.fetch(CONFIG.proxyBase+'/api/health',{cache:'no-store',redirect:'manual',credentials:'same-origin'});st=r.type==='opaqueredirect'||r.status===401||r.status===403?'session':r.ok?null:NET.state;}
+    catch(e){st='offline';}
+    NET.probing=false;setNetBar(st);}
+  function netWatch(){NET.fetch=window.fetch.bind(window);
+    window.fetch=(u,o)=>{const p=NET.fetch(u,o),url=typeof u==='string'?u:(u&&u.url)||'';
+      if(url.includes('/api/')&&!url.includes('/api/health'))p.then(r=>{if(r.type==='opaqueredirect'||r.status===401||r.status===403)netProbe();else if(NET.state&&r.ok)setNetBar(null);},()=>netProbe());
+      return p;};
+    window.addEventListener('online',()=>{NET.at=0;netProbe();});window.addEventListener('offline',()=>setNetBar('offline'));
+    // back from the background after a while (the app on the home screen): check before the user sees N/A everywhere
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)NET.hiddenAt=Date.now();else if(NET.hiddenAt&&Date.now()-NET.hiddenAt>5*60000){NET.at=0;netProbe();}});}
   if(document.fonts&&document.fonts.ready){document.fonts.ready.then(()=>wins.forEach(w=>{if(!w.min)reflowWin(w);}));}
   boot();
 })();

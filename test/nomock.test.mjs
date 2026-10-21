@@ -10,12 +10,15 @@ const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}
 const ROOT = new URL("../public/", import.meta.url).pathname;
 const files = [];
 (function walk(d) { for (const f of readdirSync(d)) { const p = join(d, f); statSync(p).isDirectory() ? walk(p) : files.push(p); } })(ROOT);
-const shipped = Object.fromEntries(files.map((f) => [f.slice(ROOT.length), readFileSync(f, "utf8")]));
+// the app's icons and launch images (PNG, drawn by tools/mkicons.py: letters and shapes, no data) are not text
+const images = files.filter((f) => f.endsWith(".png")).map((f) => f.slice(ROOT.length));
+const shipped = Object.fromEntries(files.filter((f) => !f.endsWith(".png")).map((f) => [f.slice(ROOT.length), readFileSync(f, "utf8")]));
 const all = Object.values(shipped).join("\n");
 const html = shipped["terminal/index.html"];
 const script = (html.match(/<script>\n([\s\S]*?)<\/script>/) || [])[1] || "";
 
-ok("shipped files = the page, its provenance rules, its interface translations and the self-hosted chart library with its license", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/provenance.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
+ok("shipped files = the page, its provenance rules, its interface translations, the self-hosted chart library with its license, and the app's manifest and service worker", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/manifest.webmanifest,terminal/provenance.js,terminal/sw.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
+ok("the only images are the app's icons and iOS launch images, under terminal/app/", images.length === 15 && images.every((f) => /^terminal\/app\/(icon-(32|180|192|512|maskable-512)|launch-\d+x\d+)\.png$/.test(f)), images.join());
 // the chart library draws only what the page gives it: unmodified TradingView Lightweight Charts 5.2.1 (Apache-2.0), no network access
 const lwc = shipped["terminal/vendor/lightweight-charts.js"];
 ok("chart library = TradingView Lightweight Charts v5.2.1 as published (Apache-2.0), byte for byte", /TradingView Lightweight Charts™ v5\.2\.1/.test(lwc.slice(0, 200)) && createHash("sha256").update(lwc).digest("hex") === "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf");

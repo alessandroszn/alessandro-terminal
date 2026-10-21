@@ -4,7 +4,7 @@
 //   node test/frontend.e2e.mjs
 import { chromium } from "playwright";
 import { buildPositions, validateTx } from "../src/portfolio.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { normalizeQuote, buildInstrument, app as workerApp } from "../src/worker.mjs";
 import { normalizeSearch } from "../src/search.mjs";
 import { cnbcIntlRec, cnbcInstrument } from "../src/intl.mjs";
@@ -358,7 +358,11 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const FORBIDDEN = /SIMULATED|\bSIM\b|MIXED|MODEL PORTFOLIO|SAMPLE PORTFOLIO|MODEL —|hypothetical|static sample|\bsample\b|\bdemo\b|\bmock\b|\bfake\b/i;
 
 async function openTerminal(api, html = htmlFast, init = null) {
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  // service workers blocked: requests must go through the routes below (the app's worker is tested in sw.test.mjs)
+  const page = api.phone
+    ? await (await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: "block",
+        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1" })).newPage()
+    : await browser.newPage({ viewport: { width: 1600, height: 1000 }, serviceWorkers: "block" });
   const requests = [], errors = [], quoteBatches = [], spxCalls = [], brfState = { writes: [], written: false }, pfState = { tx: [], posts: [], deletes: [] }, t7 = { calls: [], alerts: [], notes: [], boards: [], hits: [], noEia: !!(api.noEia), noFred: !!(api.noFred) };
   page.on("request", (r) => requests.push(r.url()));
   page.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errors.push(m.text()); });
@@ -369,7 +373,9 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/vendor/lightweight-charts.js") return route.fulfill({ contentType: "application/javascript", body: lwcJs });
+    if (u.origin === ORIGIN && (u.pathname === "/terminal/manifest.webmanifest" || u.pathname.startsWith("/terminal/app/"))) { const f = "public" + u.pathname; return existsSync(f) ? route.fulfill({ contentType: f.endsWith(".png") ? "image/png" : "application/manifest+json", body: readFileSync(f) }) : route.fulfill({ status: 404, body: "" }); }
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
+    if (u.origin === ORIGIN && u.pathname === "/api/health") { const h = api.health ? api.health() : { body: { ok: true } }; return h === "abort" ? route.abort() : send(h); }
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
     if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/briefs")) return send(api.briefs ? api.briefs(u) : briefsApi(u, route.request().method(), brfState));
@@ -1138,7 +1144,9 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   let om = await winOf(page, "OPTIONS · AAPL");
   ok("[J] OMON: expected move from the ATM straddle and max pain from open interest (DERIVED)", /EXPECTED MOVE\s*DRV\s+±\$17\.25\s+±6\.9% · ATM straddle/.test(om.text) && /MAX PAIN\s*DRV\s+250/.test(om.text), om.text.slice(0, 600));
   await page.click('[data-ov="TERM"]'); await page.waitForTimeout(800); om = await winOf(page, "OPTIONS · AAPL");
-  ok("[J] OMON TERM: ATM IV, straddle and expected move per expiry", /29 Oct 2026\s+9\s+250\s+28\.0%\s+17\.25\s+±6\.9%\s+±4\.4%/.test(om.text) && /26 Nov 2026\s+37\s+250\s+28\.0%/.test(om.text), om.text.slice(om.text.indexOf("EXPIRY"), om.text.indexOf("EXPIRY") + 300));
+  // expiry dates follow the fixture (today + 9 / + 37 days); 1σ uses the time left to the close, so it moves with the hour
+  const fmtExp = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+  ok("[J] OMON TERM: ATM IV, straddle and expected move per expiry", new RegExp(fmtExp(dShift(today, 9)) + "\\s+9\\s+250\\s+28\\.0%\\s+17\\.25\\s+±6\\.9%\\s+±4\\.[3-6]%").test(om.text) && new RegExp(fmtExp(dShift(today, 37)) + "\\s+37\\s+250\\s+28\\.0%").test(om.text), om.text.slice(om.text.indexOf("EXPIRY"), om.text.indexOf("EXPIRY") + 300));
   await page.click('[data-ov="SURF"]'); await page.waitForTimeout(800); om = await winOf(page, "OPTIONS · AAPL");
   ok("[J] OMON SURFACE: IV by moneyness and expiry; no strike near a level → —", /100\.0% ATM\s+28\.0%\s+28\.0%/.test(om.text) && /95\.0% put\s+29\.0%/.test(om.text) && /85\.0% put\s+—\s+—/.test(om.text), om.text.slice(om.text.indexOf("STRIKE / SPOT"), om.text.indexOf("STRIKE / SPOT") + 300));
   await page.click('[data-ov="PAY"]'); await page.waitForTimeout(800);
@@ -1204,6 +1212,65 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[K] VIEW: UNDO brings back the windows a view replaced", (await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent))).includes("NEWS"));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[K] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== L. iPhone: the installable app — one window at a time, tab bar, sheet, no keyboard pop-ups, sign-in ===============
+{
+  const api = { ...OK_API, phone: true };
+  const { page, errors } = await openTerminal(api);
+  await page.waitForTimeout(1500);
+  const vis = () => page.evaluate(() => [...document.querySelectorAll(".win")].filter((w) => getComputedStyle(w).display !== "none").map((w) => w.querySelector(".w-title").textContent));
+  const st0 = await page.evaluate(() => ({ phone: document.body.classList.contains("phone"), tabs: [...document.querySelectorAll("#fnbar .ptab")].map((b) => b.dataset.code + (b.classList.contains("on") ? "*" : "")).join(","), n: document.querySelector("#fnbar .pt-n")?.textContent,
+    over: document.documentElement.scrollWidth - innerWidth, cmdFont: getComputedStyle(document.querySelector("#cmd")).fontSize, active: document.activeElement && document.activeElement.id, safe: getComputedStyle(document.querySelector("#cmdbar")).paddingTop }));
+  ok("[L] iPhone: phone layout, one window shown (MARKETS, the last opened), tab bar MKT/WL/N/PF/MENU/WIN with MKT on and 2 windows", st0.phone && JSON.stringify(await vis()) === '["MARKETS"]' && st0.tabs === "MKT*,WL,N,PF,MENU,WIN" && st0.n === "2", JSON.stringify(st0));
+  ok("[L] iPhone: no sideways page scroll; the command line at 16px (iOS does not zoom); no field focused at start (no keyboard)", st0.over <= 0 && st0.cmdFont === "16px" && st0.active !== "cmd", JSON.stringify(st0));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-markets.png" });
+  await page.tap('#fnbar .ptab[data-code="WL"]'); await page.waitForTimeout(500);
+  ok("[L] iPhone: tapping WATCH brings the watchlist to the front and hides the board", JSON.stringify(await vis()) === '["WATCHLIST"]' && (await page.$eval('#fnbar .ptab[data-code="WL"]', (b) => b.classList.contains("on"))));
+  await page.tap("#cmd"); await page.fill("#cmd", "NVDA"); await page.press("#cmd", "Enter"); await page.waitForTimeout(900);
+  const gp = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, n: document.querySelector("#fnbar .pt-n").textContent }));
+  ok("[L] iPhone: a ticker typed in the command line opens full screen and the keyboard closes", (await vis())[0].startsWith("NVDA") && gp.active !== "cmd" && gp.n === "3", JSON.stringify(gp));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-gp.png" });
+  await page.tap('#fnbar .ptab[data-code="WIN"]'); await page.waitForTimeout(400);
+  const sheet = await page.evaluate(() => ({ on: document.querySelector("#wsheet")?.classList.contains("on"), rows: [...document.querySelectorAll("#wsheet .ws-open")].map((b) => b.innerText.replace(/\s+/g, " ")) }));
+  ok("[L] iPhone: WINDOWS lists the open windows, the front one first", sheet.on && sheet.rows.length === 3 && sheet.rows[0].startsWith("GP NVDA") && sheet.rows.some((r) => r.startsWith("WL")) && sheet.rows.some((r) => r.startsWith("MKT")), JSON.stringify(sheet));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-windows.png" });
+  await page.locator("#wsheet .ws-row .ws-x").first().tap(); await page.waitForTimeout(400);
+  ok("[L] iPhone: closing the front window shows the most recent other one", JSON.stringify(await vis()) === '["WATCHLIST"]' && (await page.$$("#wsheet .ws-row")).length === 2);
+  await page.tap('#wsheet [data-a="close"]'); await page.waitForTimeout(400);
+  const empty = await page.evaluate(() => ({ e: document.querySelector("#desk").dataset.empty || "", n: document.querySelectorAll(".win").length }));
+  ok("[L] iPhone: CLOSE ALL leaves a hint, not an empty screen", empty.n === 0 && /tap a function below/.test(empty.e), JSON.stringify(empty));
+  await page.tap('#wsheet [data-a="undo"]'); await page.waitForTimeout(600); await page.tap("#wsheet .ws-done"); await page.waitForTimeout(300);
+  ok("[L] iPhone: REOPEN brings the windows back, one in front", (await page.$$(".win")).length === 2 && (await vis()).length === 1 && !(await page.$eval("#wsheet", (x) => x.classList.contains("on"))));
+  await page.tap('#fnbar .ptab[data-code="MENU"]'); await page.waitForTimeout(400);
+  const menu = await page.evaluate(() => { const c = document.querySelector("#fnmenu .fm-card"), r = c.getBoundingClientRect(); return { on: document.querySelector("#fnmenu").classList.contains("on"), full: r.width >= innerWidth - 1 && r.height >= innerHeight - 1, x: !!c.querySelector(".fm-x"), focused: document.activeElement && document.activeElement.classList.contains("fm-in") }; });
+  ok("[L] iPhone: MENU opens the functions full screen with a close button, without opening the keyboard", menu.on && menu.full && menu.x && !menu.focused, JSON.stringify(menu));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-menu.png" });
+  await page.tap('#fnmenu .fm-i[data-fn="CMDTY"]'); await page.waitForTimeout(1500);
+  ok("[L] iPhone: a function from the menu opens in front; the menu closes", JSON.stringify(await vis()) === '["COMMODITIES"]' && !(await page.$eval("#fnmenu", (x) => x.classList.contains("on"))));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-cmdty.png" });
+  // the app stays open for days: an expired Cloudflare Access session is said, with a way to sign in again
+  api.health = () => ({ status: 403, body: { error: "access" } }); api.quote = () => ({ status: 403, body: { error: "access" } });
+  await page.evaluate(() => fetch("https://alessandrozanichelli.com/api/quote?symbols=NVDA").catch(() => null)); await page.waitForTimeout(800);
+  const nb = await page.evaluate(() => ({ on: document.querySelector("#netbar").classList.contains("on"), t: document.querySelector("#netbar").innerText }));
+  ok("[L] session expired → SESSION EXPIRED bar with SIGN IN (a reload goes to the Access sign-in)", nb.on && /SESSION EXPIRED/.test(nb.t) && /SIGN IN/.test(nb.t), JSON.stringify(nb));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-session.png" });
+  api.health = () => ({ body: { ok: true } }); api.quote = OK_API.quote;
+  await page.evaluate(() => fetch("https://alessandrozanichelli.com/api/quote?symbols=NVDA").catch(() => null)); await page.waitForTimeout(500);
+  ok("[L] the bar goes away as soon as /api answers again", !(await page.$eval("#netbar", (x) => x.classList.contains("on"))));
+  // installable: manifest (with the Access cookie), icons, iOS tags
+  const man = await page.evaluate(async () => { const l = document.querySelector('link[rel="manifest"]'), m = await (await fetch(l.href, { credentials: "include" })).json();
+    const icons = await Promise.all(m.icons.map(async (i) => { const r = await fetch(new URL(i.src, l.href)); return r.ok && (r.headers.get("content-type") || "").includes("png"); }));
+    return { cred: l.crossOrigin, m: { name: m.name, start: m.start_url, scope: m.scope, display: m.display, bg: m.background_color }, icons, apple: !!document.querySelector('link[rel="apple-touch-icon"]'), capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
+      bar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content, launch: document.querySelectorAll('link[rel="apple-touch-startup-image"]').length,
+      launchOk: (await Promise.all([...document.querySelectorAll('link[rel="apple-touch-startup-image"]')].map(async (x) => (await fetch(x.href)).ok))).every(Boolean) }; });
+  ok("[L] installable: manifest fetched with credentials (Access), standalone, start /terminal/, icons and launch images served, iOS tags", man.cred === "use-credentials" && man.m.display === "standalone" && man.m.start === "/terminal/" && man.m.scope === "/terminal/" && man.icons.length >= 3 && man.icons.every(Boolean) && man.apple && man.capable === "yes" && man.bar === "black-translucent" && man.launch === 10 && man.launchOk, JSON.stringify(man));
+  await page.setViewportSize({ width: 1400, height: 900 }); await page.waitForTimeout(700);
+  const desk = await page.evaluate(() => ({ phone: document.body.classList.contains("phone"), shown: [...document.querySelectorAll(".win")].filter((w) => getComputedStyle(w).display !== "none").length, n: document.querySelectorAll(".win").length, fn: document.querySelectorAll("#fnbar .ptab").length }));
+  ok("[L] wider than a phone (rotated tablet, desktop): back to floating windows, all shown, the desktop dock", !desk.phone && desk.shown === desk.n && desk.n >= 2 && desk.fn === 0, JSON.stringify(desk));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[L] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

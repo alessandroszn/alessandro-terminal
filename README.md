@@ -111,6 +111,25 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 - Writing an edition (scheduled or from the terminal) reads the markets inputs only from these staged copies; each copy is read once.
 - Usage: ~300 runs/day, ~130 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition (the markets inputs cost none).
 
+## iPhone app (installable web app, no cost)
+- Install: open alessandrozanichelli.com/terminal/ in Safari → Share → Add to Home Screen. It opens full screen
+  (`display: standalone`, status bar over the dark header), with its icon and launch image; no App Store, no Apple
+  developer account. Updates arrive with every deploy.
+- Sign-in: the same Cloudflare Access policy. The installed app keeps its own cookies, so the e-mail code is asked once
+  per Access session (24 h today; the session length is set in Access). The manifest is fetched with credentials.
+- Layout at ≤ 880 px (phone, and the installed app): one window at a time, full screen; a tab bar (MARKETS, WATCH, NEWS,
+  PORTF., MENU, WINDOWS with the count); WINDOWS is a sheet to switch, close, close all, reopen, reload; the function
+  menu full screen with a close button; fields at 16 px (iOS does not zoom); no field focused automatically (no
+  keyboard pop-ups); notch, home indicator and landscape insets respected. Wider (a rotated tablet, a desktop):
+  floating windows as before.
+- `public/terminal/sw.js` (service worker, scope /terminal/): keeps only the interface (page, scripts, chart library,
+  icons) so the app opens without a network or on a slow one (network first, cached copy after 3.5 s or offline). It
+  never handles `/api/*`: data is always live, N/A without a network. A redirect (Access sign-in) passes through and is
+  never cached.
+- When `/api` stops answering, a bar says why: SESSION EXPIRED (sign in again) or NO NETWORK — checked with
+  `/api/health`, also when the app comes back from the background after 5 minutes.
+- Icons and launch images: `public/terminal/app/`, drawn by `tools/mkicons.py`.
+
 ## Languages (EN / IT)
 - Toggle in the top bar, remembered in the browser (Italian by default for an Italian browser).
 - `public/terminal/i18n.js` renders the terminal's own words (labels, messages, notes) in Italian as they are drawn; data is never translated (headlines, company and event names, tickers; `.notranslate`). Each text node is translated once; phrases never match inside longer words.
@@ -248,6 +267,7 @@ node test/cron.test.mjs         # T06: scheduled briefings (plan per minute, CET
 node test/briefmkt.test.mjs     # markets in the briefings: indices, ECB fixing, energy, crypto, IMF (staged, period changes, windows)
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, FRED), BOND changes/spreads, CFTC COT, ETF list
+node test/sw.test.mjs           # the iPhone app's service worker: interface only, never /api, sign-in redirects
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/yields-world.test.mjs # more countries' yields: parsers, past curves, spreads, OECD monthly
