@@ -851,7 +851,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1296,6 +1296,54 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[L] wider than a phone (rotated tablet, desktop): back to floating windows, all shown, the desktop dock", !desk.phone && desk.shown === desk.n && desk.n >= 2 && desk.fn === 0, JSON.stringify(desk));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[L] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== M. split screen (desktop): two windows side by side, a divider, swap, the second-window chooser ===============
+{
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1500);
+  const geo = () => page.evaluate(() => { const d = document.querySelector("#desk").getBoundingClientRect();
+    const ws = [...document.querySelectorAll(".win")].map((w) => { const r = w.getBoundingClientRect(); return { t: w.querySelector(".w-title").textContent, x: Math.round(r.left - d.left), w: Math.round(r.width), h: Math.round(r.height), z: +w.style.zIndex }; });
+    const dv = document.querySelector(".split-div"); return { dw: Math.round(d.width), dh: Math.round(d.height), ws, div: dv ? Math.round(dv.getBoundingClientRect().left - d.left) : null, on: !!document.querySelector(".tb-split.on") }; });
+  const pick = (g, re) => g.ws.find((w) => re.test(w.t));
+  await page.click(".tb-split"); await page.waitForTimeout(500);
+  let g = await geo(); const L = pick(g, /^GOVERNMENT|^YIELD/), R = pick(g, /^MARKETS/), half = Math.round((g.dw - 6) / 2);
+  ok("[M] SPLIT (taskbar ◫): the window in front on the left half, the previous one on the right, full height, a divider between", L && R && L.x === 0 && Math.abs(L.w - half) <= 1 && Math.abs(R.x - (half + 6)) <= 1 && L.h === g.dh && R.h === g.dh && g.div !== null && Math.abs(g.div - half) <= 1 && g.on, JSON.stringify(g));
+  await page.click(".tb-split"); await page.waitForTimeout(400); g = await geo();
+  ok("[M] SPLIT again swaps the two", pick(g, /^MARKETS/).x === 0 && pick(g, /^GOVERNMENT|^YIELD/).x > 0, JSON.stringify(g.ws));
+  const dvb = await page.$eval(".split-div", (d) => { const r = d.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  const deskBox = await page.$eval("#desk", (d) => { const r = d.getBoundingClientRect(); return { x: r.left, w: r.width }; });
+  await page.mouse.move(dvb.x, dvb.y); await page.mouse.down(); await page.mouse.move(deskBox.x + deskBox.w * 0.7, dvb.y, { steps: 6 }); await page.mouse.up(); await page.waitForTimeout(300); g = await geo();
+  ok("[M] dragging the divider resizes both: 70 / 30", Math.abs(pick(g, /^MARKETS/).w / g.dw - 0.7) < 0.02 && Math.abs(pick(g, /^MARKETS/).w + 6 + pick(g, /^GOVERNMENT|^YIELD/).w - g.dw) <= 2, JSON.stringify(g.ws));
+  await page.dblclick(".split-div"); await page.waitForTimeout(300); g = await geo();
+  ok("[M] double-click on the divider: half and half", Math.abs(pick(g, /^MARKETS/).w - Math.round((g.dw - 6) / 2)) <= 1);
+  await page.setViewportSize({ width: 1300, height: 900 }); await page.waitForTimeout(500); g = await geo();
+  ok("[M] the split follows the browser's size", Math.abs(pick(g, /^MARKETS/).w - Math.round((g.dw - 6) / 2)) <= 1 && pick(g, /^MARKETS/).h === g.dh && g.dw <= 1300 && g.div !== null, JSON.stringify(g));
+  await page.setViewportSize({ width: 1600, height: 1000 }); await page.waitForTimeout(500);
+  // moving one of the two ends the split
+  const hd = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("MARKETS")); const r = w.querySelector(".w-title").getBoundingClientRect(); return { x: r.left + 10, y: r.top + r.height / 2 }; });
+  await page.mouse.move(hd.x, hd.y); await page.mouse.down(); await page.mouse.move(hd.x + 120, hd.y + 140, { steps: 5 }); await page.mouse.up(); await page.waitForTimeout(300); g = await geo();
+  ok("[M] dragging a split window ends the split (divider gone, the window where it was dropped)", g.div === null && !g.on && pick(g, /^MARKETS/).x > 50, JSON.stringify(g));
+  // SPLIT A B from the command line
+  await cmd(page, "SPLIT NVDA MSFT"); await page.waitForTimeout(800); g = await geo();
+  const n1 = pick(g, /^NVDA/), m1 = pick(g, /^MSFT/);
+  ok("[M] SPLIT NVDA MSFT: two charts side by side, NVDA left", n1 && m1 && n1.x === 0 && m1.x > g.dw / 2 - 5 && g.div !== null, JSON.stringify(g.ws));
+  // one window only: the other half asks which window
+  await cmd(page, "CLOSE"); await page.waitForTimeout(300); await cmd(page, "MKT"); await page.waitForTimeout(600);
+  await page.click(".win .w-split"); await page.waitForTimeout(300);
+  const ph = await page.evaluate(() => { const p = document.querySelector(".split-ph"); return p ? p.innerText : null; });
+  ok("[M] one window and ◫: it takes the left half, the right half asks for the second window", ph && /SECOND WINDOW/.test(ph) && /FUNCTIONS/.test(ph) && /Cancel/.test(ph), String(ph));
+  await cmd(page, "WL"); await page.waitForTimeout(700); g = await geo();
+  ok("[M] …the next window opened fills it", pick(g, /^MARKETS/).x === 0 && pick(g, /^WATCHLIST/).x > g.dw / 2 - 5 && !(await page.$(".split-ph")) && g.div !== null, JSON.stringify(g));
+  // Alt+→: the window in front goes right
+  await page.click(".tb-close"); await page.waitForTimeout(200); await cmd(page, "N"); await page.waitForTimeout(400); await cmd(page, "CAL"); await page.waitForTimeout(600);
+  await page.click("#desk", { position: { x: 5, y: 5 } }).catch(() => null); await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.keyboard.press("Alt+ArrowRight"); await page.waitForTimeout(400); g = await geo();
+  ok("[M] Alt+→: the window in front on the right half, the previous one on the left", pick(g, /^ECONOMIC|^CALENDAR/) && pick(g, /^ECONOMIC|^CALENDAR/).x > g.dw / 2 - 5 && pick(g, /^NEWS/).x === 0, JSON.stringify(g.ws));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[M] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  if (SHOTS) { await cmd(page, "SPLIT NVDA MKT"); await page.waitForTimeout(1500); await page.screenshot({ path: SHOTS + "/split.png" }); }
   await page.close();
 }
 

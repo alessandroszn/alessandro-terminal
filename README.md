@@ -111,6 +111,14 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 - Writing an edition (scheduled or from the terminal) reads the markets inputs only from these staged copies; each copy is read once.
 - Usage: ~300 runs/day, ~130 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition (the markets inputs cost none).
 
+## Split screen (desktop)
+- ◫ in the taskbar, ◫ in a window's title, Alt+← / Alt+→, `SPLIT` in the command line or the menu (LAYOUT): the window
+  in front and the previous one side by side, each full height; again: swap. A divider between them: drag to resize
+  (20–80 %), double-click for half and half, ← → when focused. `SPLIT NVDA MSFT`, `SPLIT WL N` (a function or a ticker
+  each) opens or brings both; `SPLIT NVDA` pairs it with the previous window. With one window it takes the left half and
+  the right half lists the open windows (or the next window opened fills it; Esc cancels). Moving, resizing,
+  minimising or maximising one of the two, TILE, CLOSE or a saved VIEW ends the split; the browser's size is followed.
+
 ## iPhone app (installable web app, no cost)
 - Install: open alessandrozanichelli.com/terminal/ in Safari → Share → Add to Home Screen. It opens full screen
   (`display: standalone`), translucent status bar over the theme's background. iOS 26.1+ blurs a band under the

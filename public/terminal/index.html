@@ -86,6 +86,18 @@
   .sys-btn{flex:0 0 auto;background:var(--panel);border:1px solid var(--line-2);color:var(--muted);border-radius:3px;padding:3px 8px;font:inherit;font-size:10px;letter-spacing:.08em;cursor:pointer;white-space:nowrap}
   .sys-btn:hover{color:var(--fg);border-color:var(--amber)}
   .tb-sep{width:1px;height:16px;background:var(--line-2);flex:0 0 auto}
+  .sys-btn.tb-split.on{color:var(--amber);border-color:var(--amber)}
+  /* split screen: the divider between the two windows (drag it; double-click: half and half) and the second-window chooser */
+  .split-div{position:absolute;top:0;width:6px;cursor:col-resize;z-index:5000;display:flex;align-items:center;justify-content:center;touch-action:none;outline:none}
+  .split-div::after{content:"";width:2px;height:48px;border-radius:2px;background:var(--line-2);transition:background .12s}
+  .split-div:hover::after,.split-div.drag::after,.split-div:focus-visible::after{background:var(--amber)}
+  .split-ph{position:absolute;top:0;z-index:4999;border:1px dashed var(--line-2);border-radius:5px;background:var(--panel-2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6;overflow:auto}
+  .split-ph b{color:var(--amber);letter-spacing:.14em;font-size:11px}
+  .split-ph .sp-list{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:520px}
+  .split-ph button{background:var(--panel);border:1px solid var(--line-2);color:var(--fg);border-radius:4px;font:inherit;font-size:11.5px;padding:6px 10px;cursor:pointer}
+  .split-ph button:hover{border-color:var(--amber)}
+  .split-ph button code{color:var(--amber);font-family:inherit;font-weight:700;margin-right:6px}
+  .split-ph .sp-x{color:var(--muted)}
   .tb-win{flex:0 0 auto;display:flex;align-items:center;gap:5px;background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:3px;padding:3px 7px;font:inherit;font-size:10.5px;cursor:pointer;white-space:nowrap}
   .tb-win:hover{color:var(--fg)}
   .tb-win.active{border-color:var(--amber);color:var(--fg)}
@@ -429,7 +441,7 @@
   body.phone .win{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;border:0;border-radius:0;box-shadow:none;min-width:0;min-height:0;display:none}
   body.phone .win.front{display:flex}
   body.phone .win-head{cursor:default;touch-action:manipulation;padding:4px 2px 4px 12px;font-size:11px;min-height:44px}
-  body.phone .w-min,body.phone .w-max,body.phone .w-grip{display:none}
+  body.phone .w-min,body.phone .w-max,body.phone .w-grip,body.phone .w-split{display:none}
   .w-back{display:none}
   body.phone .w-back:not([hidden]){display:inline-flex;align-items:center;min-height:40px;padding:0 10px 0 2px;margin-left:-6px;color:var(--amber);font-size:13px;letter-spacing:.04em;white-space:nowrap}
   body.phone .w-back:not([hidden]) + .w-tag{display:none}
@@ -588,6 +600,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>drag title</code><span>Move a window; drag the corner grip to resize</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
     <div class="help-row"><code>TILE</code><span>Arrange every open window in a grid</span></div>
+    <div class="help-row"><code>◫ SPLIT</code><span>Split screen: the window in front and the previous one side by side (the ◫ in the taskbar or in a window's title, Alt+← / Alt+→); again swaps them; drag the divider to resize, double-click it for half and half. SPLIT NVDA MSFT or SPLIT WL N opens two side by side</span></div>
     <div class="help-row"><code>CLOSE</code><span>Close all windows · <code>UNDO</code> brings them back</span></div>
     <div class="help-grp">COMMAND LINE</div>
     <div class="help-row"><code>NVDA</code><span>Open a security window</span></div>
@@ -2437,7 +2450,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['SPRD',tl('Spreads (BTP–Bund, 2s10s, any pair)','Spread (BTP–Bund, 2s10s, qualsiasi coppia)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves','Curve dei futures')]]],
     ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')]]],
     ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['PFA',tl('Portfolio analytics — performance and risk','Analisi del portafoglio — rendimento e rischio')],['ALRT',tl('Alerts — price, move, market open / close, data releases; Telegram','Avvisi — prezzo, variazione, apertura / chiusura, dati macro; Telegram')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
-    ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['VIEW',tl('Saved views (layouts)','Viste salvate (layout)')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
+    ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['VIEW',tl('Saved views (layouts)','Viste salvate (layout)')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['SPLIT',tl('Split screen (two windows)','Schermo diviso (due finestre)')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
   const MN={q:'',sel:0};
   function menuItems(){const q=MN.q.trim().toUpperCase();const out=[];menuDef().forEach(([id,label,items])=>items.forEach(([code,name,na])=>{if(!q||code.includes(q)||name.toUpperCase().includes(q))out.push({cat:id,label,code,name,na});}));return out;}
   function renderMenu(){const box=$('#fnmenu');if(!box)return;const list=menuItems();MN.sel=Math.min(MN.sel,Math.max(0,list.length-1));
@@ -3320,7 +3333,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
-  function bringFront(w){activeId=w.id;w.z=++zTop;if(w.el)w.el.style.zIndex=w.z;$$('.tb-win').forEach(c=>c.classList.toggle('active',+c.dataset.id===activeId));if(phoneOn())phoneSync();}
+  function bringFront(w){activeId=w.id;w.z=++zTop;if(w.el)w.el.style.zIndex=w.z;$$('.tb-win').forEach(c=>c.classList.toggle('active',+c.dataset.id===activeId));if(phoneOn())phoneSync();
+    // waiting for the second window of a split screen: the window brought to the front (opened, or picked) fills it
+    if(SPLIT.pending!=null&&w.id!==SPLIT.pending&&!SPLIT.busy){const a=wins.find(x=>x.id===SPLIT.pending);splitPendingOff();if(a)splitWith(a,w);}}
   /* ---------- phone (≤ 880 px; the app on the iPhone home screen): one window at a time ---------- */
   const phoneOn=()=>document.body.classList.contains('phone');let phFront=null;
   const focusCmd=()=>{if(!isMobile())$('#cmd').focus();}; // on a phone a focused field opens the keyboard
@@ -3367,10 +3382,11 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
+    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
     deskEl.appendChild(el);w.el=el;w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
     el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
+    el.querySelector('.w-split').onclick=e=>{e.stopPropagation();splitFrom(w);};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
     el.querySelector('.w-max').onclick=e=>{e.stopPropagation();toggleMax(w);};
     el.addEventListener('pointerdown',()=>bringFront(w),true);
@@ -3385,20 +3401,20 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{ex:'ALL',sector:'ALL',cap:'ALL',dir:'ALL',country:'ALL',sort:'cap',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow(type,state||defaultState(type));}
-  function closeWin(w,batch){lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
-  function closeAll(){if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
+  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
+  function closeAll(){splitEnd();splitPendingOff();if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
   function undoClose(){const item=closedStack.pop();if(!item)return;const arr=Array.isArray(item)?item:[item];arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);});renderTaskbar();}
-  function toggleMin(w){w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
-  function toggleMax(w){w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
+  function toggleMin(w){if(!SPLIT.busy&&(SPLIT.l===w.id||SPLIT.r===w.id))splitEnd();w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
+  function toggleMax(w){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
   // interactive charts (Lightweight Charts) size themselves; canvas drawings are redrawn
   function reflowWin(w){if(!w.bodyEl||w.min)return;
     if(w.type==='MAP')drawSpx(w);
     else if(w._draw)w._draw();}
-  function tileAll(){const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
+  function tileAll(){splitEnd();splitPendingOff();const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
     live.forEach((w,i)=>{w.max=false;w.el.classList.remove('ismax');w.x=(i%cols)*cw;w.y=Math.floor(i/cols)*ch;w.w=cw-6;w.h=ch-6;applyRect(w);requestAnimationFrame(()=>reflowWin(w));});bringFront(live[live.length-1]);}
 
   let drag=null;
-  function startDrag(w,e,head){if(isMobile()||w.max)return;if(e.target.closest('.w-ctl'))return;e.preventDefault();bringFront(w);
+  function startDrag(w,e,head){if(isMobile()||w.max)return;if(e.target.closest('.w-ctl'))return;e.preventDefault();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
     drag={w,sx:e.clientX,sy:e.clientY,ox:w.x,oy:w.y};head.setPointerCapture&&head.setPointerCapture(e.pointerId);
     const move=ev=>{if(!drag)return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;w.x=Math.max(0,Math.min(drag.ox+(ev.clientX-drag.sx),dw-60));w.y=Math.max(0,Math.min(drag.oy+(ev.clientY-drag.sy),dh-28));applyRect(w);};
     const up=ev=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);snap(w);drag=null;};
@@ -3408,17 +3424,61 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(w.x<=T){w.x=0;w.y=0;w.w=Math.floor(dw/2);w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
     else if(w.x+w.w>=dw-T){w.w=Math.floor(dw/2);w.x=dw-w.w;w.y=0;w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}}
   let rsz=null;
-  function startResize(w,e){if(isMobile()||w.max)return;e.preventDefault();e.stopPropagation();bringFront(w);
+  function startResize(w,e){if(isMobile()||w.max)return;e.preventDefault();e.stopPropagation();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
     rsz={w,sx:e.clientX,sy:e.clientY,ow:w.w,oh:w.h};
     const move=ev=>{if(!rsz)return;w.w=Math.max(260,rsz.ow+(ev.clientX-rsz.sx));w.h=Math.max(170,rsz.oh+(ev.clientY-rsz.sy));applyRect(w);};
     let raf=0;const rmove=ev=>{move(ev);if(!raf)raf=requestAnimationFrame(()=>{raf=0;reflowWin(w);});};
     const up=()=>{window.removeEventListener('pointermove',rmove);window.removeEventListener('pointerup',up);reflowWin(w);rsz=null;};
     window.addEventListener('pointermove',rmove);window.addEventListener('pointerup',up);}
 
+  /* ---------- split screen (desktop): two windows side by side, a divider between them ----------
+     SPLIT (taskbar ◫, the ◫ in a window's title, Alt+← / Alt+→, the command SPLIT [A] [B]): the window in front on
+     the left, the previous one on the right; again: swap. With one window, the other half asks which window. Moving,
+     resizing, minimising or maximising one of the two, TILE or CLOSE ends the split. */
+  const SPLIT={l:null,r:null,ratio:0.5,pending:null,busy:false};
+  const splitOn=()=>SPLIT.l!=null&&SPLIT.r!=null;
+  const prevWin=(not)=>wins.filter(x=>!x.min&&x!==not).sort((a,b)=>b.z-a.z)[0]||null;
+  function splitEnd(){if(SPLIT.l==null&&SPLIT.r==null)return;SPLIT.l=SPLIT.r=null;const d=deskEl&&deskEl.querySelector('.split-div');if(d)d.remove();$$('.tb-split').forEach(b=>b.classList.remove('on'));}
+  function splitPendingOff(){if(SPLIT.pending==null)return;SPLIT.pending=null;const p=deskEl&&deskEl.querySelector('.split-ph');if(p)p.remove();}
+  function splitWith(a,b){if(!a||!b||a===b||isMobile())return;splitPendingOff();SPLIT.busy=true;try{[a,b].forEach(w=>{if(w.min)toggleMin(w);});SPLIT.l=a.id;SPLIT.r=b.id;bringFront(b);bringFront(a);}finally{SPLIT.busy=false;}splitApply();$$('.tb-split').forEach(x=>x.classList.add('on'));}
+  function splitApply(){const d0=deskEl&&deskEl.querySelector('.split-div');if(!splitOn()||isMobile()){if(d0)d0.remove();return;}
+    const L=wins.find(w=>w.id===SPLIT.l),R=wins.find(w=>w.id===SPLIT.r);if(!L||!R||L.min||R.min){splitEnd();return;}
+    const dw=deskEl.clientWidth,dh=deskEl.clientHeight,G=6,lw=Math.round((dw-G)*SPLIT.ratio);
+    [L,R].forEach(w=>{w.max=false;w.el.classList.remove('ismax');});
+    Object.assign(L,{x:0,y:0,w:lw,h:dh});Object.assign(R,{x:lw+G,y:0,w:dw-lw-G,h:dh});applyRect(L);applyRect(R);
+    let d=d0;if(!d){d=document.createElement('div');d.className='split-div';d.tabIndex=0;d.setAttribute('role','separator');d.setAttribute('aria-orientation','vertical');deskEl.appendChild(d);
+      d.title=tl('Drag to resize · double-click: half and half · ← → with the keyboard','Trascina per ridimensionare · doppio clic: metà e metà · ← → da tastiera');
+      d.addEventListener('pointerdown',e=>{e.preventDefault();d.classList.add('drag');d.setPointerCapture&&d.setPointerCapture(e.pointerId);const box=deskEl.getBoundingClientRect();let raf=0;
+        const mv=ev=>{SPLIT.ratio=Math.min(0.8,Math.max(0.2,(ev.clientX-box.left)/box.width));if(!raf)raf=requestAnimationFrame(()=>{raf=0;splitApply();});};
+        const up=()=>{d.classList.remove('drag');window.removeEventListener('pointermove',mv);window.removeEventListener('pointerup',up);splitApply();};
+        window.addEventListener('pointermove',mv);window.addEventListener('pointerup',up);});
+      d.addEventListener('dblclick',()=>{SPLIT.ratio=0.5;splitApply();});
+      d.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();SPLIT.ratio=Math.min(0.8,Math.max(0.2,SPLIT.ratio+(e.key==='ArrowLeft'?-0.05:0.05)));splitApply();}});}
+    d.style.left=lw+'px';d.style.height=dh+'px';d.setAttribute('aria-valuenow',String(Math.round(SPLIT.ratio*100)));
+    requestAnimationFrame(()=>{reflowWin(L);reflowWin(R);});}
+  // one window: it takes the left half; the right half lists the open windows and waits for one (picked, or opened next)
+  function splitAsk(a){if(isMobile())return;splitEnd();splitPendingOff();SPLIT.pending=a.id;
+    const dw=deskEl.clientWidth,dh=deskEl.clientHeight,G=6,lw=Math.round((dw-G)*SPLIT.ratio);a.max=false;a.el.classList.remove('ismax');Object.assign(a,{x:0,y:0,w:lw,h:dh});applyRect(a);requestAnimationFrame(()=>reflowWin(a));
+    const p=document.createElement('div');p.className='split-ph';p.style.left=(lw+G)+'px';p.style.width=(dw-lw-G)+'px';p.style.height=dh+'px';
+    const others=wins.filter(x=>x!==a);
+    p.innerHTML=`<b>${tl('SPLIT SCREEN · SECOND WINDOW','SCHERMO DIVISO · SECONDA FINESTRA')}</b>${others.length?`<div>${tl('Pick one of the open windows:','Scegli una delle finestre aperte:')}</div><div class="sp-list">${others.map(x=>`<button type="button" data-sp="${x.id}"><code>${esc(WINTYPES[x.type].tag)}</code>${esc(WINTYPES[x.type].title(x))}</button>`).join('')}</div>`:''}
+      <div>${tl('or open one: a ticker or a function in the command line, or','oppure aprine una: un ticker o una funzione nella riga di comando, o')} <button type="button" data-sp="menu">☰ ${tl('FUNCTIONS','FUNZIONI')}</button></div><button type="button" class="sp-x" data-sp="x">${tl('Cancel (Esc)','Annulla (Esc)')}</button>`;
+    deskEl.appendChild(p);
+    $$('[data-sp]',p).forEach(b=>b.onclick=()=>{const v=b.dataset.sp;if(v==='menu')toggleMenu(true);else if(v==='x')splitPendingOff();else{const w=wins.find(x=>x.id===+v);if(w){if(w.min){SPLIT.busy=true;toggleMin(w);SPLIT.busy=false;}bringFront(w);}}});}
+  // the taskbar ◫, Alt+←, the command SPLIT: the window in front and the previous one; again: swap them
+  function splitScreen(frontRight){if(isMobile())return;if(SPLIT.pending!=null){splitPendingOff();return;}
+    if(splitOn()&&!frontRight){const t=SPLIT.l;SPLIT.l=SPLIT.r;SPLIT.r=t;splitApply();return;}
+    const f=wins.find(x=>x.id===activeId&&!x.min)||prevWin(null);if(!f){toast(tl('<b>SPLIT</b> open a window first','<b>DIVIDI</b> apri prima una finestra'),3000);return;}
+    const p=prevWin(f);if(!p){splitAsk(f);return;}if(frontRight)splitWith(p,f);else splitWith(f,p);}
+  // the ◫ in a window's title: this window on the left with the previous one; in a split, swap
+  function splitFrom(w){if(SPLIT.l===w.id||SPLIT.r===w.id){const t=SPLIT.l;SPLIT.l=SPLIT.r;SPLIT.r=t;splitApply();return;}const p=prevWin(w);if(p)splitWith(w,p);else splitAsk(w);}
+  // SPLIT A B (a function or a ticker each): A on the left, B on the right; SPLIT A: A with the previous window
+  function openTok(tok){if(FUNCMAP[tok]&&!['HELP','MENU','TOUR'].includes(tok)){const t=FUNCMAP[tok];return t==='GP'?null:openOrFocus(t,defaultState(t));}if(BY[tok]||SYMBOL_OK.test(tok)||/^C:[A-Z0-9][A-Z0-9.\-]{0,15}$/.test(tok))return openSecurity(tok);return null;}
+
   /* ---------- taskbar + launcher ---------- */
   function renderTaskbar(){phoneSync();const bar=$('#tabs');bar.innerHTML='';
     // (☰ FUNCTIONS lives in the dock at the bottom; here only the window tools, as icons)
-    [['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
+    [['◫','tb-split'+(splitOn()?' on':''),tl('Split screen: the window in front and the previous one side by side (again: swap them) · Alt+← / Alt+→','Schermo diviso: la finestra davanti e la precedente affiancate (di nuovo: le scambia) · Alt+← / Alt+→'),()=>splitScreen()],['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
     if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
     const sep=document.createElement('span');sep.className='tb-sep';bar.appendChild(sep);
     if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);tabsOvf();return;}
@@ -3438,7 +3498,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   /* ---------- command line ---------- */
   const FUNCMAP={BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW"};
-  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
+  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
   const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP"]);
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
@@ -3448,6 +3508,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(f==="WS"){openWorkspace(ticker||defaultUsSym());return;}
     if(f==="DES"||f==="OMON"||f==="BT"){openSym(f,ticker||null);return;}
     if(f==="TILE"){tileAll();return;}
+    if(f==="SPLIT"){splitScreen();return;}
     if(f==="CLOSE"){closeAll();return;}
     if(f==="UNDO"){undoClose();return;}
     const type=FUNCMAP[f]||"GP";
@@ -3456,6 +3517,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function runCmd(raw){const cmd=raw.trim().toUpperCase();if(!cmd)return false;const parts=cmd.split(/\s+/);
     // function + ticker in either order (DES AAPL, AAPL DES); CROSS A B
     if((parts[0]==='CURVE'||parts[0]==='CURVES')&&parts.length>1){const ids=new Set(ywCat().map(c=>c.id)),sel=parts.slice(1).map(x=>x==='GB'?'UK':x).filter(x=>ids.has(x)).slice(0,6);if(sel.length){const w=openOrFocus('CRV',{});w.state.mode=sel.length===1?'dates':'countries';w.state.sel=sel;w.state.id=sel[0];paintWin(w);return true;}}
+    if(parts[0]==='SPLIT'){if(parts.length===1){splitScreen();return true;}const a=openTok(parts[1]);if(!a)return false;
+      if(parts.length>=3){const b=openTok(parts[2]);if(!b||b===a)return false;splitWith(a,b);}else{const p=prevWin(a);if(p)splitWith(a,p);else splitAsk(a);}return true;}
     if(parts[0]==='IDX'&&parts.length===2&&IDX_IDS.includes(parts[1]==='DJIA'?'DJI':parts[1])){const w=openOrFocus('IDX',{});w.state.id=parts[1]==='DJIA'?'DJI':parts[1];paintWin(w);return true;}
     if(parts[0]==='CROSS'&&parts.length===3&&SYMBOL_OK.test(parts[1])&&SYMBOL_OK.test(parts[2])){const w=openOrFocus('CROSS',{});w.state.a=parts[1];w.state.b=parts[2];paintWin(w);return true;}
     if(parts.length===2&&SYM_FUNCS.has(parts[0])&&SYMBOL_OK.test(parts[1])){applyFunc(parts[0],parts[1]);return true;}
@@ -3483,8 +3546,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const ok=runCmd(e.target.value);if(ok){e.target.value='';if(isMobile())e.target.blur();}else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
   $('#helpClose').addEventListener('click',()=>toggleHelp(false));
   $('#help').addEventListener('click',e=>{if(e.target.id==='help')toggleHelp(false);});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);toggleWinSheet(false);if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}});
-  let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{setPhone();wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);toggleWinSheet(false);splitPendingOff();if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();splitScreen(e.key==='ArrowRight');}});
+  let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{setPhone();splitApply();if(SPLIT.pending!=null){const a=wins.find(x=>x.id===SPLIT.pending);if(a)splitAsk(a);}wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
   // the taskbar in the top row scrolls sideways (wheel too) and fades at the edge when windows overflow
   {const tb=$('#tabs');tb.addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&tb.scrollWidth>tb.clientWidth){tb.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});tb.addEventListener('scroll',tabsOvf,{passive:true});window.addEventListener('resize',tabsOvf);}
 
