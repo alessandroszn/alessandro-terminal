@@ -622,7 +622,8 @@ async function diagEtfSrc(url, H) {
     const f = await fetchText(`https://www.justetf.com/en/etf-profile.html?isin=${isin}`, { timeoutMs: 15000, headers: { accept: "text/html", "accept-language": "en" } });
     if (f.err) return json({ err: f.err }, H);
     const h = f.text, win = (label, n = 900) => { const i = h.indexOf(label); return i < 0 ? null : h.slice(i, i + n); };
-    return json({ bytes: h.length, top: win("Top 10 Holdings", 2500), countries: win(">Countries<", 1600), sectors: win(">Sectors<", 1600), weight: win("Weight of top 10 holdings", 400) }, H);
+    const lab = url.searchParams.get("label"), all = []; if (lab) { let i = -1; while ((i = h.indexOf(lab, i + 1)) >= 0 && all.length < 6) all.push(h.slice(Math.max(0, i - 200), i + Number(url.searchParams.get("n") || 1500))); }
+    return json({ bytes: h.length, top: win("Top 10 Holdings", 2500), countries: win(">Countries<", 1600), sectors: win(">Sectors<", 1600), weight: win("Weight of top 10 holdings", 400), at: all, has: ["Countries", "Sectors", "Investment focus", "Fund Provider", "Index", "loadMore", "wicket"].map((k) => k + ":" + h.split(k).length) }, H);
   }
   return json({ error: "what: xetra | td | je" }, H, 400);
 }
