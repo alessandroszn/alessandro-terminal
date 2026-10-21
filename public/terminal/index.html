@@ -9,9 +9,9 @@
 <meta name="theme-color" content="#0a0b0e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<!-- no apple-mobile-web-app-status-bar-style: since iOS 26.1 a translucent status bar gets a gradient and blurs the
-     page under it, which the page cannot turn off (Apple, WebKit bug 317153: remove the tag). Without it the status
-     bar is opaque, in the page's colour (theme-color, kept in step with the theme), and the app starts below it. -->
+<!-- translucent status bar over the theme's background (approved on the iPhone, 21 Oct 2026): iOS 26.1+ blurs the
+     band under the clock, so the header starts 20 px below it (see body.phone #cmdbar). Read at install time. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AZ Terminal">
 <meta name="format-detection" content="telephone=no">
 <link rel="apple-touch-icon" href="app/icon-180.png">
@@ -411,9 +411,9 @@
      bottom of a home-screen app on recent iOS */
   html.phone,html.phone body{height:var(--app-h,100%)}
   body.phone #app{height:var(--app-h,100%);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
-  /* The status bar is opaque (no status-bar-style tag) in the theme's colour, and the app starts below it. Should a
-     version of iOS still draw the page under it (inset > 0), #topband — fixed, full width, solid, the theme's
-     background — gives iOS a colour to extend instead of a blur, and the header starts below that band. */
+  /* Translucent status bar: under the clock the page's own background (the theme's colour; #topband, fixed and full
+     width, gives iOS that colour to extend). iOS 26.1+ blurs a band under the clock, so the header starts 20 px below
+     the inset, out of it (tuned on the device). */
   #topband{display:none}
   body.phone #topband{display:block;position:fixed;top:0;left:0;right:0;height:max(6px,env(safe-area-inset-top));background:var(--bg);z-index:50;pointer-events:none}
   body.phone #cmdbar{position:sticky;top:0;z-index:40;flex-wrap:wrap;row-gap:7px;column-gap:8px;padding:calc(6px + env(safe-area-inset-top) + min(env(safe-area-inset-top), 20px)) 10px 8px;background:var(--bg)}
