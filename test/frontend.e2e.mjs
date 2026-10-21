@@ -863,7 +863,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,UCITS,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,EF,SEAS,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,EF,SEAS,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1419,6 +1419,54 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[P] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
   await page.close();
   PV.kv.delete(JUSTETF_KEY);
+}
+
+// =============== Q. ETF section: screener over every Xetra ETF, profile, compare, the portfolio looked through ===============
+{
+  const HD = ["IE00B4L5Y983", "IE00BK5BQT80", "IE00B4WXJJ64", "DE000A0S9GB0"];
+  PV.kv.set("etf/universe", JSON.stringify({ asOf: "2026-10-21", fetchedAt: Date.now() - 3600_000, source: "Deutsche Börse — T7 (Xetra) All tradable instruments", sourceUrl: "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/Tradable-Instruments-Xetra/",
+    rows: [[HD[0], "ISHSIII-CORE MSCI WLD DLA", "ETF", "Passive ETF", "A0RPWH", "EUNL:EUR IWDA:USD"], [HD[1], "VANGUARD FTSE ALL-WLD U.ETF", "ETF", "Passive ETF", "A2PKXG", "VWCE:EUR"], [HD[2], "ISHS EO GOVT BD", "ETF", "Bond ETF", "A0RGEP", "EUNH:EUR"], [HD[3], "XETRA-GOLD", "ETC", "ETC", "A0S9GB", "4GLD:EUR"]] }));
+  PV.kv.set("etf/isins", HD.join(","));
+  PV.kv.set("etf/us", JSON.stringify({ fetchedAt: Date.now() - 3600_000, source: "Twelve Data — ETF list (reference data)", rows: [["SPY", "SPDR S&P 500 ETF Trust", "ARCX"], ["QQQ", "Invesco QQQ Trust", "XNMS"]] }));
+  const day0 = new Date().toISOString().slice(0, 10);
+  PV.kv.set("ref/je/table", [[HD[0], "0.2", "131754", "EUR", "A", "P", "Optimized sampling", "Ireland", "USD", "0", "iShares", "Equity, World", "ETF", "25 September 2009", "iShares Core MSCI World UCITS ETF USD (Acc)", day0].join("\t"),
+    [HD[1], "0.19", "55100", "EUR", "A", "P", "Sampling", "Ireland", "USD", "0", "Vanguard", "Equity, World", "ETF", "23 July 2019", "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", day0].join("\t")].join("\n"));
+  PV.kv.set("ref/je/" + HD[0], JSON.stringify({ ter: 0.2, fundSize: { value: 131754e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Optimized sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "25 September 2009", holdings: 1252, legalStructure: "ETF",
+    name: "iShares Core MSCI World UCITS ETF USD (Acc)", provider: "iShares", focus: "Equity, World", top10: [["NVIDIA Corp.", 5.53], ["Apple", 5.07], ["Microsoft Corp", 3.9]], top10Weight: 26.64, holdingsTotal: 1252, countries: [["United States", 71.53], ["Japan", 5.28], ["Other", 23.19]], sectors: [["Technology", 29.12], ["Other", 70.88]], fetchedAt: Date.now() - 86400_000 }));
+  const pfQ = { tx: [{ id: "t0", date: "2026-01-05", side: "BUY", sym: "C:EUNL-DE", qty: 10, price: 110, ccy: "EUR", fees: 0, note: "", created: 1 }], posts: [], deletes: [] };
+  const api = { ...OK_API, portfolio: (u) => pfApi(u, "GET", null, pfQ) };
+  const { page, errors } = await openTerminal(api);
+  await page.waitForTimeout(1000);
+  await cmd(page, "EFS");
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("ETF SCREENER")); return w && /EUNL/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 20000 }).catch(() => null);
+  await page.waitForTimeout(1500);
+  let w = await winOf(page, "ETF SCREENER");
+  ok("[Q] EFS: every Xetra ETF of the list (4) with ticker, name from justETF where read, ISIN, type, class, provider, TER, size, Acc, replication", w && /XETRA · EUROPE 4/.test(w.text) && /U\.S\. 2/.test(w.text) && /EUNL\s+iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983\s+ETF\s+Equity\s+iShares\s+0\.20%\s+EUR 131\.8B\s+Acc\s+Phys\./.test(w.text) && /4GLD\s+XETRA-GOLD\s+DE000A0S9GB0\s+ETC\s+ETC/.test(w.text), w && w.text.slice(0, 900));
+  ok("[Q] …funds not read from justETF yet: N/A, never filled in; the source and date of the list in the footer", /EUNH\s+ISHS EO GOVT BD\s+IE00B4WXJJ64\s+ETF\s+Bonds\s+—\s+N\/A\s+N\/A/.test(w.text) && /Deutsche Börse \(list of 21 Oct 2026\)/.test(w.text) && /2 funds read so far/.test(w.text), (w.text.match(/EUNH[^\n]*/) || [""])[0]);
+  await page.fill('input[name="efter"]', "0.19"); await page.waitForTimeout(900); w = await winOf(page, "ETF SCREENER");
+  ok("[Q] TER ≤ 0.19: only read funds that pass (VWCE), with the banner on how many are read", /VWCE/.test(w.text) && !/EUNL\s+iShares/.test(w.text) && !/EUNH\s+ISHS/.test(w.text) && /apply to the 2 funds whose justETF data has been read/.test(w.text));
+  await page.fill('input[name="efter"]', ""); await page.waitForTimeout(600);
+  await page.fill(".ef-q", "msci world"); await page.waitForTimeout(800); w = await winOf(page, "ETF SCREENER");
+  ok("[Q] search by name (justETF's or Xetra's): MSCI World → the iShares fund", /EUNL/.test(w.text) && !/VWCE\s+Vanguard/.test(w.text));
+  await page.click('tr[data-efp="IE00B4L5Y983"]');
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("ETF PROFILE")); return w && /TOP 10 HOLDINGS/.test(w.querySelector(".win-body").innerText) && /3Y p\.a\./.test(w.querySelector(".win-body").innerText); }, null, { timeout: 25000 }).catch(() => null);
+  await page.waitForTimeout(1500); w = await winOf(page, "ETF PROFILE");
+  ok("[Q] EFP: justETF reference data (TER, size, replication, provider, focus, inception, holdings), source and date", w && /iShares Core MSCI World UCITS ETF USD \(Acc\)/.test(w.text) && /TER\s+0\.20% p\.a\./.test(w.text) && /PROVIDER\s+iShares/.test(w.text) && /HOLDINGS\s+1,252/.test(w.text) && /justETF\s+· read/.test(w.text), w && w.text.slice(0, 900));
+  ok("[Q] …every listing CNBC carries (Xetra EUR first; London USD and GBP), returns in EUR DERIVED from CNBC bars, top 10 / countries / sectors", /EUNL\s+Xetra\s+EUR/.test(w.text) && /IWDA\s+London\s+USD/.test(w.text) && /SWDA\s+London\s+GBP \(GBp ÷ 100\)/.test(w.text) && /RETURNS · EUR/.test(w.text) && /Returns DERIVED from CNBC daily bars/.test(w.text) && /NVIDIA Corp\.\s+5\.53%/.test(w.text) && /United States\s+71\.53%/.test(w.text), w.text.slice(800, 2200));
+  await page.click(".efp-cmp"); await page.waitForTimeout(800);
+  await page.fill(".efc-in", "VWCE"); await page.press(".efc-in", "Enter");
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("ETF COMPARE")); return w && /Vanguard/.test(w.querySelector(".win-body").innerText) && /5Y p\.a\./.test(w.querySelector(".win-body").innerText); }, null, { timeout: 25000 }).catch(() => null);
+  await page.waitForTimeout(1500); w = await winOf(page, "ETF COMPARE");
+  ok("[Q] EFC: two funds (the iShares from its profile, VWCE typed) in EUR on their Xetra lines, TER, size, returns, volatility, drawdown, rebased chart", w && /iShares Core MSCI World/.test(w.text) && /Vanguard FTSE All-World/.test(w.text) && /EUNL · Xetra/.test(w.text) && /VWCE · Xetra/.test(w.text) && /0\.19%/.test(w.text) && /rebased to 100/.test(w.text) && (await page.$$(".efc-box canvas")).length > 0, w && w.text.slice(0, 900));
+  await cmd(page, "EXPO");
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("PORTFOLIO · ETF LOOK-THROUGH")); return w && /COUNTRIES/.test(w.querySelector(".win-body").innerText) && /United States/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 25000 }).catch(() => null);
+  await page.waitForTimeout(1000); w = await winOf(page, "PORTFOLIO · ETF LOOK-THROUGH");
+  ok("[Q] EXPO: the portfolio's ETF (C:EUNL-DE → IE00B4L5Y983) looked through: countries, sectors, holdings weighted, coverage said, DERIVED", w && /C:EUNL-DE\s+IE00B4L5Y983\s+100\.0%\s+looked through/.test(w.text) && /United States\s+71\.53%/.test(w.text) && /covers 100\.0% of the ETFs' value/.test(w.text) && /lower bound/.test(w.text), w && w.text.slice(0, 900));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/etf-section.png" });
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[Q] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
+  await page.close();
+  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio"]) PV.kv.delete(k);
 }
 
 // =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============

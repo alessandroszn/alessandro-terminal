@@ -5,6 +5,7 @@
 //   GET /api/nasdaq/calendar|screener|movers   Nasdaq (src/nasdaq.mjs) · GET /api/reddit   ApeWisdom (src/reddit.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/etf/ucits[/returns?part=N]     UCITS ETFs by asset class: CNBC prices, justETF reference data (src/ucits.mjs)
+//   GET /api/etf/universe|profile|compare|exposure|resolve   the ETF section: every ETF (Xetra list, U.S. list), justETF, CNBC (src/etf.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
@@ -45,7 +46,8 @@ import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
 import { handleMarkets } from "./markets.mjs";
-import { handleUcits, refreshJustEtf } from "./ucits.mjs";
+import { handleUcits } from "./ucits.mjs";
+import { handleEtf, refreshEtfRef, buildEtfUniverse } from "./etf.mjs";
 import { fetchText } from "./lib.mjs"; // TEMPORARY (diagEtfSrc)
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -670,6 +672,7 @@ export const app = {
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
     if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json);
     if (url.pathname === "/api/diag/etfsrc") return diagEtfSrc(url, H); // TEMPORARY (source structure check), removed after
+    if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
@@ -691,7 +694,11 @@ export default {
   // Cron Triggers (wrangler.toml [triggers]): the alerts check every 5 minutes (alerts.mjs); briefing editions written at
   // their time (cron.mjs)
   async scheduled(event, env, ctx) {
-    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshJustEtf(env).catch(() => null)); return; }
+    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshEtfRef(env).catch(() => null)); return; }
+    // the ETF universe (Xetra instruments file ~5 MB, Twelve Data's U.S. list): built in its own run, 07:52 / 07:56 UTC
+    // (outside every briefing slot of this trigger), one source a run, only when the kept copy is older than 6 days
+    const t = new Date(event && event.scheduledTime || Date.now());
+    if (event && event.cron === "* 5-7 * * *" && t.getUTCHours() === 7 && (t.getUTCMinutes() === 52 || t.getUTCMinutes() === 56)) { ctx.waitUntil(buildEtfUniverse(env).catch(() => null)); return; }
     ctx.waitUntil(runCron(event.scheduledTime, env, ctx, { fetchQuotes: (syms) => fetchQuotesCoalesced(syms, env.TWELVEDATA_KEY) }));
   },
 };

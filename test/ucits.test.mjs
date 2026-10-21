@@ -4,7 +4,7 @@
 // providers' formats (CNBC restQuote / bars, justETF's profile table) — nothing here is shown.
 //   node test/ucits.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { UCITS_ETFS, UCITS_GROUPS, UCITS_CCYS, ucitsMatch, parseJustEtf, refreshJustEtf, JUSTETF_KEY, justEtfUrl, fxRate } from "../src/ucits.mjs";
+import { UCITS_ETFS, UCITS_GROUPS, UCITS_CCYS, ucitsMatch, parseJustEtf, JUSTETF_KEY, justEtfUrl, fxRate } from "../src/ucits.mjs";
 import { cnbcIntlRec, cnbcForeignFallback, MIC_CNBC } from "../src/intl.mjs";
 import { isinValid } from "../src/isin.mjs";
 
@@ -113,32 +113,6 @@ ok("profile page → TER 0.20, fund size EUR 131,754 m, accumulating, physical (
   m.ter === 0.2 && m.fundSize.value === 131754e6 && m.fundSize.currency === "EUR" && m.distribution === "Accumulating" && m.replication === "Physical (Optimized sampling)" && m.domicile === "Ireland" && m.fundCurrency === "USD" && m.hedged === false && m.inception === "25 September 2009" && m.holdings === 1252 && m.legalStructure === "ETF", JSON.stringify(m));
 ok("no price, no performance figure is read from justETF", Object.keys(m).every((k) => !/price|last|return|perf|nav/i.test(k)));
 ok("a page without the profile table (an unknown ISIN, a search page) → nothing", parseJustEtf("<html>" + "<p>justETF</p>".repeat(200) + "</html>") === null && parseJustEtf("") === null);
-
-// ---------- the cron: one fund a run ----------
-const kv2 = new Map(), env2 = { BRIEFS: { get: async (k) => kv2.get(k) ?? null, put: async (k, v, o) => { kv2.set(k, v); kv2.ttl = o && o.expirationTtl; } } };
-const asked = []; let reply = () => ({ text: PAGE, http: 200 });
-const fetchImpl = async (u) => { asked.push(u); return reply(u); };
-const now0 = Date.parse("2026-10-21T15:00:00Z");
-let x = await refreshJustEtf(env2, now0, fetchImpl);
-const saved = () => JSON.parse(kv2.get(JUSTETF_KEY));
-ok("first run: one request, the first fund in the list, kept in KV (30 days)", x.action === "refreshed" && asked.length === 1 && asked[0] === justEtfUrl(UCITS_ETFS[0].isin) && saved()[UCITS_ETFS[0].isin].ter === 0.2 && kv2.ttl === 30 * 86400);
-x = await refreshJustEtf(env2, now0 + 300_000, fetchImpl);
-ok("next run: the next fund not read yet", x.isin === UCITS_ETFS[1].isin && asked.length === 2);
-reply = () => ({ text: "<html>" + "<p>x</p>".repeat(400) + "</html>", http: 200 });
-x = await refreshJustEtf(env2, now0 + 600_000, fetchImpl);
-ok("a page without the data: that fund marked tried (again in a week), the cron moves on", x.action === "no_data" && saved()[UCITS_ETFS[2].isin].triedAt === now0 + 600_000 && !saved()[UCITS_ETFS[2].isin].ter);
-reply = () => ({ err: "provider_forbidden", http: 403 });
-x = await refreshJustEtf(env2, now0 + 900_000, fetchImpl);
-const n1 = asked.length;
-x = await refreshJustEtf(env2, now0 + 1200_000, fetchImpl);
-ok("justETF refusing (403): no request for hours — no hammering", x.action === "backoff" && asked.length === n1 && saved()._fail.err === "provider_forbidden");
-reply = () => ({ text: PAGE, http: 200 });
-x = await refreshJustEtf(env2, now0 + 7 * 3600_000, fetchImpl);
-ok("after the pause: reads again, the failure cleared", x.action === "refreshed" && !saved()._fail);
-const all = saved(); for (const e of UCITS_ETFS) all[e.isin] = { ter: 0.1, fetchedAt: now0 }; kv2.set(JUSTETF_KEY, JSON.stringify(all));
-const n2 = asked.length; x = await refreshJustEtf(env2, now0 + 6 * 86400_000, fetchImpl);
-ok("all read within the week: no request; after 7 days the oldest again", x.action === "fresh" && asked.length === n2 && (await refreshJustEtf(env2, now0 + 7 * 86400_000 + 1, fetchImpl)).action === "refreshed");
-ok("without the KV binding: nothing", (await refreshJustEtf({}, now0, fetchImpl)).action === "skipped");
 
 // ---------- SRCH ----------
 ok("search names: SWDA, IWDA, EUNL → the same fund (its lines by currency listed); 'nasdaq' → the Nasdaq-100 funds; an ISIN → its fund", ucitsMatch("swda")[0].isin === "IE00B4L5Y983" && ucitsMatch("swda")[0].lines.USD === "C:IWDA-GB" && ucitsMatch("IWDA")[0].sym === "SWDA" && ucitsMatch("EUNL")[0].sym === "SWDA" && ucitsMatch("nasdaq").length === 3 && ucitsMatch("IE00B5BMR087")[0].sym === "CSSPX" && ucitsMatch("zz").length === 0);

@@ -4,11 +4,12 @@
 //   CNBC carries it, Milan where it carries Milan (ETFMIB, CSMIB), London otherwise. CNBC does not carry most Milan ETF lines.
 //   Prices: CNBC quote service (approved 20 Oct 2026 for market data); returns from CNBC's daily bars of the same line.
 //   Reference data (TER, fund size, distribution, replication, domicile, fund currency, inception): justETF profile pages,
-//   approved 21 Oct 2026 for reference data only — read by the 5-minute cron, one fund per run, each refreshed weekly;
-//   never prices (justETF's terms forbid automated price inquiries), never read when a page opens.
-import { iso, fetchText, cachedSource } from "./lib.mjs";
+//   approved 21 Oct 2026 for reference data only — read by the ETF section's cron (etf.mjs: these funds first and weekly,
+//   then the whole Xetra universe); never prices (justETF's terms forbid automated price inquiries).
+import { iso, cachedSource } from "./lib.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 import { cnbcDaily, referenceCloses } from "./cnbc.mjs";
+import { tableMap, refFromLine } from "./etfref.mjs";
 
 // [ISIN, fund name, class, Milan ticker or null, price line (CNBC code), price-line ticker, venue MIC, tickers on Milan /
 //  Xetra / London / SIX (Twelve Data's listings, 21 Oct 2026 — for search)]
@@ -192,7 +193,6 @@ export const JUSTETF = "justETF";
 export const justEtfUrl = (isin) => `https://www.justetf.com/en/etf-profile.html?isin=${isin}`;
 export const JUSTETF_KEY = "ref/justetf"; // KV (BRIEFS): { [isin]: { ter, …, fetchedAt } , _fail: { at, err } }
 export const JUSTETF_REFRESH_MS = 7 * 86400_000;
-const JUSTETF_BACKOFF_MS = 6 * 3600_000;
 
 // ---------- currency: the fund's own line in that currency, or its default line converted (DERIVED) ----------
 // CNBC's FX codes: EUR= and GBP= are USD per unit, CHF= is CHF per USD (see cnbc.mjs)
@@ -267,7 +267,7 @@ export async function handleUcits(url, env, ctx, H, json) {
   }
   const [q, ref] = await Promise.all([
     cachedSource({ origin: url.origin, key: `ucits/q/${ccy}`, ttlMs: 60_000, staleMaxMs: 3 * 86400_000, failTtlMs: 60_000, ctx, load: () => loadUcitsQuotes(ccy) }),
-    readJustEtf(env),
+    readRef(env),
   ]);
   const rows = UCITS_ETFS.map((e) => {
     const m0 = ref[e.isin], m = m0 && Number.isFinite(m0.fetchedAt) ? m0 : null;
@@ -289,7 +289,15 @@ export async function handleUcits(url, env, ctx, H, json) {
   });
 }
 
-// ---------- justETF reference data (cron, one fund a run) ----------
+// ---------- justETF reference data: the ETF section's table (etf.mjs reads every fund); the earlier copy as fallback ----------
+const UCITS_SET = new Set(UCITS_ETFS.map((e) => e.isin));
+async function readRef(env) {
+  if (!env || !env.BRIEFS) return {};
+  const [table, old] = await Promise.all([env.BRIEFS.get("ref/je/table").catch(() => null), readJustEtf(env)]);
+  const out = { ...old }, m = tableMap(table, UCITS_SET);
+  for (const [isin, f] of m) { const r = refFromLine(f); out[isin] = { ...r, fetchedAt: Date.parse(r.day + "T12:00:00Z") }; }
+  return out;
+}
 async function readJustEtf(env) {
   if (!env || !env.BRIEFS) return {};
   try { const t = await env.BRIEFS.get(JUSTETF_KEY); const j = t ? JSON.parse(t) : null; return j && typeof j === "object" ? j : {}; } catch { return {}; }
@@ -335,27 +343,4 @@ export function parseJustEtf(html) {
     inception: inc ? inc[1] : null, holdings: hold ? n(hold[1]) : null, legalStructure: legal ? legal[1] : null,
   };
   return out.ter == null && !out.fundSize && !out.distribution ? null : out;
-}
-
-// the */5 cron: the fund read longest ago (or never), one request. A page without the data (an unknown ISIN) is tried
-// again after a week; justETF unreachable or refusing → no request for 6 hours (no hammering). Never prices.
-export async function refreshJustEtf(env, now = Date.now(), fetchImpl = fetchText) {
-  if (!env || !env.BRIEFS) return { action: "skipped" };
-  const all = await readJustEtf(env);
-  if (all._fail && now - all._fail.at < JUSTETF_BACKOFF_MS) return { action: "backoff" };
-  let pick = null, age = -1;
-  for (const e of UCITS_ETFS) {
-    const m = all[e.isin], t = m ? Math.max(Number(m.fetchedAt) || 0, Number(m.triedAt) || 0) : 0, a = t ? now - t : Infinity;
-    if (a >= JUSTETF_REFRESH_MS && a > age) { pick = e; age = a; }
-  }
-  if (!pick) return { action: "fresh" };
-  const f = await fetchImpl(justEtfUrl(pick.isin), { timeoutMs: 15000, headers: { accept: "text/html", "accept-language": "en" } });
-  const save = () => env.BRIEFS.put(JUSTETF_KEY, JSON.stringify(all), { expirationTtl: 30 * 86400 });
-  if (f.err && f.err !== "no_data") { all._fail = { at: now, err: f.err }; await save(); return { action: "failed", isin: pick.isin, err: f.err }; }
-  const meta = f.err ? null : parseJustEtf(f.text);
-  delete all._fail;
-  if (!meta) { all[pick.isin] = { ...(all[pick.isin] && all[pick.isin].fetchedAt ? all[pick.isin] : {}), triedAt: now, err: f.err || "no_reference_data" }; await save(); return { action: "no_data", isin: pick.isin }; }
-  all[pick.isin] = { ...meta, fetchedAt: now };
-  await save();
-  return { action: "refreshed", isin: pick.isin };
 }
