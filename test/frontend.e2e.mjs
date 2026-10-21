@@ -1432,7 +1432,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   PV.kv.set("ref/je/table", [[HD[0], "0.2", "131754", "EUR", "A", "P", "Optimized sampling", "Ireland", "USD", "0", "iShares", "Equity, World", "ETF", "25 September 2009", "iShares Core MSCI World UCITS ETF USD (Acc)", day0].join("\t"),
     [HD[1], "0.19", "55100", "EUR", "A", "P", "Sampling", "Ireland", "USD", "0", "Vanguard", "Equity, World", "ETF", "23 July 2019", "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", day0].join("\t")].join("\n"));
   PV.kv.set("ref/je/" + HD[0], JSON.stringify({ ter: 0.2, fundSize: { value: 131754e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Optimized sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "25 September 2009", holdings: 1252, legalStructure: "ETF",
-    name: "iShares Core MSCI World UCITS ETF USD (Acc)", provider: "iShares", focus: "Equity, World", top10: [["NVIDIA Corp.", 5.53], ["Apple", 5.07], ["Microsoft Corp", 3.9]], top10Weight: 26.64, holdingsTotal: 1252, countries: [["United States", 71.53], ["Japan", 5.28], ["Other", 23.19]], sectors: [["Technology", 29.12], ["Other", 70.88]], fetchedAt: Date.now() - 86400_000 }));
+    name: "iShares Core MSCI World UCITS ETF USD (Acc)", provider: "iShares", focus: "Equity, World", top10: [["NVIDIA Corp.", 5.53], ["Apple", 5.07], ["Microsoft Corp", 3.9]], top10Weight: 26.64, holdingsTotal: 1252, countries: [["United States", 71.53], ["Japan", 5.28], ["Other", 23.19]], sectors: [["Technology", 29.12], ["Other", 70.88]], v: 2, fetchedAt: Date.now() - 86400_000 }));
   const pfQ = { tx: [{ id: "t0", date: "2026-01-05", side: "BUY", sym: "C:EUNL-DE", qty: 10, price: 110, ccy: "EUR", fees: 0, note: "", created: 1 }], posts: [], deletes: [] };
   const api = { ...OK_API, portfolio: (u) => pfApi(u, "GET", null, pfQ) };
   const { page, errors } = await openTerminal(api);
@@ -1466,7 +1466,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[Q] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
   await page.close();
-  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio"]) PV.kv.delete(k);
+  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2"]) PV.kv.delete(k);
 }
 
 // =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============

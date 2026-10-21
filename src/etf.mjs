@@ -18,7 +18,9 @@ import { handleSearch } from "./search.mjs";
 export const XETRA_URL = "https://www.cashmarket.deutsche-boerse.com/resource/blob/1528/374322c724cea673463bc7c2ceae00bf/data/t7-xetr-allTradableInstruments.csv";
 export const XETRA_PAGE = "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/Tradable-Instruments-Xetra/";
 export const TD_ETFS_URL = "https://api.twelvedata.com/etfs?country=United%20States";
-const K = { uni: "etf/universe", isins: "etf/isins", us: "etf/us", table: "ref/je/table", prio: "ref/je/prio", detail: (i) => `ref/je/${i}` };
+// the parser's version: records read by an earlier one are read again (prio2: every priority fund re-read once)
+const PARSER_V = 2;
+const K = { uni: "etf/universe", isins: "etf/isins", us: "etf/us", table: "ref/je/table", prio: "ref/je/prio2", detail: (i) => `ref/je/${i}` };
 const DAY = 86400_000, YEAR = 31_557_600_000, SLOT = 300_000, REFRESH = 7 * DAY, BACKOFF = 6 * 3600_000, KEEP = 45 * 86400;
 const put = (env, k, v) => env.BRIEFS.put(k, typeof v === "string" ? v : JSON.stringify(v), { expirationTtl: KEEP });
 const getJ = async (env, k) => { try { const t = await env.BRIEFS.get(k); return t ? JSON.parse(t) : null; } catch { return null; } };
@@ -132,7 +134,7 @@ async function readJe(env, isin, now, fetchImpl) {
   const f = await fetchImpl(justEtfUrl(isin), { timeoutMs: 15000, headers: { accept: "text/html", "accept-language": "en" } });
   if (f.err && f.err !== "no_data") return { fail: f.err };
   const m = f.err ? null : parseJustEtfFull(f.text);
-  return m ? { m: { ...m, fetchedAt: now } } : { none: f.err || "no_reference_data" };
+  return m ? { m: { ...m, v: PARSER_V, fetchedAt: now } } : { none: f.err || "no_reference_data" };
 }
 // the */5 cron: one fund a run — a priority fund not read for a week, else the next fund of the universe by time
 export async function refreshEtfRef(env, now = Date.now(), fetchImpl = fetchText) {
@@ -155,7 +157,7 @@ export async function refreshEtfRef(env, now = Date.now(), fetchImpl = fetchText
 // a profile opened: the full record (≤ 7 days old), else read now; the fund joins the priority list
 export async function etfDetail(env, isin, now = Date.now(), fetchImpl = fetchText, { read = true } = {}) {
   const d = await getJ(env, K.detail(isin));
-  if (d && d.fetchedAt && now - d.fetchedAt < REFRESH) return { data: d };
+  if (d && d.fetchedAt && now - d.fetchedAt < REFRESH && d.v === PARSER_V) return { data: d };
   const prio = (await getJ(env, K.prio)) || {};
   if (!read || (prio._fail && now - prio._fail.at < BACKOFF)) return d ? { data: d, stale: true } : { err: prio._fail ? "backoff" : "not_read" };
   const r = await readJe(env, isin, now, fetchImpl);
@@ -260,6 +262,7 @@ export async function handleEtf(url, env, ctx, H, json) {
     let [u, us] = await Promise.all([getJ(env, K.uni), getJ(env, K.us)]);
     if (!u || !us) { const b = await buildEtfUniverse(env, now, fetchText, !u ? "xetra" : "us"); if (b.action === "built") [u, us] = await Promise.all([getJ(env, K.uni), getJ(env, K.us)]); }
     const table = await env.BRIEFS.get(K.table);
+    if (u) for (const r of u.rows) if (r[4] && r[4].length > 6) r[4] = r[4].slice(-6); // a list built before the WKN fix
     return send({ xetra: u ? { asOf: u.asOf, fetchedAt: iso(u.fetchedAt), source: u.source, sourceUrl: u.sourceUrl, cols: ["isin", "name", "type", "group", "wkn", "lines"], rows: u.rows } : null,
       us: us ? { fetchedAt: iso(us.fetchedAt), source: us.source, cols: ["symbol", "name", "mic"], rows: us.rows } : null,
       ref: { source: JUSTETF, cols: TABLE_COLS, table: table || "", note: "reference data read from justETF profile pages, one fund every 5 minutes (≈ 10 days a round); never prices" },
@@ -271,7 +274,7 @@ export async function handleEtf(url, env, ctx, H, json) {
     const u = await getJ(env, K.uni), row = u ? u.rows.find((r) => r[0] === isin) || null : null;
     const [d, L] = await Promise.all([etfDetail(env, isin, now), fundLines(url, env, ctx, isin, row)]);
     const ucits = UCITS_ETFS.find((e) => e.isin === isin);
-    return send({ isin, xetra: row ? { name: row[1], type: row[2], group: row[3], wkn: row[4], lines: row[5], asOf: u.asOf } : null, ucits: ucits ? { sym: ucits.sym, group: ucits.group } : null,
+    return send({ isin, xetra: row ? { name: row[1], type: row[2], group: row[3], wkn: row[4] && row[4].length > 6 ? row[4].slice(-6) : row[4], lines: row[5], asOf: u.asOf } : null, ucits: ucits ? { sym: ucits.sym, group: ucits.group } : null,
       ref: d.data ? { ...d.data, fetchedAt: iso(d.data.fetchedAt), source: JUSTETF, sourceUrl: justEtfUrl(isin), status: d.stale ? "STALE" : "LIVE" } : null, refError: d.err || null,
       lines: L.lines, linesAsked: L.asked, linesError: L.err, status: L.lines.length ? "LIVE" : "N/A" });
   }
