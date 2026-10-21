@@ -422,7 +422,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -882,7 +882,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1493,6 +1493,41 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("QUANT · FACTORS · NVDA")); return w && /THE FOUR MODELS|N\/A/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 25000 }).catch(() => null);
   await page.waitForTimeout(800); w = await winOf(page, "QUANT · FACTORS");
   ok("[Q] FACT NVDA: a U.S. symbol → the U.S. factors (automatic), in USD (no conversion)", w && /U\.S\. \(automatic\)/.test(w.text) && /NVDA · U\.S\. · USD/.test(w.text) && !/→ USD/.test(w.text.split("THE FOUR MODELS")[0]) && /THE FOUR MODELS/.test(w.text), w && w.text.slice(0, 900));
+  // PLAB: build (Xetra/UCITS ticker → ISIN, a U.S. stock, cash), save, backtest, risk and crises, projection, compare, factors
+  await cmd(page, "PLAB"); await page.waitForTimeout(800);
+  const plAdd = async (t, wt) => { await page.fill(".pl-new", t); await page.fill(".pl-neww", wt); await page.click(".pl-add"); await page.waitForTimeout(400); };
+  await plAdd("SWDA", "60"); await plAdd("NVDA", "30"); await plAdd("CASH", "10");
+  await page.fill(".pl-name", "Core 60/30/10"); await page.press(".pl-name", "Tab");
+  const plWait = (re) => page.waitForFunction((src) => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("PORTFOLIO LAB")); return w && new RegExp(src).test(w.querySelector(".win-body").innerText); }, re.source, { timeout: 25000 }).catch(() => null);
+  await plWait(/IWDA · London · USD → EUR[\s\S]*NVDA/); await page.waitForTimeout(800); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-build.png" });
+  ok("[Q] PLAB build: SWDA → its ISIN and USD line converted to EUR, NVDA, cash; total 100 %; weighted TER from justETF; common history", w && /iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983 · IWDA · London · USD → EUR/.test(w.text) && /NVDA\s+U\.S\. · USD → EUR/.test(w.text) && /Cash \(EUR, no interest\)/.test(w.text) && /TOTAL 100\.00%/.test(w.text) && /weighted TER 0\.20% a year on 60\.0%/.test(w.text) && /common history from/.test(w.text), w && w.text.slice(0, 1200));
+  await page.click(".pl-save"); await page.waitForTimeout(900); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …saved on the server (the real Worker code): listed, 1 / 20", /Saved\./.test(w.text) && /1 \/ 20 saved/.test(w.text) && JSON.parse(PV.kv.get("ud/plab") || "[]").length === 1 && JSON.parse(PV.kv.get("ud/plab"))[0].holdings.map((h) => h.id).join() === "SWDA,NVDA,CASH");
+  await page.click('[data-plt="test"]'); await plWait(/CALENDAR YEARS/); await page.waitForTimeout(800); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-test.png" });
+  ok("[Q] PLAB backtest: final value, money put in, money- and time-weighted returns, volatility, Sharpe, drawdown, years — portfolio and benchmark; charts", w && /Final value\s+€ [\d,]+\s+€ [\d,]+/.test(w.text) && /Your return a year \(money-weighted\)/.test(w.text) && /Max drawdown\s+-\d+\.\d%/.test(w.text) && /CALENDAR YEARS/.test(w.text) && /the benchmark gets the same money on the same days/.test(w.text) && /stocks without dividends: NVDA/.test(w.text) && (await page.$$(".pl-cv canvas")).length > 0, w && w.text.slice(0, 1500));
+  await page.fill('.pl-set input[name="mon"]', "200"); await page.click('.pl-set button[type="submit"]'); await page.waitForTimeout(1000); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …with 200 a month: more money put in than the initial 10,000, trades counted", /Money put in\s+€ (1\d|[2-9]\d|\d{3}),\d{3}/.test(w.text) && /on the first trading day of each month/.test(w.text), (w.text.match(/Money put in[^\n]*/) || [""])[0]);
+  await page.click('[data-plt="risk"]'); await plWait(/STRESS/); await page.waitForTimeout(800); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-risk.png" });
+  ok("[Q] PLAB risk: volatility, VaR / ES, beta, share of risk, correlations, the portfolio in past crises (COVID-19 with a figure)", w && /VOLATILITY A YEAR/.test(w.text) && /VaR · ES 95 %/.test(w.text) && /SHARE OF RISK/.test(w.text) && /CORRELATIONS/.test(w.text) && /COVID-19 crash\s+\d+ \w+ 2020 → \d+ \w+ 2020\s+[−+-]?\d+\.\d%/.test(w.text), w && w.text.slice(0, 1800));
+  await page.click('[data-plt="proj"]'); await plWait(/MEDIAN IN/); await page.waitForTimeout(600);
+  await page.fill('.pl-pf input[name="target"]', "60000"); await page.click('.pl-pf button[type="submit"]'); await page.waitForTimeout(1500); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-proj.png" });
+  ok("[Q] PLAB projection: median in 10 years, 5–95 %, money put in, probability of the target and of a loss; numbered run; chart", /MEDIAN IN 10 YEARS\s+€ [\d,]+/.test(w.text) && /PROBABILITY OF REACHING € 60,000\s+\d+\.\d%/.test(w.text) && /MONEY PUT IN\s+€ 34,000/.test(w.text) && /Run 1: the same inputs/.test(w.text) && (await page.$$(".pl-pc canvas")).length > 0, w.text.slice(0, 900));
+  await page.click('[data-plt="build"]'); await page.waitForTimeout(500); await page.click(".pl-copy"); await page.waitForTimeout(900);
+  await page.click('[data-plt="cmp"]'); await page.waitForTimeout(600);
+  const nPlc = (await page.$$("[data-plc]")).length; for (let i = 0; i < nPlc; i++) { await page.locator("[data-plc]").nth(i).check(); await page.waitForTimeout(400); }
+  await plWait(/Weighted TER/); await page.waitForTimeout(800); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-cmp.png" });
+  ok("[Q] PLAB compare: two saved portfolios side by side on the same window, chart", w && /Core 60\/30\/10\s+Core 60\/30\/10 \(copy\)/.test(w.text) && /Sharpe\s+-?\d+\.\d\d\s+-?\d+\.\d\d/.test(w.text) && /Weighted TER\s+0\.20%\s+0\.20%/.test(w.text) && (await page.$$(".pl-cc canvas")).length > 0, w && w.text.slice(0, 1200));
+  await page.click('[data-plt="build"]'); await page.waitForTimeout(500); await page.click(".pl-fact"); await page.waitForTimeout(800);
+  await page.selectOption('.q-f select[name="fyears"]', "10"); await page.click('.q-f button[type="submit"]'); await factDone(); await page.waitForTimeout(800); w = await winOf(page, "QUANT · FACTORS");
+  ok("[Q] FACT from the lab: the lab portfolio's holdings (cash left out) at their target weights", w && /portfolio lab · 2 holdings/.test(w.text) && /THE FOUR MODELS/.test(w.text) && /SWDA\s+66\.7%/.test(w.text), w && w.text.slice(0, 1400));
+  await page.click('.win .w-tag:text("PLAB")').catch(() => null); await cmd(page, "PLAB"); await page.waitForTimeout(500);
+  await page.click(".pl-del"); await page.click(".pl-del"); await page.waitForTimeout(900);
+  ok("[Q] PLAB delete: asked twice, removed from the server", JSON.parse(PV.kv.get("ud/plab")).length === 1);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/etf-section.png" });
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[Q] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
@@ -1512,7 +1547,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     ok("[Q] …no JavaScript errors", errors.length === 0, errors.join(" | "));
     await page.close();
   }
-  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2"]) PV.kv.delete(k);
+  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2", "ud/plab"]) PV.kv.delete(k);
 }
 
 // =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============

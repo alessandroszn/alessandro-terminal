@@ -6,6 +6,8 @@
 //   GET|PUT          /api/user/board           custom boards [{id, name, syms[]}]
 //   GET|POST|DELETE  /api/user/views           saved layouts [{id, name, desk:{w,h}, layout:[{type, state, x, y, w, h, min}], saved}]
 //                                              (a name saved again replaces that view)
+//   GET|POST|DELETE  /api/user/plab            portfolio lab: portfolios to test [{id, name, holdings:[{id, w}], settings, saved}]
+//                                              (target weights in %, adding up to 100; POST with an existing id replaces it)
 //   GET              /api/status[?usage=1]     system status for SYS: which sources are configured (yes/no only),
 //                                              Twelve Data credit usage (checked on request: 1 credit), the scheduler's last run
 // Nothing here is market data: these are the owner's own entries. All start empty.
@@ -14,10 +16,10 @@ import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 
-export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views" };
+export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views", plab: "ud/plab" };
 // quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
 // Alerts are checked on CNBC quotes (one request for all of them): at most 25 different symbols
-export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000 };
+export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000, plab: 20, plabHoldings: 15 };
 const SYM_RE = /^[A-Z0-9][A-Z0-9.\-:/]{0,19}$/;
 
 async function load(env, k) { try { const t = await env.BRIEFS.get(UD_KEYS[k]); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
@@ -50,6 +52,26 @@ export function validateView(b) {
   }
   const dw = num(b.desk && b.desk.w), dh = num(b.desk && b.desk.h);
   return { name, layout, desk: dw && dh ? { w: dw, h: dh } : null };
+}
+// a portfolio of the lab: a name, 1–15 instruments (ISIN, C:code, SYMBOL:MIC, U.S. symbol, or CASH) with target weights
+// in % adding up to 100 (± 0.5), and the page's test settings (small, no market data)
+export const PLAB_ID_RE = /^(CASH|[A-Z0-9][A-Z0-9.\-:]{0,23})$/;
+export function validatePlab(b) {
+  if (!b || typeof b !== "object") return "body required";
+  const name = clean(b.name, 40); if (!name) return "a name is required";
+  const list = Array.isArray(b.holdings) ? b.holdings : null; if (!list || !list.length) return "holdings[] required (at least one)";
+  if (list.length > LIMITS.plabHoldings) return `at most ${LIMITS.plabHoldings} holdings`;
+  const out = [], seen = new Set();
+  for (const h of list) {
+    const id = clean(h && h.id, 24).toUpperCase(); if (!PLAB_ID_RE.test(id)) return `bad instrument: ${id || "(empty)"}`;
+    if (seen.has(id)) return `${id} is there twice`; seen.add(id);
+    const w = Number(h.w); if (!(w > 0 && w <= 100)) return `weight of ${id}: above 0 and at most 100`;
+    out.push({ id, w: Math.round(w * 100) / 100 });
+  }
+  const sum = out.reduce((a, x) => a + x.w, 0); if (Math.abs(sum - 100) > 0.5) return `the weights add up to ${sum.toFixed(2)} %, not 100 %`;
+  const st = b.settings && typeof b.settings === "object" && !Array.isArray(b.settings) ? b.settings : {}, js = JSON.stringify(st);
+  if (js.length > 1000) return "settings too large";
+  return { name, holdings: out, settings: JSON.parse(js) };
 }
 export function validateBoards(b) {
   const list = b && Array.isArray(b.boards) ? b.boards : null;
@@ -92,6 +114,15 @@ export async function handleUserData(url, env, ctx, H, json, req) {
     const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
     const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
     await save(env, kind, next); return send({ saved: item.id, replaced: !!same, views: next }, same ? 200 : 201);
+  }
+  if (kind === "plab" && method === "POST" && !sub) {
+    const p = await body(); if (p.e) return p.e;
+    const v = validatePlab(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
+    const list = await load(env, kind), same = p.b.id ? list.find((x) => x.id === p.b.id) : null;
+    if (!same && list.length >= LIMITS.plab) return send({ error: "bad_request", message: `limit of ${LIMITS.plab} portfolios reached` }, 400);
+    const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
+    const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
+    await save(env, kind, next); return send({ saved: item.id, replaced: !!same, plab: next }, same ? 200 : 201);
   }
   const list = await load(env, kind);
   if (method === "DELETE" && !sub) {

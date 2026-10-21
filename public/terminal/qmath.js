@@ -237,13 +237,101 @@
   // the coefficients over a moving window (months): one row of betas per window end, null when the window is singular
   function rollingFactorFit(y, F, names, w = 36) { const out = []; for (let e = w; e <= y.length; e++) { const o = olsMulti(y.slice(e - w, e), names.map((k) => F[k].slice(e - w, e))); out.push(o ? o.coef.slice(1) : null); } return out; }
 
+  // ---------- PLAB: portfolio lab — backtest with rebalancing and monthly contributions, risk, stress windows, projection ----------
+  const DAY_MS = 86400000, YEAR_MS = 365.25 * DAY_MS;
+  // several daily series {d: [dates], v: [values]} → the dates they all have and each one's values on them (nothing filled in)
+  function alignDV(list) { if (!list.length) return { dates: [], vals: [] }; const maps = list.map((s) => { const m = new Map(); for (let i = 0; i < s.d.length; i++) m.set(s.d[i], s.v[i]); return m; });
+    const dates = list[0].d.filter((d) => maps.every((m) => m.get(d) > 0)); return { dates, vals: maps.map((m) => dates.map((d) => m.get(d))) }; }
+  // the last value dated on or before a date (binary search) → { d, v } or null
+  function valueAt(s, date) { let lo = 0, hi = s.d.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (s.d[m] <= date) { k = m; lo = m + 1; } else hi = m - 1; } return k < 0 ? null : { d: s.d[k], v: s.v[k] }; }
+  const periodKey = (d, reb) => (reb === "M" ? d.slice(0, 7) : reb === "Q" ? d.slice(0, 4) + "Q" + Math.floor((Number(d.slice(5, 7)) - 1) / 3) : reb === "Y" ? d.slice(0, 4) : null);
+  // prices: one array per asset on the same ascending dates; weights: target fractions adding up to 1; noTrade[i]: cash
+  // (holding it is not a trade). initial: invested on the first date at the target weights; monthly: added on the first
+  // date of each later month and bought at the target weights; rebalance 'none' | 'M' | 'Q' | 'Y': back to the target weights
+  // on the first date of each period; cost: a fixed amount per trade (each asset bought or sold once counts one trade).
+  // → value, money put in, time-weighted index (flows taken out), trades, costs.
+  function backtest({ dates, prices, weights, noTrade = [], initial = 10000, monthly = 0, rebalance = "none", cost = 0 }) {
+    const n = dates.length, k = prices.length; if (n < 2 || !k || !(initial > 0)) return null;
+    const units = new Array(k).fill(0), value = new Float64Array(n), invested = new Float64Array(n), idx = new Float64Array(n); let trades = 0, costs = 0;
+    const val = (t) => { let v = 0; for (let i = 0; i < k; i++) v += units[i] * prices[i][t]; return v; };
+    const tradeable = weights.map((w, i) => w > 0 && !noTrade[i]);
+    // back to the target weights with `total` (counting a trade for each asset whose holding changes), less the costs
+    const toTarget = (t, total) => { let m = 0; const want = weights.map((w, i) => (total * w) / prices[i][t]);
+      for (let i = 0; i < k; i++) if (!noTrade[i] && Math.abs(want[i] - units[i]) * prices[i][t] > 0.005) m++;
+      const net = total - m * cost; for (let i = 0; i < k; i++) units[i] = (net * weights[i]) / prices[i][t]; trades += m; costs += m * cost; };
+    toTarget(0, initial); value[0] = val(0); invested[0] = initial; idx[0] = 1;
+    let put = initial;
+    for (let t = 1; t < n; t++) {
+      const newMonth = dates[t].slice(0, 7) !== dates[t - 1].slice(0, 7), pk = periodKey(dates[t], rebalance), reb = pk != null && pk !== periodKey(dates[t - 1], rebalance);
+      const before = val(t), flow = newMonth && monthly > 0 ? monthly : 0;
+      if (reb) toTarget(t, before + flow);
+      else if (flow) { const m = tradeable.filter(Boolean).length, net = flow - m * cost; for (let i = 0; i < k; i++) units[i] += (net * weights[i]) / prices[i][t]; trades += m; costs += m * cost; }
+      put += flow; value[t] = val(t); invested[t] = put;
+      idx[t] = idx[t - 1] * ((value[t] - flow) / value[t - 1]);
+    }
+    return { dates, value: Array.from(value), invested: Array.from(invested), idx: Array.from(idx), trades, costs, initial, monthly, rebalance, final: value[n - 1], put };
+  }
+  // money-weighted return (annual) of dated flows [{ t: ms, a }] — money put in negative, the final value positive — by bisection
+  function xirr(flows) { if (flows.length < 2) return NaN; const t0 = flows[0].t, f = (r) => flows.reduce((s, x) => s + x.a / Math.pow(1 + r, (x.t - t0) / YEAR_MS), 0);
+    let lo = -0.99, hi = 10, flo = f(lo); if (!(flo * f(hi) < 0)) return NaN;
+    for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2, fm = f(mid); if (Math.abs(fm) < 1e-7 || hi - lo < 1e-10) return mid; if (flo * fm < 0) hi = mid; else { lo = mid; flo = fm; } } return (lo + hi) / 2; }
+  function btFlows(bt) { const out = [{ t: Date.parse(bt.dates[0] + "T12:00:00Z"), a: -bt.initial }];
+    for (let t = 1; t < bt.dates.length; t++) if (bt.invested[t] > bt.invested[t - 1]) out.push({ t: Date.parse(bt.dates[t] + "T12:00:00Z"), a: -(bt.invested[t] - bt.invested[t - 1]) });
+    out.push({ t: Date.parse(bt.dates[bt.dates.length - 1] + "T12:00:00Z") + 1, a: bt.final }); return out; }
+  // the statistics of a time-weighted index on its dates: total, CAGR, volatility, Sharpe, Sortino, drawdowns, years, months
+  function perfStats(dates, idx, rf = 0) { const n = idx.length; if (n < 2) return null; const r = []; for (let i = 1; i < n; i++) r.push(idx[i] / idx[i - 1] - 1);
+    const yrs = (Date.parse(dates[n - 1]) - Date.parse(dates[0])) / YEAR_MS, total = idx[n - 1] / idx[0] - 1, cagr = yrs > 0 ? Math.pow(1 + total, 1 / yrs) - 1 : NaN, ppy = yrs > 0 ? r.length / yrs : 252;
+    const vol = stdev(r) * Math.sqrt(ppy), down = Math.sqrt(r.reduce((a, x) => a + Math.min(0, x) ** 2, 0) / r.length) * Math.sqrt(ppy);
+    let peak = idx[0], pi = 0, mdd = 0, mp = 0, mt = 0; const dd = new Array(n);
+    for (let i = 0; i < n; i++) { if (idx[i] > peak) { peak = idx[i]; pi = i; } dd[i] = idx[i] / peak - 1; if (dd[i] < mdd) { mdd = dd[i]; mp = pi; mt = i; } }
+    let rec = null; for (let i = mt; i < n; i++) if (idx[i] >= idx[mp]) { rec = i; break; }
+    const lastOf = (len) => { const m = new Map(); dates.forEach((d, i) => m.set(d.slice(0, len), i)); return [...m.entries()]; };
+    const years = [], ye = lastOf(4); ye.forEach(([y, i], j) => { const i0 = j ? ye[j - 1][1] : 0; years.push({ y, r: idx[i] / idx[i0] - 1, partial: (j === 0 && !/-01-0[1-7]$/.test(dates[0])) || (j === ye.length - 1 && !/-12-(2[4-9]|3[01])$/.test(dates[i])) }); });
+    const months = [], me = lastOf(7); for (let j = 1; j < me.length; j++) months.push({ m: me[j][0], r: idx[me[j][1]] / idx[me[j - 1][1]] - 1 });
+    const full = months.slice(0, /-(2[5-9]|3[01])$/.test(dates[n - 1]) ? months.length : months.length - 1), mr = full.map((x) => x.r);
+    return { total, cagr, vol, down, sharpe: vol > 0 ? (cagr - rf) / vol : NaN, sortino: down > 0 ? (cagr - rf) / down : NaN, maxDD: mdd, calmar: mdd < 0 ? cagr / -mdd : NaN,
+      ddPeak: dates[mp], ddTrough: dates[mt], ddRecovered: rec != null ? dates[rec] : null, dd, years, months: full, posMonths: mr.length ? mr.filter((x) => x > 0).length / mr.length : NaN,
+      bestMonth: mr.length ? Math.max(...mr) : NaN, worstMonth: mr.length ? Math.min(...mr) : NaN, yearsN: yrs, ppy, nDays: r.length, from: dates[0], to: dates[n - 1] }; }
+  // risk on the last `win` common dates at constant target weights: volatility, each asset's share of it, correlations,
+  // diversification ratio, 1-day historical VaR / ES, beta and correlation with a benchmark (its values on the same dates)
+  function portfolioRisk({ prices, weights, bench = null, win = 756 }) { const n = prices[0].length, s = Math.max(0, n - win - 1), k = prices.length;
+    const R = prices.map((p) => { const r = []; for (let t = s + 1; t < n; t++) r.push(p[t] / p[t - 1] - 1); return r; }), T = R[0].length; if (T < 60) return null;
+    const rp = []; for (let t = 0; t < T; t++) { let x = 0; for (let i = 0; i < k; i++) x += weights[i] * R[i][t]; rp.push(x); }
+    const m = R.map(mean), cov = R.map((a, i) => R.map((b, j) => { let c = 0; for (let t = 0; t < T; t++) c += (a[t] - m[i]) * (b[t] - m[j]); return (c / (T - 1)) * 252; }));
+    const vols = cov.map((r, i) => Math.sqrt(Math.max(0, r[i]))), vp = Math.sqrt(Math.max(0, weights.reduce((a, w, i) => a + w * weights.reduce((b, v, j) => b + v * cov[i][j], 0), 0)));
+    const corr = cov.map((r, i) => r.map((c, j) => (vols[i] > 0 && vols[j] > 0 ? c / (vols[i] * vols[j]) : NaN))), rc = vp > 0 ? riskContrib(cov, weights) : weights.map(() => NaN);
+    const srt = sorted(rp), q = (p) => quantileSorted(srt, p), es = (p) => { const v = q(p), tail = rp.filter((x) => x <= v); return tail.length ? mean(tail) : NaN; };
+    let beta = NaN, bcorr = NaN, bvol = NaN; if (bench) { const rb = []; for (let t = s + 1; t < n; t++) rb.push(bench[t] / bench[t - 1] - 1); const o = ols(rp, rb); if (o) { beta = o.beta; bcorr = o.corr; } bvol = stdev(rb) * SQ252; }
+    const dr = vp > 0 ? weights.reduce((a, w, i) => a + w * vols[i], 0) / vp : NaN;
+    return { days: T, vol: vp, vols, cov, corr, rc, divRatio: dr, var95: -q(0.05), es95: -es(0.05), var99: -q(0.01), es99: -es(0.01), worstDay: srt[0], bestDay: srt[srt.length - 1], beta, benchCorr: bcorr, benchVol: bvol }; }
+  // a window [from, to]: each asset's return from its last value on or before `from` to the last on or before `to`, at the
+  // target weights (held through the window); an asset without a value within 7 days before `from` makes the window N/A
+  function stressWindow(series, weights, from, to) { const rows = []; let tot = 0; const miss = [];
+    series.forEach((s, i) => { if (!s) { rows.push({ i, r: 0 }); return; } const a = valueAt(s, from), b = valueAt(s, to);
+      if (!a || !b || Date.parse(from) - Date.parse(a.d) > 7 * DAY_MS || b.d <= a.d) { miss.push(i); return; } const r = b.v / a.v - 1; rows.push({ i, r }); tot += weights[i] * r; });
+    return miss.length ? { na: true, missing: miss } : { r: tot, rows }; }
+  // Monte Carlo of the value ahead from the portfolio's own past monthly returns, drawn in blocks (keeps some of their
+  // order); `monthly` added at each month end. Numbered runs, reproducible. → percentiles over time, the probability of
+  // reaching `target`, of ending below the money put in. A model of possible outcomes from the past, not a forecast.
+  function projectGoal({ monthlyR, months, start, monthly = 0, paths = 5000, run = 1, block = 6, target = 0 }) {
+    const n = monthlyR.length; if (n < 24 || !(months > 0) || !(start >= 0) || (!(start > 0) && !(monthly > 0))) return null;
+    const rng = mulberry32(run * 7919 + 17), step = months <= 240 ? 1 : 3, cps = []; for (let m = step; m <= months; m += step) cps.push(m); if (cps[cps.length - 1] !== months) cps.push(months);
+    const at = cps.map(() => new Float32Array(paths)), fin = new Float64Array(paths);
+    for (let p = 0; p < paths; p++) { let v = start, pos = 0, c = 0;
+      for (let m = 1; m <= months; m++) { if ((m - 1) % block === 0) pos = Math.floor(rng() * n); const r = monthlyR[(pos + ((m - 1) % block)) % n]; v = v * (1 + r) + monthly; if (m === cps[c]) { at[c][p] = v; c++; } }
+      fin[p] = v; }
+    const P = [0.05, 0.25, 0.5, 0.75, 0.95], bands = at.map((a) => { const s = Float64Array.from(a).sort(); return P.map((x) => quantileSorted(s, x)); });
+    const sf = Float64Array.from(fin).sort(), put = start + monthly * months;
+    return { months, cps, bands, put, median: quantileSorted(sf, 0.5), p5: quantileSorted(sf, 0.05), p95: quantileSorted(sf, 0.95), mean: mean(Array.from(fin)),
+      pTarget: target > 0 ? fin.filter((v) => v >= target).length / paths : NaN, pBelowPut: fin.filter((v) => v < put).length / paths, paths, run, block, n }; }
+
   // align several date-ordered closes on the dates they all have → { dates, closes: [[...], ...] }
   function align(series) { const maps = series.map((s) => new Map(s.map((p) => [String(p.t).slice(0, 10), p.c]))); const dates = [...maps[0].keys()].filter((d) => maps.every((m) => m.get(d) > 0)).sort();
     return { dates, closes: maps.map((m) => dates.map((d) => m.get(d))) }; }
 
   const QUANT = { mean, variance, stdev, skewness, exKurtosis, quantileSorted, logReturns, simpleReturns, normCdf, normInv, normPdf, chi2Sf, gammaQ,
     distStats, acf, ljungBox, histogram, ewmaSigma, riskMeasures, varBacktest, cornishFisherZ, rangeVol, yangZhang, rollingVol, volCone, nelderMead, garch11,
-    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
+    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
   root.QUANT = QUANT;
   if (typeof module !== "undefined" && module.exports) module.exports = QUANT;
 })(typeof window !== "undefined" ? window : globalThis);

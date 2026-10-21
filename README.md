@@ -133,6 +133,22 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   Jarque–Bera, quantiles, days beyond 2σ / 3σ vs normal, autocorrelation of returns and squared returns with Ljung–Box Q(10).
 - `BETA NVDA SPY` — OLS on the benchmark's daily returns: β (± s.e., t), α annualised, R², correlation, idiosyncratic
   volatility, tracking error, information ratio, up / down capture; scatter with the line; rolling 63-day β.
+- `PLAB` — portfolio lab (menu MY STUFF): portfolios with target weights (ETFs by Xetra / Milan / UCITS ticker or ISIN,
+  stocks, C:codes, SYMBOL:MIC, CASH at 0 %; or imported from PORTFOLIO at today's market values), up to 20 saved on the
+  server (`/api/user/plab`, 1–15 holdings, weights adding up to 100). Each instrument's CNBC daily closes in EUR, up to 15
+  years (`/api/plab/series?id=`, one request each; converted at CNBC's FX of the same day — DERIVED; justETF TER and
+  distribution policy). BACKTEST on the window every holding shares (it starts at the youngest one's first close, said):
+  initial amount, monthly contributions on the first trading day of each month, rebalancing none / monthly / quarterly /
+  yearly, cost per trade; the benchmark gets the same money on the same days. Final value, money put in, money-weighted
+  return (IRR), time-weighted CAGR and total, volatility, Sharpe (risk-free as set), Sortino, max drawdown with dates and
+  recovery, Calmar, best / worst month, calendar years; value and drawdown charts. RISK (last 756 common days at target
+  weights): volatility, historical VaR / ES 95 / 99 % (also in € on the final value), beta and correlation with the
+  benchmark, diversification ratio, each holding's share of risk, correlation matrix; STRESS: today's weights through seven
+  past crises (S&P 500 closing high → low dates; each holding's own EUR closes; N/A when a holding has no data then).
+  COMPARE: 2–4 saved portfolios on their common window, same settings, metrics + weighted TER + chart. PROJECTION: Monte
+  Carlo from the portfolio's own past monthly returns (6-month blocks, 5,000 paths, numbered runs) with monthly
+  contributions: median, 5–95 %, probability of a target and of ending below the money put in; nominal EUR. FACT on a lab
+  portfolio (cash left out). Price returns: distributing funds' payouts and stocks' dividends are not added (said).
 - `FACT SWDA` · `FACT NVDA` · `FACT PORT` — Fama/French factor exposure (Kenneth R. French Data Library, approved 21 Oct
   2026): monthly excess returns in USD over 5 or 10 years regressed on the region's factors — Developed, Europe or the U.S.,
   chosen from the listing or the fund's justETF focus (or by hand). β with t and p for market, size (SMB), value (HML),
@@ -338,6 +354,7 @@ node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, 
 node test/sw.test.mjs           # the iPhone app's service worker: interface only, never /api, sign-in redirects
 node test/quant.test.mjs        # quant formulas against closed forms and known processes
 node test/isin.test.mjs         # ISIN: check digit, exchange codes, OpenFIGI listings matched to Twelve Data
+node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, CHF, CNBC's U.S. fallback), backtest / IRR / stats / risk / stress / projection
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron

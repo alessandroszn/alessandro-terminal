@@ -129,7 +129,7 @@ export function valuesOn(rows, dates) {
   for (const d of dates) { while (j < rows.length && rows[j][0] <= d) { v = rows[j][1]; j++; } out.push(v); }
   return out;
 }
-const usdPer = (c, fx) => (c === "USD" ? 1 : c === "EUR" ? fx["EUR="] : c === "GBP" ? fx["GBP="] : c === "CHF" ? (fx["CHF="] > 0 ? 1 / fx["CHF="] : null) : null);
+export const usdPer = (c, fx) => (c === "USD" ? 1 : c === "EUR" ? fx["EUR="] : c === "GBP" ? fx["GBP="] : c === "CHF" ? (fx["CHF="] > 0 ? 1 / fx["CHF="] : null) : null);
 export const FX_CODES = ["EUR=", "GBP=", "CHF="];
 // month-ends in USD, then the returns of consecutive months: { months: ["2021-11", …], r: [0.0123, …] }
 export function monthlyUsd(rows, ccy, pence, fxRows) {
