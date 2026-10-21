@@ -1266,6 +1266,15 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.tap('#fnmenu .fm-i[data-fn="CMDTY"]'); await page.waitForTimeout(1500);
   ok("[L] iPhone: a function from the menu opens in front; the menu closes", JSON.stringify(await vis()) === '["COMMODITIES"]' && !(await page.$eval("#fnmenu", (x) => x.classList.contains("on"))));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-cmdty.png" });
+  // the band under the clock and the header take the theme's background (and the browser's theme colour follows)
+  await page.fill("#cmd", "SET"); await page.press("#cmd", "Enter"); await page.waitForTimeout(500); await page.tap('[data-theme="nord"]'); await page.waitForTimeout(400);
+  const band = await page.evaluate(() => { const tb = document.querySelector("#topband"), r = tb.getBoundingClientRect(), cs = getComputedStyle(tb);
+    return { head: getComputedStyle(document.querySelector("#cmdbar")).backgroundColor, html: getComputedStyle(document.documentElement).backgroundColor, meta: document.querySelector('meta[name="theme-color"]').content,
+      top: { bg: cs.backgroundColor, pos: cs.position, top: r.top, w: r.width, h: r.height }, sticky: getComputedStyle(document.querySelector("#cmdbar")).position + "/" + getComputedStyle(document.querySelector("#dock")).position }; });
+  ok("[L] iPhone: with the NORD theme the band under the clock (a fixed full-width bar at the top edge: iOS extends its colour instead of blurring), the header and the page are NORD's background", band.head === "rgb(36, 41, 51)" && band.html === "rgb(36, 41, 51)" && band.meta === "#242933" && band.top.bg === "rgb(36, 41, 51)" && band.top.pos === "fixed" && band.top.top === 0 && band.top.w === 393 && band.top.h >= 6 && band.sticky === "sticky/sticky", JSON.stringify(band));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-nord.png" });
+  await page.tap('[data-theme="amber"]'); await page.waitForTimeout(300);
+  ok("[L] iPhone: back to AMBER, the default background again", (await page.evaluate(() => getComputedStyle(document.querySelector("#cmdbar")).backgroundColor)) === "rgb(10, 11, 14)" && (await page.evaluate(() => document.querySelector('meta[name="theme-color"]').content)) === "#0a0b0e");
   // the app stays open for days: an expired Cloudflare Access session is said, with a way to sign in again
   api.health = () => ({ status: 403, body: { error: "access" } }); api.quote = () => ({ status: 403, body: { error: "access" } });
   await page.evaluate(() => fetch("https://alessandrozanichelli.com/api/quote?symbols=NVDA").catch(() => null)); await page.waitForTimeout(800);
@@ -1281,7 +1290,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     return { cred: l.crossOrigin, m: { name: m.name, start: m.start_url, scope: m.scope, display: m.display, bg: m.background_color }, icons, apple: !!document.querySelector('link[rel="apple-touch-icon"]'), capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
       bar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content, launch: document.querySelectorAll('link[rel="apple-touch-startup-image"]').length,
       launchOk: (await Promise.all([...document.querySelectorAll('link[rel="apple-touch-startup-image"]')].map(async (x) => (await fetch(x.href)).ok))).every(Boolean) }; });
-  ok("[L] installable: manifest fetched with credentials (Access), standalone, start /terminal/, icons and launch images served, iOS tags", man.cred === "use-credentials" && man.m.display === "standalone" && man.m.start === "/terminal/" && man.m.scope === "/terminal/" && man.icons.length >= 3 && man.icons.every(Boolean) && man.apple && man.capable === "yes" && man.bar === "black" && man.launch === 10 && man.launchOk, JSON.stringify(man));
+  ok("[L] installable: manifest fetched with credentials (Access), standalone, start /terminal/, icons and launch images served, iOS tags", man.cred === "use-credentials" && man.m.display === "standalone" && man.m.start === "/terminal/" && man.m.scope === "/terminal/" && man.icons.length >= 3 && man.icons.every(Boolean) && man.apple && man.capable === "yes" && man.bar === "black-translucent" && man.launch === 10 && man.launchOk, JSON.stringify(man));
   await page.setViewportSize({ width: 1400, height: 900 }); await page.waitForTimeout(700);
   const desk = await page.evaluate(() => ({ phone: document.body.classList.contains("phone"), shown: [...document.querySelectorAll(".win")].filter((w) => getComputedStyle(w).display !== "none").length, n: document.querySelectorAll(".win").length, fn: document.querySelectorAll("#fnbar .ptab").length }));
   ok("[L] wider than a phone (rotated tablet, desktop): back to floating windows, all shown, the desktop dock", !desk.phone && desk.shown === desk.n && desk.n >= 2 && desk.fn === 0, JSON.stringify(desk));
