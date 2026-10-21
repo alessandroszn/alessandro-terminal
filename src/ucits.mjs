@@ -160,7 +160,7 @@ export const UCITS_LINES = {
   "IE00B4ND3602": "EUR:PPFB-DE USD:IGLN-GB GBP:SGLN-GB:p",
   "JE00B1VS3333": "EUR:VZLC-DE USD:PHAG-GB GBP:PHSP-GB:p",
   "IE00BDFL4P12": "EUR:SXRS-DE USD:ICOM-GB GBP:COMM-GB:p",
-  "GB00BLD4ZL17": "EUR:BITC-FR USD:BITC-GB GBP:BITP-GB CHF:BITC-CH",
+  "GB00BLD4ZL17": "EUR:BITC-FR USD:BITC-GB GBP:BITP-GB",
   "DE000A27Z304": "EUR:BTCE-DE USD:BTCF-GB GBP:BTCE-GB",
   "CH0454664001": "EUR:2BTC-DE USD:BTCU-GB GBP:ABTC-GB"
 };
@@ -204,7 +204,8 @@ const normCcy = (c) => (c === "GBp" || c === "GBX" ? "GBP" : c);
 
 // the latest quotes of the lines needed for one currency, and CNBC's three FX rates: ≤ 40 codes a request
 async function loadUcitsQuotes(ccy) {
-  const codes = [...new Set(UCITS_ETFS.map((e) => (pickLine(e, ccy) || e.def).cnbc)), ...FX_CODES];
+  // the line in the currency and the default line (the fallback when the first does not answer as checked)
+  const codes = [...new Set(UCITS_ETFS.flatMap((e) => [(pickLine(e, ccy) || e.def).cnbc, e.def.cnbc])), ...FX_CODES];
   const raw = await loadCnbcRaw(codes), out = {};
   for (const c of codes) { const r = cnbcIntlRec("C:" + c, raw.data[c]); if (r) out[c] = r; }
   return UCITS_ETFS.some((e) => out[(pickLine(e, ccy) || e.def).cnbc]) ? { data: out } : { err: raw.err || "no_data" };
@@ -212,7 +213,16 @@ async function loadUcitsQuotes(ccy) {
 // a line's quote as a row in the chosen currency: pence ÷ 100 (a unit, not a conversion); another currency converted at
 // CNBC's latest rates (the change: today's price at today's rate vs yesterday's close at yesterday's close of the rate)
 export function ucitsQuote(e, ccy, q, now = Date.now()) {
-  const line = pickLine(e, ccy) || e.def, r = q[line.cnbc];
+  const own = pickLine(e, ccy), x = quoteLine(own || e.def, ccy, q, now);
+  // the fund's own line did not answer as checked (no quote, another currency): its default line converted instead
+  if (own && own !== e.def && x.price == null && ["no_quote", "currency_changed"].includes(x.error)) {
+    const y = quoteLine(e.def, ccy, q, now);
+    if (y.price != null) return { ...y, ownLine: { ...own, error: x.error } };
+  }
+  return x;
+}
+function quoteLine(line, ccy, q, now) {
+  const r = q[line.cnbc];
   if (!r) return { line, price: null, status: "N/A", error: "no_quote" };
   const unit = r.currency === "GBp" || r.currency === "GBX" ? 100 : 1, lineCcy = normCcy(r.currency);
   if (line.ccy && lineCcy !== line.ccy) return { line, price: null, status: "N/A", error: "currency_changed" }; // CNBC now quotes it otherwise

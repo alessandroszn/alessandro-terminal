@@ -607,15 +607,15 @@ async function diagEtfSrc(url, H) {
     let n = 0, i = -1; while ((i = t.indexOf("\n", i + 1)) >= 0) n++;
     const counts = {}; const col = Number(url.searchParams.get("col") || -1);
     if (col >= 0) { const lines = t.split("\n"); for (let k = 0; k < lines.length; k++) { const v = (lines[k].split(";")[col] || "").slice(0, 30); counts[v] = (counts[v] || 0) + 1; } }
-    const etfAt = t.indexOf(";ETF;"), sample = etfAt > 0 ? t.slice(t.lastIndexOf("\n", etfAt) + 1, t.indexOf("\n", etfAt + 5) + 400) : null;
-    return json({ http: f.http, bytes: t.length, lines: n, head, counts: Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 40)), sample }, H);
+    const etfAt = t.indexOf(";ETF;"), example = etfAt > 0 ? t.slice(t.lastIndexOf("\n", etfAt) + 1, t.indexOf("\n", etfAt + 5) + 400) : null;
+    return json({ http: f.http, bytes: t.length, lines: n, head, counts: Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 40)), example }, H);
   }
   if (what === "td") {
     const f = await fetchText("https://api.twelvedata.com/etfs?country=United%20States", { timeoutMs: 25000, headers: { accept: "application/json" } });
     if (f.err) return json({ err: f.err, http: f.http || null }, H);
     let j = null; try { j = JSON.parse(f.text); } catch { return json({ bytes: f.text.length, head: f.text.slice(0, 600) }, H); }
     const d = Array.isArray(j.data) ? j.data : [];
-    return json({ bytes: f.text.length, count: d.length, status: j.status, keys: d[0] ? Object.keys(d[0]) : [], sample: d.slice(0, 3), exch: Object.entries(d.reduce((a, x) => ((a[x.exchange] = (a[x.exchange] || 0) + 1), a), {})) }, H);
+    return json({ bytes: f.text.length, count: d.length, status: j.status, keys: d[0] ? Object.keys(d[0]) : [], first: d.slice(0, 3), exch: Object.entries(d.reduce((a, x) => ((a[x.exchange] = (a[x.exchange] || 0) + 1), a), {})) }, H);
   }
   if (what === "je") {
     const isin = String(url.searchParams.get("isin") || "IE00B4L5Y983");
