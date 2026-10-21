@@ -6,6 +6,7 @@
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
 //   GET /api/etf/ucits[/returns?part=N]     UCITS ETFs by asset class: CNBC prices, justETF reference data (src/ucits.mjs)
 //   GET /api/etf/universe|profile|compare|exposure|resolve   the ETF section: every ETF (Xetra list, U.S. list), justETF, CNBC (src/etf.mjs)
+//   GET /api/factors?ids=&region=&years=   Fama/French factors (Kenneth R. French Data Library) + monthly USD returns (src/factors.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
@@ -48,6 +49,7 @@ import { handleIndices } from "./indices.mjs";
 import { handleMarkets } from "./markets.mjs";
 import { handleUcits } from "./ucits.mjs";
 import { handleEtf, refreshEtfRef, buildEtfUniverse } from "./etf.mjs";
+import { handleFactors } from "./factors.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -639,6 +641,7 @@ export const app = {
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
     if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json);
     if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
+    if (url.pathname === "/api/factors") return handleFactors(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };

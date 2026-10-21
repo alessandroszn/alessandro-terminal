@@ -200,13 +200,50 @@
     for (let i = 1; i < pts.length; i++) { if (!(pts[i].c > 0 && pts[i - 1].c > 0)) continue; const d = new Date(String(pts[i].t).slice(0, 10) + "T12:00:00Z").getUTCDay(); if (d >= 1 && d <= 5) by[d - 1].push(pts[i].c / pts[i - 1].c - 1); }
     return by.map((a) => ({ n: a.length, avg: a.length ? mean(a) : NaN, pos: a.length ? a.filter((v) => v > 0).length / a.length : NaN })); }
 
+  // ---------- FACT: factor exposure — multiple regression (OLS with an intercept) on monthly excess returns ----------
+  // Student t, two-sided p-value through the regularized incomplete beta I_x(a, b) (continued fraction, Numerical Recipes)
+  function betaCf(a, b, x) { let c = 1, d = 1 - (a + b) * x / (a + 1); if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; let h = d;
+    for (let m = 1; m <= 300; m++) { const m2 = 2 * m; let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; h *= d * c;
+      aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; const del = d * c; h *= del; if (Math.abs(del - 1) < 1e-14) break; }
+    return h; }
+  function betaI(a, b, x) { if (!(x > 0)) return 0; if (x >= 1) return 1; const bt = Math.exp(lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2) ? bt * betaCf(a, b, x) / a : 1 - bt * betaCf(b, a, 1 - x) / b; }
+  const tP2 = (t, df) => (fin(t) && df > 0 ? betaI(df / 2, 0.5, df / (df + t * t)) : NaN);
+  // Gauss–Jordan inverse with partial pivoting (small matrices); null when singular
+  function invert(M) { const n = M.length, A = M.map((r, i) => r.concat(Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))));
+    const scale = Math.max(...M.map((r, i) => Math.abs(r[i])), 1e-300);
+    for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r; if (Math.abs(A[p][c]) < scale * 1e-12) return null;
+      [A[c], A[p]] = [A[p], A[c]]; const d = A[c][c]; for (let j = 0; j < 2 * n; j++) A[c][j] /= d;
+      for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c]; if (f) for (let j = 0; j < 2 * n; j++) A[r][j] -= f * A[c][j]; } }
+    return A.map((r) => r.slice(n)); }
+  // y on the columns X (each as long as y) and an intercept: coefficients (intercept first), standard errors, t, p, R²
+  function olsMulti(y, X) { const n = y.length, k = X.length + 1; if (n < k + 2 || X.some((c) => c.length !== n)) return null;
+    const z = (j, i) => (j === 0 ? 1 : X[j - 1][i]), A = [], c = [];
+    for (let a = 0; a < k; a++) { const row = []; for (let b = 0; b < k; b++) { let t = 0; for (let i = 0; i < n; i++) t += z(a, i) * z(b, i); row.push(t); } A.push(row); let s = 0; for (let i = 0; i < n; i++) s += z(a, i) * y[i]; c.push(s); }
+    const inv = invert(A); if (!inv) return null;
+    const coef = inv.map((r) => r.reduce((s, v, j) => s + v * c[j], 0)), my = mean(y); let sse = 0, sst = 0;
+    for (let i = 0; i < n; i++) { let f = 0; for (let j = 0; j < k; j++) f += coef[j] * z(j, i); sse += (y[i] - f) ** 2; sst += (y[i] - my) ** 2; }
+    const df = n - k, s2 = sse / df, se = inv.map((r, j) => Math.sqrt(Math.max(0, r[j] * s2))), t = coef.map((b, j) => (se[j] > 0 ? b / se[j] : NaN));
+    return { n, k, df, coef, se, t, p: t.map((x) => tP2(x, df)), r2: sst ? 1 - sse / sst : NaN, adjR2: sst ? 1 - (sse / df) / (sst / (n - 1)) : NaN, residSd: Math.sqrt(s2) }; }
+  // the models: CAPM, Fama/French 3, Fama/French 5, 5 + momentum (Carhart's momentum on the five)
+  const FACTOR_MODELS = { capm: ["mkt"], ff3: ["mkt", "smb", "hml"], ff5: ["mkt", "smb", "hml", "rmw", "cma"], ff6: ["mkt", "smb", "hml", "rmw", "cma", "mom"] };
+  // y: monthly excess returns; F: { mkt: [...], smb: [...], … } on the same months. Alpha a month and annualised (× 12);
+  // each factor's share of the variance of y (β·cov(f, y) / var(y), they add up to R²) and of the average excess return
+  // (β · mean factor return, annualised — with alpha they add up to the average, an identity of least squares)
+  function factorFit(y, F, names) { const o = olsMulti(y, names.map((k) => F[k])); if (!o) return null;
+    const vy = variance(y), my = mean(y), cov = (a) => { const ma = mean(a); let s = 0; for (let i = 0; i < y.length; i++) s += (a[i] - ma) * (y[i] - my); return s / (y.length - 1); };
+    const betas = {}; names.forEach((k, j) => { const b = o.coef[j + 1]; betas[k] = { b, se: o.se[j + 1], t: o.t[j + 1], p: o.p[j + 1], varShare: vy > 0 ? b * cov(F[k]) / vy : NaN, retAnn: b * mean(F[k]) * 12, premAnn: mean(F[k]) * 12 }; });
+    return { names, n: o.n, df: o.df, alpha: o.coef[0], alphaAnn: o.coef[0] * 12, alphaSe: o.se[0], alphaT: o.t[0], alphaP: o.p[0], betas, r2: o.r2, adjR2: o.adjR2, residVolAnn: o.residSd * Math.sqrt(12), meanAnn: my * 12, volAnn: Math.sqrt(vy * 12) }; }
+  // the coefficients over a moving window (months): one row of betas per window end, null when the window is singular
+  function rollingFactorFit(y, F, names, w = 36) { const out = []; for (let e = w; e <= y.length; e++) { const o = olsMulti(y.slice(e - w, e), names.map((k) => F[k].slice(e - w, e))); out.push(o ? o.coef.slice(1) : null); } return out; }
+
   // align several date-ordered closes on the dates they all have → { dates, closes: [[...], ...] }
   function align(series) { const maps = series.map((s) => new Map(s.map((p) => [String(p.t).slice(0, 10), p.c]))); const dates = [...maps[0].keys()].filter((d) => maps.every((m) => m.get(d) > 0)).sort();
     return { dates, closes: maps.map((m) => dates.map((d) => m.get(d))) }; }
 
   const QUANT = { mean, variance, stdev, skewness, exKurtosis, quantileSorted, logReturns, simpleReturns, normCdf, normInv, normPdf, chi2Sf, gammaQ,
     distStats, acf, ljungBox, histogram, ewmaSigma, riskMeasures, varBacktest, cornishFisherZ, rangeVol, yangZhang, rollingVol, volCone, nelderMead, garch11,
-    ols, regression, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
+    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
   root.QUANT = QUANT;
   if (typeof module !== "undefined" && module.exports) module.exports = QUANT;
 })(typeof window !== "undefined" ? window : globalThis);
