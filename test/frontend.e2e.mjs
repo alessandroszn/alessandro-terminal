@@ -9,7 +9,7 @@ import { normalizeQuote, buildInstrument, app as workerApp } from "../src/worker
 import { normalizeSearch } from "../src/search.mjs";
 import { cnbcIntlRec, cnbcInstrument } from "../src/intl.mjs";
 import { settlementCandidates } from "../src/finra.mjs";
-import { ucitsMatch, JUSTETF_KEY } from "../src/ucits.mjs";
+import { ucitsMatch, JUSTETF_KEY, UCITS_ETFS } from "../src/ucits.mjs";
 
 const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
@@ -314,8 +314,10 @@ const cnTime = (ms) => new Date(ms).toISOString().replace("Z", "+0000");
 const CN_PX = { ".SPX": 6700.5, ".NDX": 24800, ".DJI": 46500, ".RUT": 2450, ".N225": 49000, "@SP.1": 6731.25, "@ND.1": 24890, "@DJ.1": 46600, "@TFS.1": 2460, "@NK.1": 49150, "@CL.1": 88.42, "@GC.1": 4130.5, "EUR=": 1.1235, "NVDA": 190.5, ".FTMIB": 44000 };
 const cnPx = (s) => CN_PX[s] ?? (/^@CL\.(\d+)$/.test(s) ? 88.42 - (+s.split(".")[1] - 1) * 0.35 : /^@NG\.(\d+)$/.test(s) ? 3.1 + (+s.split(".")[1]) * 0.08 : 50 + [...s].reduce((a, c) => a + c.charCodeAt(0), 0) % 70);
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// the UCITS lines' currencies as CNBC gave them when they were checked (London pence lines in GBp)
+const UC_CCY_OF = Object.fromEntries(UCITS_ETFS.flatMap((e) => Object.values(e.lines).map((l) => [l.cnbc, l.pence ? "GBp" : l.ccy])));
 const cnQuote = (s) => { const last = cnPx(s), prev = +(last / 1.0075).toFixed(4), n = /^@[A-Z]+\.(\d+)$/.exec(s), m = n ? (10 + +n[1]) : 0;
-  return { symbol: s, code: 0, name: n ? `${s} (${MON[m % 12]}'${26 + Math.floor(m / 12)})` : s === "EUR=" ? "EUR/USD" : s, last: last.toLocaleString("en-US", { maximumFractionDigits: 4 }), previous_day_closing: String(prev), change: "+" + (last - prev).toFixed(4), change_pct: "+0.75%", open: String(prev), high: String(last), low: String(prev), volume: "1000", last_time: cnTime(Date.now() - (s.startsWith(".") ? 5 : 2) * 60_000), exchange: "CME", realTime: s.startsWith(".") ? "false" : "true", curmktstatus: "REG_MKT" }; };
+  return { symbol: s, code: 0, name: n ? `${s} (${MON[m % 12]}'${26 + Math.floor(m / 12)})` : s === "EUR=" ? "EUR/USD" : s, last: last.toLocaleString("en-US", { maximumFractionDigits: 4 }), previous_day_closing: String(prev), change: "+" + (last - prev).toFixed(4), change_pct: "+0.75%", open: String(prev), high: String(last), low: String(prev), volume: "1000", last_time: cnTime(Date.now() - (s.startsWith(".") ? 5 : 2) * 60_000), exchange: "CME", realTime: s.startsWith(".") ? "false" : "true", curmktstatus: "REG_MKT", ...(UC_CCY_OF[s] ? { currencyCode: UC_CCY_OF[s] } : /=$/.test(s) ? { currencyCode: "USD" } : {}) }; };
 const cnBars = (s, five) => { const out = [], end = Date.now(); if (five) { for (let t = end - 4 * 864e5; t < end; t += 300_000) out.push({ close: String(cnPx(s)), tradeTime: "x", tradeTimeinMills: t - t % 300_000 }); return out; }
   const d0 = new Date(); d0.setUTCHours(4, 0, 0, 0); for (let i = 420; i >= 1; i--) { const t = d0.getTime() - i * 864e5, wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue; const v = cnPx(s) * (1 - i * 0.0004 + Math.sin(i / 9) * 0.01); out.push({ close: v.toFixed(4), open: v.toFixed(4), high: (v * 1.01).toFixed(4), low: (v * 0.99).toFixed(4), tradeTime: new Date(t).toISOString().slice(0, 10).replace(/-/g, "") + "000000", tradeTimeinMills: t }); } return out; };
 const NQ_TODAY = new Date().toISOString().slice(0, 10);
@@ -1390,6 +1392,12 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[P] prices from CNBC in two requests for the whole list (≤ 40 codes each), no Twelve Data quote for them", PV.cnbcAsked.filter((x) => x.includes("EUNL-DE") || x.includes("XEON-DE")).length >= 1 && PV.cnbcAsked.every((x) => x.length <= 40));
   ok("[P] returns 1D…1Y from the same line's daily bars; TER, fund size, Acc from justETF for SWDA; N/A where justETF was not read yet", /SWDA[^\n]*\+\d+\.\d\d%[^\n]*0\.20%\s+EUR 131\.8B\s+Acc/.test(w.text) && /VWCE[^\n]*N\/A\s+N\/A/.test(w.text), (w.text.match(/SWDA[^\n]*/) || [""])[0] + " || " + (w.text.match(/VWCE[^\n]*/) || [""])[0]);
   ok("[P] the footer says which price is shown (the line, not necessarily Milan), returns DERIVED, justETF reference data and how many funds were read", /not necessarily the Milan price/.test(w.text) && /returns DERIVED/.test(w.text) && /justETF \(reference data, read weekly\) — 1\/72 read so far/.test(w.text));
+  await page.click('[data-uccy="USD"]'); await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("UCITS ETFs")); return w && /IWDA · London/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 20000 }).catch(() => null);
+  await page.waitForTimeout(1500); w = await winOf(page, "UCITS ETFs");
+  ok("[P] CURRENCY USD: SWDA on its own USD line (IWDA · London, USD); a fund without a USD line converted from its Xetra line (→ USD, conv., DRV)", /SWDA\s+iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983\s+IWDA · London\s+[\d.,]+\s+USD/.test(w.text) && /SUSW[^\n]*2B7K · Xetra → USD conv\.\s+[\d.,]+\s+USD/.test(w.text) && /without a USD line: converted at CNBC's live rate/.test(w.text), (w.text.match(/SUSW[^\n]*/) || [""])[0] + " || " + (w.text.match(/SWDA[^\n]*/) || [""])[0]);
+  await page.click('[data-uccy="GBP"]'); await page.waitForTimeout(2500); w = await winOf(page, "UCITS ETFs");
+  ok("[P] CURRENCY GBP: SWDA's London line in pence shown in GBP", /SWDA\s+iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983\s+SWDA · London\s+[\d.,]+\s+GBP/.test(w.text), (w.text.match(/SWDA[^\n]*/) || [""])[0]);
+  await page.click('[data-uccy="EUR"]'); await page.waitForTimeout(1500);
   await page.fill(".uc-q", "vwce"); await page.waitForTimeout(300);
   const vis = await page.$$eval("tr[data-uc]", (t) => t.filter((x) => x.style.display !== "none").map((x) => x.querySelector("b").textContent));
   ok("[P] the filter keeps the funds a ticker names (VWCE → one row)", vis.length === 1 && vis[0] === "VWCE", vis.join());

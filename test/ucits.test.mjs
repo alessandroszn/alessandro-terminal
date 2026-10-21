@@ -4,7 +4,7 @@
 // providers' formats (CNBC restQuote / bars, justETF's profile table) — nothing here is shown.
 //   node test/ucits.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { UCITS_ETFS, UCITS_GROUPS, ucitsMatch, parseJustEtf, refreshJustEtf, JUSTETF_KEY, justEtfUrl } from "../src/ucits.mjs";
+import { UCITS_ETFS, UCITS_GROUPS, UCITS_CCYS, ucitsMatch, parseJustEtf, refreshJustEtf, JUSTETF_KEY, justEtfUrl, fxRate } from "../src/ucits.mjs";
 import { cnbcIntlRec, cnbcForeignFallback, MIC_CNBC } from "../src/intl.mjs";
 import { isinValid } from "../src/isin.mjs";
 
@@ -19,9 +19,10 @@ globalThis.caches = { default: {
 // ---------- the list ----------
 const isins = UCITS_ETFS.map((e) => e.isin), codes = UCITS_ETFS.map((e) => e.cnbc), suffixes = Object.values(MIC_CNBC);
 ok("72 funds, every ISIN with a valid check digit, no ISIN or price line twice", UCITS_ETFS.length === 72 && isins.every(isinValid) && new Set(isins).size === 72 && new Set(codes).size === 72);
-ok("every price line is a CNBC venue code (Xetra -DE, Milan -IT, London -GB), its venue said; classes in order", UCITS_ETFS.every((e) => suffixes.some((s) => e.cnbc.endsWith(s)) && ["XETR", "XMIL", "XLON"].includes(e.mic)) && UCITS_GROUPS[0] === "World equity" && UCITS_GROUPS.includes("Bonds") && UCITS_GROUPS.includes("Crypto ETP"));
+ok("every default line is a CNBC venue code (Xetra -DE, Milan -IT, Paris -FR, London -GB), its venue said; classes in order", UCITS_ETFS.every((e) => suffixes.some((s) => e.cnbc.endsWith(s)) && ["XETR", "XMIL", "XPAR", "XLON"].includes(e.def.mic)) && UCITS_GROUPS[0] === "World equity" && UCITS_GROUPS.includes("Bonds") && UCITS_GROUPS.includes("Crypto ETP"));
+ok("lines by currency: every fund's default line is one of its lines; only EUR, USD, GBP, CHF; London pence lines marked", UCITS_ETFS.every((e) => Object.values(e.lines).some((l) => l.cnbc === e.cnbc) && Object.keys(e.lines).every((k) => UCITS_CCYS.includes(k)) && Object.values(e.lines).every((l) => !l.pence || l.cnbc.endsWith("-GB"))) && UCITS_ETFS.filter((e) => e.lines.USD).length >= 50);
 const swda = UCITS_ETFS.find((e) => e.isin === "IE00B4L5Y983");
-ok("SWDA: iShares Core MSCI World, Milan ticker SWDA, priced on its Xetra EUR line EUNL (CNBC does not carry the Milan line)", swda.sym === "SWDA" && swda.milan === "SWDA" && swda.cnbc === "EUNL-DE" && swda.line === "EUNL" && swda.tickers.includes("IWDA"));
+ok("SWDA: iShares Core MSCI World, Milan ticker SWDA, priced on its Xetra EUR line EUNL (CNBC does not carry the Milan line); USD = IWDA London, GBP = SWDA London (pence)", swda.sym === "SWDA" && swda.milan === "SWDA" && swda.cnbc === "EUNL-DE" && swda.line === "EUNL" && swda.tickers.includes("IWDA") && swda.lines.USD.cnbc === "IWDA-GB" && swda.lines.GBP.cnbc === "SWDA-GB" && swda.lines.GBP.pence && !swda.lines.CHF);
 ok("funds without a Milan line are named by the line they are priced on (QDVE, 4GLD, BTCE)", ["QDVE", "4GLD", "BTCE"].every((t) => UCITS_ETFS.some((e) => e.sym === t && !e.milan)));
 
 // ---------- CNBC's answer from a U.S. symbol ----------
@@ -33,7 +34,12 @@ ok("…a real Xetra answer, a U.S. stock with a share class (BRK.B) and a Tokyo 
 // ---------- /api/etf/ucits ----------
 const day = (d, c) => ({ close: String(c), tradeTime: d.replace(/-/g, "") + "000000", tradeTimeinMills: Date.parse(d + "T04:00:00Z") });
 const quoteCalls = [], barCalls = [], otherCalls = [];
-const QUOTES = { "EUNL-DE": eunl, "VWCE-DE": { ...eunl, symbol: "VWCE-DE", name: "Vanguard FTSE All-World UCITS ETF USD Accumulating", last: "170.66", change_pct: "-0.10%" }, "SXR8-DE": { ...smh, symbol: "SXR8-DE" } };
+const fxq = (symbol, last, prev) => ({ symbol, code: 0, name: symbol, last, previous_day_closing: prev, change: "0", change_pct: "0%", last_time: "2026-10-21T16:20:00.000+0200", currencyCode: "USD", exchange: "Currency", realTime: "true" });
+const QUOTES = { "EUNL-DE": eunl, "VWCE-DE": { ...eunl, symbol: "VWCE-DE", name: "Vanguard FTSE All-World UCITS ETF USD Accumulating", last: "170.66", change_pct: "-0.10%" }, "SXR8-DE": { ...smh, symbol: "SXR8-DE" },
+  "IWDA-GB": { ...eunl, symbol: "IWDA-GB", last: "146.76", previous_day_closing: "146.20", change: "0.56", change_pct: "0.38%", currencyCode: "USD", exchange: "London Stock Exchange", countryCode: "GB" },
+  "SWDA-GB": { ...eunl, symbol: "SWDA-GB", last: "10,960", previous_day_closing: "10,920", change: "40", change_pct: "0.37%", currencyCode: "GBp", exchange: "London Stock Exchange", countryCode: "GB" },
+  "2B7K-DE": { ...eunl, symbol: "2B7K-DE", last: "10.00", previous_day_closing: "9.90", change: "0.10", change_pct: "1.01%" },
+  "EUR=": fxq("EUR=", "1.1650", "1.1600"), "GBP=": fxq("GBP=", "1.3300", "1.3300"), "CHF=": fxq("CHF=", "0.8000", "0.8000") };
 globalThis.fetch = async (u) => {
   u = String(u);
   if (u.startsWith("https://quote.cnbc.com/")) {
@@ -42,7 +48,8 @@ globalThis.fetch = async (u) => {
   }
   if (u.startsWith("https://ts-api.cnbc.com/")) {
     const sym = decodeURIComponent(u.split("/bars/")[1].split("/")[0]); barCalls.push(sym);
-    if (sym !== "EUNL-DE") return new Response("{}", { status: 404 });
+    if (sym === "EUR=") return new Response(JSON.stringify({ barData: { priceBars: [day("2025-10-17", 1.10), day("2025-12-30", 1.12), day("2026-07-20", 1.15), day("2026-09-18", 1.16), day("2026-10-13", 1.165), day("2026-10-20", 1.16)] } }));
+    if (sym !== "EUNL-DE" && sym !== "2B7K-DE") return new Response("{}", { status: 404 });
     return new Response(JSON.stringify({ barData: { priceBars: [day("2025-10-20", 110), day("2025-12-31", 115), day("2026-07-21", 120), day("2026-09-18", 125), day("2026-10-13", 128), day("2026-10-20", 130.28)] } }));
   }
   otherCalls.push(u); return new Response("", { status: 404 });
@@ -56,7 +63,7 @@ const call = async (path) => { const r = await worker.fetch(new Request("https:/
 
 let r = await call("/api/etf/ucits");
 const row = (isin) => r.j.rows.find((x) => x.isin === isin);
-ok("all 72 funds in two CNBC requests (≤ 40 codes each); nothing asked of justETF or Twelve Data when the page opens", r.status === 200 && r.j.rows.length === 72 && quoteCalls.length === 2 && quoteCalls.every((n) => n <= 40) && otherCalls.length === 0, JSON.stringify(quoteCalls));
+ok("all 72 funds (EUR by default) and CNBC's three FX rates in two requests (≤ 40 codes each); nothing asked of justETF or Twelve Data when the page opens", r.status === 200 && r.j.ccy === "EUR" && r.j.rows.length === 72 && quoteCalls.length === 2 && quoteCalls.every((n) => n <= 40) && quoteCalls[0] + quoteCalls[1] === 75 && otherCalls.length === 0, JSON.stringify(quoteCalls));
 const s1 = row("IE00B4L5Y983");
 ok("SWDA row: EUNL Xetra price in EUR with CNBC's change and time, LIVE; the line it comes from said", s1.sym === "SWDA" && s1.price === 130.69 && s1.currency === "EUR" && s1.changePct === 0.32 && s1.status === "LIVE" && s1.line.ticker === "EUNL" && s1.line.venue === "Xetra" && s1.line.id === "C:EUNL-DE" && /^2026-10-21T14:10/.test(s1.asOf));
 ok("…with justETF's reference data (TER, size, distribution, replication…), its source page and the date read", s1.ref && s1.ref.ter === 0.2 && s1.ref.fundSize.value === 131754e6 && s1.ref.distribution === "Accumulating" && s1.ref.source === "justETF" && s1.ref.sourceUrl === justEtfUrl("IE00B4L5Y983") && s1.ref.status === "LIVE" && !("price" in s1.ref));
@@ -70,6 +77,24 @@ ok("returns, part 0: 16 lines, one daily-bars request each; reference closes fro
 ok("…a line without bars is an error for that fund only", r.j.errors["IE00BK5BQT80"] === "no_data" && /DERIVED/.test(r.j.basis));
 r = await call("/api/etf/ucits/returns?part=9");
 ok("a part outside the list → 400", r.status === 400);
+
+// ---------- another currency: the fund's own line, or its default line converted (DERIVED) ----------
+ok("FX from CNBC's codes: EUR→USD at EUR=, GBP→EUR via GBP= and EUR=, USD→CHF at CHF= (CHF per USD)", Math.abs(fxRate("EUR", "USD", { "EUR=": 1.165 }) - 1.165) < 1e-12 && Math.abs(fxRate("GBP", "EUR", { "EUR=": 1.165, "GBP=": 1.33 }) - 1.33 / 1.165) < 1e-12 && Math.abs(fxRate("USD", "CHF", { "CHF=": 0.8 }) - 0.8) < 1e-12 && fxRate("EUR", "USD", {}) === null);
+quoteCalls.length = 0; r = await call("/api/etf/ucits?ccy=USD");
+const u1 = row("IE00B4L5Y983"), u2 = row("IE00BYX2JD69");
+ok("USD: SWDA on its own USD line (IWDA London, 146.76, CNBC's change), LIVE, not converted", r.j.ccy === "USD" && u1.price === 146.76 && u1.currency === "USD" && u1.line.cnbc === "IWDA-GB" && u1.line.venue === "London" && u1.changePct === 0.38 && u1.conv === null && u1.own === true && u1.status === "LIVE", JSON.stringify(u1).slice(0, 300));
+ok("USD: a fund with no USD line (iShares MSCI World SRI) — its Xetra EUR price × EUR= 1.1650, DERIVED, the rate and its source said; the change at today's vs yesterday's rate", Math.abs(u2.price - 10 * 1.165) < 1e-9 && u2.currency === "USD" && u2.own === false && u2.conv.from === "EUR" && u2.conv.rate === 1.165 && /CNBC FX/.test(u2.conv.source) && u2.status === "DERIVED" && Math.abs(u2.changePct - ((10 * 1.165) / (9.9 * 1.16) - 1) * 100) < 1e-9, JSON.stringify(u2).slice(0, 400));
+ok("USD: the response counts own lines and conversions; the request for USD is its own cached copy", r.j.own >= 1 && r.j.converted >= 1 && /converted at CNBC/.test(r.j.basis) && quoteCalls.length === 2);
+r = await call("/api/etf/ucits?ccy=GBP");
+ok("GBP: SWDA's London line quoted in pence → 10,960 GBp shown as 109.60 GBP (a unit, not a conversion), change in GBP", row("IE00B4L5Y983").price === 109.6 && row("IE00B4L5Y983").currency === "GBP" && row("IE00B4L5Y983").pence === true && row("IE00B4L5Y983").change === 0.4 && row("IE00B4L5Y983").conv === null);
+r = await call("/api/etf/ucits?ccy=JPY");
+ok("a currency outside EUR, USD, GBP, CHF → 400", r.status === 400 && /EUR, USD, GBP, CHF/.test(r.j.message));
+QUOTES["IWDA-GB"] = { ...QUOTES["IWDA-GB"], currencyCode: "EUR" }; store.clear();
+r = await call("/api/etf/ucits?ccy=USD");
+ok("a line CNBC now quotes in another currency than checked: N/A (currency_changed), never shown as USD", row("IE00B4L5Y983").price === null && row("IE00B4L5Y983").error === "currency_changed");
+barCalls.length = 0; r = await call("/api/etf/ucits/returns?part=0&ccy=USD");
+const rc = r.j.returns["IE00BYX2JD69"];
+ok("returns in USD, part 0: the converted fund's bars × EUR= on the same day (1Y: 110 × 1.10 on 20 Oct 2025 — the rate's close on or before), the FX bars asked once", r.j.ccy === "USD" && rc.converted === "EUR→USD" && Math.abs(rc.ref["1Y"][1] - 110 * 1.10) < 1e-9 && Math.abs(rc.lastClose[1] - 130.28 * 1.16) < 1e-9 && barCalls.filter((x) => x === "EUR=").length === 1, JSON.stringify(rc));
 
 // ---------- justETF's profile page ----------
 const PAGE = `<html><head><title>iShares Core MSCI World UCITS ETF USD (Acc) | IWDA | IE00B4L5Y983</title></head><body>${"<div>menu</div>".repeat(80)}
@@ -112,7 +137,7 @@ ok("all read within the week: no request; after 7 days the oldest again", x.acti
 ok("without the KV binding: nothing", (await refreshJustEtf({}, now0, fetchImpl)).action === "skipped");
 
 // ---------- SRCH ----------
-ok("search names: SWDA, IWDA, EUNL → the same fund; 'nasdaq' → the Nasdaq-100 funds; an ISIN → its fund", ucitsMatch("swda")[0].isin === "IE00B4L5Y983" && ucitsMatch("IWDA")[0].sym === "SWDA" && ucitsMatch("EUNL")[0].sym === "SWDA" && ucitsMatch("nasdaq").length === 3 && ucitsMatch("IE00B5BMR087")[0].sym === "CSSPX" && ucitsMatch("zz").length === 0);
+ok("search names: SWDA, IWDA, EUNL → the same fund (its lines by currency listed); 'nasdaq' → the Nasdaq-100 funds; an ISIN → its fund", ucitsMatch("swda")[0].isin === "IE00B4L5Y983" && ucitsMatch("swda")[0].lines.USD === "C:IWDA-GB" && ucitsMatch("IWDA")[0].sym === "SWDA" && ucitsMatch("EUNL")[0].sym === "SWDA" && ucitsMatch("nasdaq").length === 3 && ucitsMatch("IE00B5BMR087")[0].sym === "CSSPX" && ucitsMatch("zz").length === 0);
 globalThis.fetch = async (u) => { u = String(u); if (u.startsWith("https://api.twelvedata.com/symbol_search")) return new Response(JSON.stringify({ data: [], status: "ok" })); return new Response("", { status: 404 }); };
 r = await call("/api/search?q=SWDA");
 ok("/api/search?q=SWDA: the UCITS fund with its price line (C:EUNL-DE) alongside the provider's listings", r.status === 200 && r.j.ucits.length === 1 && r.j.ucits[0].line.id === "C:EUNL-DE" && r.j.ucits[0].isin === "IE00B4L5Y983");
