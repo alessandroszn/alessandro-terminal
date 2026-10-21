@@ -46,6 +46,7 @@ import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
 import { handleMarkets } from "./markets.mjs";
 import { handleUcits, refreshJustEtf } from "./ucits.mjs";
+import { fetchText } from "./lib.mjs"; // TEMPORARY (diagEtfSrc)
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -595,6 +596,37 @@ function json(obj, headers, status = 200, cacheSec = 0) {
 }
 
 // routing without the access check (unit tests exercise the handlers through this)
+// TEMPORARY: what the ETF sources look like (Deutsche Börse Xetra instruments file, Twelve Data's ETF list, a justETF
+// profile's composition) — structure only; removed after
+async function diagEtfSrc(url, H) {
+  const what = url.searchParams.get("what");
+  if (what === "xetra") {
+    const f = await fetchText("https://www.cashmarket.deutsche-boerse.com/resource/blob/1528/374322c724cea673463bc7c2ceae00bf/data/t7-xetr-allTradableInstruments.csv", { timeoutMs: 25000, headers: { accept: "text/csv,*/*" } });
+    if (f.err) return json({ err: f.err, http: f.http || null }, H);
+    const t = f.text, head = t.slice(0, 1800);
+    let n = 0, i = -1; while ((i = t.indexOf("\n", i + 1)) >= 0) n++;
+    const counts = {}; const col = Number(url.searchParams.get("col") || -1);
+    if (col >= 0) { const lines = t.split("\n"); for (let k = 0; k < lines.length; k++) { const v = (lines[k].split(";")[col] || "").slice(0, 30); counts[v] = (counts[v] || 0) + 1; } }
+    const etfAt = t.indexOf(";ETF;"), sample = etfAt > 0 ? t.slice(t.lastIndexOf("\n", etfAt) + 1, t.indexOf("\n", etfAt + 5) + 400) : null;
+    return json({ http: f.http, bytes: t.length, lines: n, head, counts: Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 40)), sample }, H);
+  }
+  if (what === "td") {
+    const f = await fetchText("https://api.twelvedata.com/etfs?country=United%20States", { timeoutMs: 25000, headers: { accept: "application/json" } });
+    if (f.err) return json({ err: f.err, http: f.http || null }, H);
+    let j = null; try { j = JSON.parse(f.text); } catch { return json({ bytes: f.text.length, head: f.text.slice(0, 600) }, H); }
+    const d = Array.isArray(j.data) ? j.data : [];
+    return json({ bytes: f.text.length, count: d.length, status: j.status, keys: d[0] ? Object.keys(d[0]) : [], sample: d.slice(0, 3), exch: Object.entries(d.reduce((a, x) => ((a[x.exchange] = (a[x.exchange] || 0) + 1), a), {})) }, H);
+  }
+  if (what === "je") {
+    const isin = String(url.searchParams.get("isin") || "IE00B4L5Y983");
+    const f = await fetchText(`https://www.justetf.com/en/etf-profile.html?isin=${isin}`, { timeoutMs: 15000, headers: { accept: "text/html", "accept-language": "en" } });
+    if (f.err) return json({ err: f.err }, H);
+    const h = f.text, win = (label, n = 900) => { const i = h.indexOf(label); return i < 0 ? null : h.slice(i, i + n); };
+    return json({ bytes: h.length, top: win("Top 10 Holdings", 2500), countries: win(">Countries<", 1600), sectors: win(">Sectors<", 1600), weight: win("Weight of top 10 holdings", 400) }, H);
+  }
+  return json({ error: "what: xetra | td | je" }, H, 400);
+}
+
 export const app = {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
@@ -636,6 +668,7 @@ export const app = {
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
     if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json);
+    if (url.pathname === "/api/diag/etfsrc") return diagEtfSrc(url, H); // TEMPORARY (source structure check), removed after
     return json({ error: "not found" }, H, 404);
   },
 };
