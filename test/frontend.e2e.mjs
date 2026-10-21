@@ -1025,7 +1025,7 @@ const OK_API = {
   const mi = await page.evaluate(() => [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|") + " " + document.querySelector('.fm-i[data-fn="OMON"]')?.innerText);
   await page.keyboard.press("Escape");
   await cmd(page, "CB"); await page.waitForTimeout(400);
-  ok("[H] Italian: menu and new windows in Italian, codes and data unchanged", /^MERCATI\|TASSI E MACRO\|ANALISI\|PERSONALE\|LAYOUT OMON\s+Monitor delle opzioni/.test(mi) && !!(await winOf(page, "BANCHE CENTRALI")) && /BANCA CENTRALE\s+TASSO\s+AL\s+ULTIMA MOSSA/.test((await winOf(page, "BANCHE CENTRALI")).text), mi + " || " + ((await winOf(page, "BANCHE CENTRALI")) || {}).text?.slice(0, 400));
+  ok("[H] Italian: menu and new windows in Italian, codes and data unchanged", /^MERCATI\|ETF\|TASSI E MACRO\|ANALISI\|PERSONALE\|LAYOUT OMON\s+Monitor delle opzioni/.test(mi) && !!(await winOf(page, "BANCHE CENTRALI")) && /BANCA CENTRALE\s+TASSO\s+AL\s+ULTIMA MOSSA/.test((await winOf(page, "BANCHE CENTRALI")).text), mi + " || " + ((await winOf(page, "BANCHE CENTRALI")) || {}).text?.slice(0, 400));
   await page.click('#cmdbar [data-lang="en"]'); await page.waitForTimeout(400);
   const body = await page.evaluate(() => document.body.innerText);
   ok("[H] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(body) && !/NaN|undefined/.test(body) && errors.length === 0, errors.join(" | ") + (body.match(/.{0,40}(NaN|undefined).{0,40}/) || [""])[0]);
