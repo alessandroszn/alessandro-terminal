@@ -16,6 +16,7 @@ const htmlFast = html0.replace("creditsPerMin:8,", "creditsPerMin:60,");
 const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.meta.url), "utf8");
 const i18nJs = readFileSync(new URL("../public/terminal/i18n.js", import.meta.url), "utf8");
 const lwcJs = readFileSync(new URL("../public/terminal/vendor/lightweight-charts.js", import.meta.url), "utf8");
+const quantJs = readFileSync(new URL("../public/terminal/quant.js", import.meta.url), "utf8");
 const ORIGIN = "https://alessandrozanichelli.com";
 const SHOTS = process.env.SHOTS_DIR || null;
 const WL = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "JPM"];
@@ -373,11 +374,12 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/vendor/lightweight-charts.js") return route.fulfill({ contentType: "application/javascript", body: lwcJs });
+    if (u.origin === ORIGIN && u.pathname === "/terminal/quant.js") return route.fulfill({ contentType: "application/javascript", body: quantJs });
     if (u.origin === ORIGIN && (u.pathname === "/terminal/manifest.webmanifest" || u.pathname.startsWith("/terminal/app/"))) { const f = "public" + u.pathname; return existsSync(f) ? route.fulfill({ contentType: f.endsWith(".png") ? "image/png" : "application/manifest+json", body: readFileSync(f) }) : route.fulfill({ status: 404, body: "" }); }
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/health") { const h = api.health ? api.health() : { body: { ok: true } }; return h === "abort" ? route.abort() : send(h); }
     if (u.origin === ORIGIN && u.pathname === "/api/quote") { const syms = (u.searchParams.get("symbols") || "").split(","); quoteBatches.push({ t: Date.now(), syms }); return send(api.quote(syms)); }
-    if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range")));
+    if (u.origin === ORIGIN && u.pathname === "/api/history") return send(api.history(u.searchParams.get("symbol"), u.searchParams.get("range"), u.searchParams.get("interval")));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/briefs")) return send(api.briefs ? api.briefs(u) : briefsApi(u, route.request().method(), brfState));
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/portfolio")) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(api.portfolio ? api.portfolio(u) : pfApi(u, route.request().method(), b, pfState)); }
     if (u.origin === ORIGIN && u.pathname === "/api/calendar/reactions") return send(api.reactions ? api.reactions() : { body: CAL_REACT() });
@@ -851,7 +853,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: five categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,ETF,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,EF,SEAS,PORT,PFA,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -928,7 +930,8 @@ const OK_API = {
   ok("[H] CRYPTO: pairs by traded value with live price and 1D change", /BTC\/USD\s+86,000\s+\+1\.18%\s+\$1\.20B/.test(cr.text) && cr.text.indexOf("BTC/USD") < cr.text.indexOf("ETH/USD"), cr.text.slice(0, 400));
   await cmd(page, "FUT"); await page.waitForTimeout(2500);
   const fu = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent === "FUTURES"); return w ? { text: w.querySelector(".win-body").innerText, pill: w.querySelector(".w-pv")?.textContent.trim() } : null; });
-  ok("[H] FUT: where the cash indices are set to open (implied move DERIVED) and 45 contracts by group with month, last, returns", /WHERE THE CASH INDICES ARE SET TO OPEN\s*DRV/.test(fu.text) && /S&P 500\s+6,700\.50\s+[\s\S]{0,30}Dec 2026\s+6,731\.25\s+6,731\.25\s+\+0\.00%\s+6,700\.50/.test(fu.text) && /S&P 500 E-mini\s+Dec 2026\s+6,731\.25\s+pts\s+\+0\.75%/.test(fu.text) && /LIVESTOCK/.test(fu.text) && fu.pill === "LIVE", fu.text.slice(0, 900));
+  // (during the U.S. cash session the row says the market is open instead of an implied move)
+  ok("[H] FUT: where the cash indices are set to open (implied move DERIVED) and 45 contracts by group with month, last, returns", /WHERE THE CASH INDICES ARE SET TO OPEN\s*DRV/.test(fu.text) && /S&P 500\s+6,700\.50\s+[\s\S]{0,30}Dec 2026\s+6,731\.25\s+(6,731\.25\s+\+0\.00%\s+6,700\.50|cash market open · today [+-]\d+\.\d\d%)/.test(fu.text) && /S&P 500 E-mini\s+Dec 2026\s+6,731\.25\s+pts\s+\+0\.75%/.test(fu.text) && /LIVESTOCK/.test(fu.text) && fu.pill === "LIVE", fu.text.slice(0, 900));
   await cmd(page, "RDT"); await page.waitForTimeout(1500);
   const rd = await winOf(page, "REDDIT · MOST MENTIONED");
   ok("[H] RDT: most mentioned tickers on Reddit (ApeWisdom) with the 24 hours before and changes DERIVED — a count, not a sentiment", !!rd && /1\s+NVDA\s+NVIDIA\s+812\s+640\s+\+27%\s+▲1\s+4,021/.test(rd.text) && /2\s+TSLA\s+Tesla\s+700\s+900\s+-22%\s+▼1/.test(rd.text) && /not a sentiment/.test(rd.text), rd && rd.text.slice(0, 500));
@@ -1344,6 +1347,69 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[M] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "SPLIT NVDA MKT"); await page.waitForTimeout(1500); await page.screenshot({ path: SHOTS + "/split.png" }); }
+  await page.close();
+}
+
+// =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============
+// history shaped like /api/history: five years of daily OHLC from a fixed process per symbol (SPY the market itself; NVDA β 1.5;
+// MSFT β 0.8; a 40-day listing), ten years of monthly closes with every January +5 %
+{
+  const M32 = (a) => () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const r0 = M32(11), g0 = () => { let u = 0; while (!u) u = r0(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r0()); };
+  const wdays = []; { const d = new Date(); d.setUTCHours(0, 0, 0, 0); for (let i = 1; wdays.length < 1260; i++) { const x = new Date(d - i * 864e5), w = x.getUTCDay(); if (w && w < 6) wdays.push(x.toISOString().slice(0, 10)); } wdays.reverse(); }
+  const mkt = wdays.map(() => 0.01 * g0()), beta = { SPY: 1, NVDA: 1.5, MSFT: 0.8 }, cache = {};
+  const dailyOf = (sym) => cache[sym] || (cache[sym] = (() => { const b = beta[sym] ?? 1; let c = 100; return wdays.map((t, i) => { const o = c, rr = 0.0003 + b * mkt[i] + (sym === "SPY" ? 0 : 0.008 * g0()); c = +(c * Math.exp(rr)).toFixed(4); const hi = Math.max(o, c) * (1 + Math.abs(0.004 * g0())), lo = Math.min(o, c) * (1 - Math.abs(0.004 * g0())); return { t, o: +o.toFixed(4), h: +hi.toFixed(4), l: +lo.toFixed(4), c, v: 1e6 }; }); })());
+  const monthly = (() => { const out = []; let c = 100; const d = new Date(); for (let k = 119; k >= 0; k--) { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - k, 28)); c *= x.getUTCMonth() === 0 ? 1.05 : 1.004; out.push({ t: x.toISOString().slice(0, 10), o: c, h: c, l: c, c: +c.toFixed(4), v: 1 }); } return out; })();
+  const qHist = (sym, range, interval) => { const pts = interval === "1month" ? monthly : sym === "NEWCO" ? dailyOf("SPY").slice(-40) : dailyOf(sym);
+    return { body: { symbol: sym, range, interval: interval || "1day", adjust: "all", count: pts.length, points: pts, status: "LIVE", source: "twelvedata", fetchedAt: new Date().toISOString() } }; };
+  const { page, errors } = await openTerminal({ ...OK_API, history: qHist });
+  await page.waitForTimeout(1200); await cmd(page, "CLOSE"); await page.waitForTimeout(300);
+  const qwin = () => page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("QUANT")); return w ? { title: w.querySelector(".w-title").textContent, text: w.querySelector(".win-body").innerText, svg: w.querySelectorAll(".q-svg").length, cv: w.querySelectorAll("canvas").length, pill: w.querySelector(".w-pv").innerText } : null; });
+  const until = (re) => page.waitForFunction((src) => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("QUANT")); return w && new RegExp(src).test(w.querySelector(".win-body").innerText); }, re.source, { timeout: 75000 }).then(() => true, () => false);
+  await cmd(page, "MC NVDA"); await until(/Probability of a gain/);
+  let q = await qwin();
+  const p95 = (q.text.match(/5th – 95th percentile\s+(\S+ … \S+)/) || [])[1];
+  ok("[N] MC NVDA: Monte Carlo on 5 years of real-shaped closes — start at the last close, median, 5–95 % range, probability of a gain / of a 10 % loss, VaR / ES at the horizon (DERIVED)", q && /QUANT · MONTE CARLO · NVDA/.test(q.title) && /Start: last close\s+\d/.test(q.text) && /Median path\s+[+-]\d+\.\d%/.test(q.text) && !!p95 && /Probability of a gain\s+\d+\.\d%/.test(q.text) && /VaR 99 % · ES 99 %\s+-\d+\.\d% · -\d+\.\d%/.test(q.text) && q.svg === 1 && q.cv >= 1, q && q.text.slice(0, 900));
+  ok("[N] MC: what it is, said once — paths from the past daily returns, block bootstrap, run number, not a forecast", /Monte Carlo · 5,000 paths of 252 trading days from the 1259 daily log returns of NVDA \(Twelve Data/.test(q.text) && /block bootstrap/.test(q.text) && /Run 1: the same inputs and run number give the same result/.test(q.text) && /not a forecast, not advice/.test(q.text), q.text.slice(q.text.indexOf("Monte Carlo ·"), q.text.indexOf("Monte Carlo ·") + 400));
+  await page.fill('.q-f [name="run"]', "2"); await page.click(".q-f .set-reset"); await until(/Run 2:/); const p95b = ((await qwin()).text.match(/5th – 95th percentile\s+(\S+ … \S+)/) || [])[1];
+  await page.fill('.q-f [name="run"]', "1"); await page.click(".q-f .set-reset"); await until(/Run 1:/); const p95c = ((await qwin()).text.match(/5th – 95th percentile\s+(\S+ … \S+)/) || [])[1];
+  ok("[N] MC is reproducible: run 1 again gives the same range, run 2 another", p95 === p95c && p95b !== p95, [p95, p95b, p95c].join(" | "));
+  await page.fill('.q-f [name="target"]', "1000000"); await page.click(".q-f .set-reset"); await until(/Probability of ending at or above/);
+  ok("[N] MC: probability of ending above a target price (an unreachable one: 0.0 %)", /Probability of ending at or above 1,000,000\.00\s+0\.0%/.test((await qwin()).text));
+  if (SHOTS) await shotWin(page, "QUANT", "quant-mc");
+  // VaR
+  await page.click('[data-qt="var"]'); await until(/BACKTEST/); await page.fill('.q-f [name="amount"]', "10000"); await page.click(".q-f .set-reset"); await until(/VaR · amount/);
+  q = await qwin();
+  ok("[N] VaR · ES: historical, normal, Cornish–Fisher, EWMA at 99 % with the amounts for a 10,000 position", /Historical\s+-\d+\.\d\d%\s+-\d+\.\d\d%\s+-\d+(\.\d+)?\s+-\d+/.test(q.text) && /Normal\s+-\d+\.\d\d%/.test(q.text) && /Cornish–Fisher\s+-\d+\.\d\d%/.test(q.text) && /EWMA \(λ 0\.94\)\s+-\d+\.\d\d%/.test(q.text), q.text.slice(0, 700));
+  ok("[N] VaR backtest: exceptions vs expected, Kupiec LR and p, Basel zone, a chart", /EXCEPTIONS\s+\d+ \(expected 2\.5\)/.test(q.text) && /KUPIEC\s+LR \d+\.\d\d · p \d\.\d{3}/.test(q.text) && /BASEL\s+(GREEN|YELLOW|RED)/.test(q.text) && q.cv >= 1, q.text.slice(q.text.indexOf("BACKTEST"), q.text.indexOf("BACKTEST") + 300));
+  // volatility
+  await page.click('[data-qt="vol"]'); await until(/VOLATILITY CONE/); q = await qwin();
+  ok("[N] VOL: realised volatility by five estimators over 21 / 63 / 252 days (OHLC available), EWMA, GARCH(1,1) fit with forecasts, cone", /Parkinson \(high–low\)\s+\d+\.\d%\s+\d+\.\d%\s+\d+\.\d%/.test(q.text) && /Yang–Zhang/.test(q.text) && /GARCH\(1,1\)\s+α \d\.\d{3} · β \d\.\d{3}/.test(q.text) && /GARCH FORECAST\s+1W \d+\.\d%/.test(q.text) && /252 days(\s+\d+\.\d%){6}/.test(q.text), q.text.slice(0, 900));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/quant-vol.png" });
+  // distribution
+  await page.click('[data-qt="dist"]'); await until(/JARQUE/); q = await qwin();
+  ok("[N] DIST: histogram with the normal curve, skewness, excess kurtosis, Jarque–Bera, tails vs normal, autocorrelation with Ljung–Box", q.svg === 1 && /SKEWNESS\s+-?\d\.\d\d/.test(q.text) && /JARQUE–BERA\s+\d+\.\d · p/.test(q.text) && /BEYOND 2σ · 3σ/.test(q.text) && /squared returns(\s+-?\d\.\d\d){10}\s+\d+\.\d · p/.test(q.text), q.text.slice(0, 900));
+  // beta: NVDA was built with β 1.5 on SPY
+  await cmd(page, "BETA NVDA SPY"); await until(/INFORMATION RATIO/); q = await qwin();
+  const b = +((q.text.match(/BETA\s+(\d\.\d\d) ±/) || [])[1]);
+  ok("[N] BETA NVDA SPY: β ≈ 1.5 (how the history was built), α, R², tracking error, information ratio, capture; scatter and rolling β", Math.abs(b - 1.5) < 0.1 && /R²\s+0\.\d\d/.test(q.text) && /TRACKING ERROR\s+\d+\.\d%/.test(q.text) && /UP · DOWN CAPTURE\s+\d+% · \d+%/.test(q.text) && q.svg === 1 && q.cv >= 1 && /QUANT · BETA · REGRESSION · NVDA \/ SPY/.test(q.title), String(b) + " " + q.text.slice(0, 500));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/quant-beta.png" });
+  // optimiser
+  await cmd(page, "EF NVDA MSFT SPY"); await until(/Maximum Sharpe/); q = await qwin();
+  const rowW = (name) => ((q.text.match(new RegExp(name + "\\s+((?:—|\\d+\\.\\d%)\\s+(?:—|\\d+\\.\\d%)\\s+(?:—|\\d+\\.\\d%))")) || [])[1] || "").split(/\s+/).map((x) => (x === "—" ? 0 : parseFloat(x)));
+  const sums = ["Minimum variance", "Maximum Sharpe", "Risk parity", "Equal weights"].map((n) => rowW(n).reduce((a, x) => a + x, 0));
+  ok("[N] EF NVDA MSFT SPY: frontier chart; minimum variance, maximum Sharpe, risk parity, equal weights — long only, weights adding up to 100 %", q.svg === 1 && sums.every((x) => Math.abs(x - 100) < 0.25) && /risk share in risk parity(\s+33\.3%){3}/.test(q.text) && /QUANT · OPTIMISER · NVDA MSFT SPY/.test(q.title), sums.join() + " " + q.text.slice(0, 600));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/quant-ef.png" });
+  // seasonality: every January +5 %
+  await page.click('[data-qt="seas"]'); await until(/BY CALENDAR MONTH/); q = await qwin();
+  ok("[N] SEAS: months × years from monthly closes (every January 5.0), averages, % positive; weekdays from daily closes", /average\s+5\.0\s+0\.4/.test(q.text) && /% positive\s+100/.test(q.text) && /DAY OF THE WEEK/.test(q.text) && /average return(\s+[+-]\d\.\d{3}%){5}/.test(q.text), q.text.slice(q.text.indexOf("BY CALENDAR"), q.text.indexOf("BY CALENDAR") + 300));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/quant-seas.png" });
+  // too little history: N/A, nothing made up
+  await cmd(page, "VAR NEWCO"); await until(/not enough history/); q = await qwin();
+  ok("[N] a 40-day listing: VaR is N/A (not enough history), nothing estimated", /N\/A — not enough history for this tool \(40 days\)/.test(q.text) && !/Historical\s+-/.test(q.text));
+  ok("[N] the window's data pill: real history + DERIVED results", /LIVE|DRV/.test(q.pill));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[N] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
   await page.close();
 }
 

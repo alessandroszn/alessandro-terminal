@@ -4,9 +4,9 @@
 // terminal shows N/A, never an old value as if it were current.
 // Network first: the interface on the server wins whenever it answers within SHELL_TIMEOUT_MS. A redirect (the
 // Cloudflare Access sign-in when the session has expired) is passed through and never cached.
-const VERSION = "shell-v1";
+const VERSION = "shell-v2";
 const SHELL_TIMEOUT_MS = 3500;
-const SHELL = ["/terminal/", "/terminal/i18n.js", "/terminal/provenance.js", "/terminal/vendor/lightweight-charts.js", "/terminal/manifest.webmanifest", "/terminal/app/icon-180.png", "/terminal/app/icon-192.png"];
+const SHELL = ["/terminal/", "/terminal/i18n.js", "/terminal/provenance.js", "/terminal/quant.js", "/terminal/vendor/lightweight-charts.js", "/terminal/manifest.webmanifest", "/terminal/app/icon-180.png", "/terminal/app/icon-192.png"];
 
 const isShell = (url) => url.origin === self.location.origin && url.pathname.startsWith("/terminal/") && !url.pathname.startsWith("/terminal/sw.js");
 const cacheable = (r) => !!(r && r.ok && r.type === "basic" && !r.redirected);

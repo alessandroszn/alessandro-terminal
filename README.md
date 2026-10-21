@@ -111,6 +111,30 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 - Writing an edition (scheduled or from the terminal) reads the markets inputs only from these staged copies; each copy is read once.
 - Usage: ~300 runs/day, ~130 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition (the markets inputs cost none).
 
+## Quant tools (QNT)
+One window, seven tools, all DERIVED in the page (`public/terminal/quant.js`, formulas only, unit-tested in
+`test/quant.test.mjs`) from real daily closes (`/api/history`, adjusted, one Twelve Data credit per symbol, cached;
+CNBC for listings outside the plan). Results are cached per input; too little history → N/A, never an estimate.
+- `MC NVDA` — Monte Carlo: 1,000 / 5,000 / 10,000 paths over 1 month … 1 year from the past daily log returns: block
+  bootstrap (runs of 5 days, keeps volatility clustering), bootstrap or normal (past μ, σ). Fan of the 5 / 25 / 50 / 75 /
+  95 % paths after the real history; at the horizon: median, mean, 5–95 % range, probability of a gain, of a 10 % / 20 %
+  loss, of touching −10 % on the way, VaR / ES 95 % and 99 %, probability of ending above a target price; histogram.
+  Numbered runs (mulberry32): the same inputs and run number give the same result.
+- `VAR NVDA` — VaR and ES at 95 / 99 / 99.5 %, 1 or 10 days (overlapping returns), on a position amount: historical,
+  normal, Cornish–Fisher (skew / kurtosis), EWMA (λ 0.94). Backtest of the 1-day historical VaR 99 % (250-day window,
+  last 250 days): exceptions, Kupiec POF (LR, p), Basel zone; chart and exception days.
+- `VOL NVDA` — realised volatility over 21 / 63 / 252 days: close-to-close, Parkinson, Garman–Klass, Rogers–Satchell,
+  Yang–Zhang (OHLC; N/A without it); EWMA; GARCH(1,1) by maximum likelihood (Nelder–Mead): α, β, persistence,
+  half-life, long-run and next-day volatility, forecasts 1W … 1Y; volatility cone 10 … 252 days with today's percentile.
+- `DIST NVDA` — histogram of daily log returns with the normal of the same μ, σ; skewness, excess kurtosis (bias-adjusted),
+  Jarque–Bera, quantiles, days beyond 2σ / 3σ vs normal, autocorrelation of returns and squared returns with Ljung–Box Q(10).
+- `BETA NVDA SPY` — OLS on the benchmark's daily returns: β (± s.e., t), α annualised, R², correlation, idiosyncratic
+  volatility, tracking error, information ratio, up / down capture; scatter with the line; rolling 63-day β.
+- `EF NVDA MSFT SPY` — 2–8 symbols, long only: efficient frontier (projected gradient on the simplex), minimum variance,
+  maximum Sharpe (risk-free rate as set), risk parity, equal weights; weights, return, volatility, Sharpe; risk shares.
+- `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
+  empty), averages, medians, % positive; by weekday from the daily closes.
+
 ## Split screen (desktop)
 - ◫ in the taskbar, ◫ in a window's title, Alt+← / Alt+→, `SPLIT` in the command line or the menu (LAYOUT): the window
   in front and the previous one side by side, each full height; again: swap. A divider between them: drag to resize
@@ -280,6 +304,7 @@ node test/briefmkt.test.mjs     # markets in the briefings: indices, ECB fixing,
 node test/access.test.mjs       # T05: /api refused without a valid Cloudflare Access token (real RS256 tokens)
 node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, FRED), BOND changes/spreads, CFTC COT, ETF list
 node test/sw.test.mjs           # the iPhone app's service worker: interface only, never /api, sign-in redirects
+node test/quant.test.mjs        # quant formulas against closed forms and known processes
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/yields-world.test.mjs # more countries' yields: parsers, past curves, spreads, OECD monthly
