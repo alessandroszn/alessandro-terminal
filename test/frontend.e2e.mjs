@@ -336,6 +336,12 @@ globalThis.fetch = async (u, init = {}) => {
   if (u.startsWith("https://api.nasdaq.com/api/company/AAPL/institutional-holdings")) return new Response(JSON.stringify({ data: { ownershipSummary: { SharesOutstandingPCT: { value: "61.20%" }, ShareoutstandingTotal: { value: "14,800" }, TotalHoldingsValue: { value: "$2,264,400" } }, activePositions: { rows: [{ positions: "Increased Positions", holders: "2,815", shares: "329,984,542" }] }, holdingsTransactions: { totalRecords: "6437", table: { rows: [{ ownerName: "Vanguard Group Inc", date: "06/30/2026", sharesHeld: "1,426,283,914", sharesChange: "26,856,752", sharesChangePCT: "1.919%", marketValue: "$358,000,000" }] } } } }));
   if (u.startsWith("https://api.nasdaq.com/api/analyst/") || u.startsWith("https://api.nasdaq.com/api/company/")) return new Response(JSON.stringify({ data: null }));
   if (u.startsWith("https://symlookup.cnbc.com/")) return new Response(JSON.stringify([{ TotalMatchAvailable: "3" }, { symbolName: "NOV-DE", companyName: "Novartis AG", exchangeName: "XETRA", countryCode: "DE", issueType: "STOCK" }, { symbolName: "NVS", companyName: "Novartis AG", exchangeName: "NYSE", countryCode: "US", issueType: "STOCK" }, { symbolName: "NOVN-CH", companyName: "Novartis AG", exchangeName: "Swiss Exchange", countryCode: "CH", issueType: "STOCK" }]));
+  // OpenFIGI /v3/mapping and Twelve Data /symbol_search (ISIN search)
+  if (u === "https://api.openfigi.com/v3/mapping") { const b = JSON.parse(init.body || "[]"); PV.figi = (PV.figi || 0) + 1;
+    return new Response(JSON.stringify(b[0].idValue === "IT0000072618" ? [{ data: [{ figi: "BBG000BNSF93", name: "INTESA SANPAOLO", ticker: "ISP", exchCode: "IM", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" },
+      { figi: "BBG000BNSF02", name: "INTESA SANPAOLO", ticker: "IES", exchCode: "GY", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }, { figi: "BBG000BNSF39", name: "INTESA SANPAOLO", ticker: "ISNPF", exchCode: "US", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }] }] : [{ warning: "No identifier found." }])); }
+  if (u.startsWith("https://api.twelvedata.com/symbol_search")) { const q = new URL(u).searchParams.get("symbol"), rw = (symbol, mic, country, currency, plan) => ({ symbol, instrument_name: "Intesa Sanpaolo S.p.A.", exchange: mic, mic_code: mic, exchange_timezone: "Europe/Rome", instrument_type: "Common Stock", country, currency, access: { global: plan, plan } });
+    return new Response(JSON.stringify({ data: q === "ISP" ? [rw("ISP", "XMIL", "Italy", "EUR", "Grow")] : q === "IES" ? [rw("IES", "XETR", "Germany", "EUR", "Grow")] : [], status: "ok" })); }
   if (u.startsWith("https://apewisdom.io/")) return new Response(JSON.stringify({ results: [{ rank: 1, ticker: "NVDA", name: "NVIDIA", mentions: 812, upvotes: 4021, rank_24h_ago: 2, mentions_24h_ago: 640 }, { rank: 2, ticker: "TSLA", name: "Tesla", mentions: 700, upvotes: 3000, rank_24h_ago: 1, mentions_24h_ago: 900 }] }));
   if (u.startsWith("https://api.telegram.org/")) { const method = u.split("/").pop(), body = JSON.parse(init.body || "{}"); PV.tg.push({ method, body, tokenInUrl: u.includes(TG_TOKEN) });
     if (method === "getMe") return new Response(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, first_name: "Ale alerts", username: "ale_alerts_bot" } }));
@@ -386,6 +392,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/calendar/history") return send({ body: { ccy: u.searchParams.get("ccy"), title: u.searchParams.get("title"), releases: [{ datetime: "2026-09-10T12:30:00.000Z", forecast: "0.2%", previous: "0.2%" }], note: "Forecast and previous as published by Forex Factory in each weekly export since the archive started.", status: "LIVE" } });
     if (u.origin === ORIGIN && u.pathname === "/api/exchanges") return send(api.exchanges ? api.exchanges() : { body: EXCH() });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/spx/")) { spxCalls.push(u.pathname + u.search); return send(api.spx ? api.spx(u.pathname, u) : spxApi(u.pathname, u)); }
+    if (u.origin === ORIGIN && u.pathname === "/api/search" && /^[A-Z]{2}[A-Z0-9]{9}\d$/i.test((u.searchParams.get("q") || "").replace(/ /g, ""))) return viaWorker(route, u); // ISIN: the real Worker code, OpenFIGI in its format
     if (u.origin === ORIGIN && u.pathname === "/api/search") return send(api.search ? api.search(u.searchParams.get("q")) : { body: searchBody(u.searchParams.get("q")) });
     if (u.origin === ORIGIN && u.pathname.startsWith("/api/markets/")) return send(api.markets ? api.markets(u) : marketsApi(u));
     if (u.origin === ORIGIN && (u.pathname === "/api/indices" || u.pathname === "/api/indices/history")) return send(api.indices ? api.indices(u) : indicesApi(u));
@@ -1347,6 +1354,22 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[M] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "SPLIT NVDA MKT"); await page.waitForTimeout(1500); await page.screenshot({ path: SHOTS + "/split.png" }); }
+  await page.close();
+}
+
+// =============== O. ISIN search: OpenFIGI's listings, the home market first, the first quotable one opened ===============
+{
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1200);
+  await cmd(page, "IT0000072618"); await page.waitForTimeout(2500);
+  const sr = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("SYMBOL SEARCH") || x.querySelector(".w-tag").textContent === "SRCH"); return w ? w.querySelector(".win-body").innerText : ""; });
+  ok("[O] an ISIN in the command line: OpenFIGI's listings of Intesa Sanpaolo, Milan first (home market), Xetra, the U.S. line; source named", /ISIN IT0000072618 · INTESA SANPAOLO — 3 listings, the home market first/.test(sr) && /source OpenFIGI \(ISIN → listings\) · Twelve Data symbol_search/.test(sr) && sr.indexOf("Borsa Italiana") < 0 && /ISP\s+Intesa Sanpaolo S\.p\.A\.\s+XMIL/.test(sr) && sr.indexOf("ISP") < sr.indexOf("IES") && sr.indexOf("IES") < sr.indexOf("ISNPF"), sr.slice(0, 700));
+  const gp = await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent));
+  ok("[O] …and the Milan listing opens (quoted through CNBC outside the plan)", gp.some((t) => /^ISP:XMIL/.test(t)), gp.join(" | "));
+  await cmd(page, "SRCH DE0007164600"); await page.waitForTimeout(1500);
+  const sr2 = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "SRCH"); return w ? w.querySelector(".win-body").innerText : ""; });
+  ok("[O] an ISIN OpenFIGI does not know: said so, nothing listed", /ISIN DE0007164600 — no listing found at OpenFIGI \(No identifier found\.\)/.test(sr2) && !/SYMBOL\s+NAME\s+EXCHANGE/.test(sr2), sr2.slice(0, 400));
+  ok("[O] no JavaScript errors", errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

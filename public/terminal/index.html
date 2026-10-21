@@ -573,7 +573,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="brand">ALESSANDRO<span class="b-dot">°</span>TERMINAL <small>MKTS</small></div>
     <div class="cmd-wrap">
       <input id="cmd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Command line"
-             placeholder="Ticker, company or function" title="Ticker, company name or function — e.g. NVDA, Novartis, NESN, WL, HELP">
+             placeholder="Ticker, company, ISIN or function" title="Ticker, company name, ISIN or function — e.g. NVDA, Novartis, NESN, IT0000072618, WL, HELP">
     </div>
     <div id="tabs" aria-label="Open windows"></div>
     <div class="status-right">
@@ -620,6 +620,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-grp">COMMAND LINE</div>
     <div class="help-row"><code>NVDA</code><span>Open a security window</span></div>
     <div class="help-row"><code>NVDA GP</code><span>Ticker + function in one line</span></div>
+    <div class="help-row"><code>IT0000072618</code><span>An ISIN finds the security's listings (OpenFIGI) — the home market first — and opens the first one that can be quoted</span></div>
     <div class="help-row"><code>Novartis</code><span>Anything else searches the provider's symbol master (name or ticker, all exchanges); listings outside the Twelve Data plan open through CNBC</span></div>
     <div class="help-grp">FUNCTIONS</div>
     <div class="help-row"><code>GP</code><span>Price chart &amp; security overview: candles, line or area; 1D…MAX; volume, SMA, Bollinger, RSI; log scale; compare up to 3 symbols in %; your notes on the chart</span></div>
@@ -2224,6 +2225,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 
   // ---- SYMBOL SEARCH: the provider's symbol master (all exchanges), metadata only; prices are fetched on demand ----
   const SRCH_RE=/^[\p{L}\p{N} .&'\-\/:]{1,40}$/u, SRCH_CACHE={};let srchSeq=0;
+  const ISIN_RE=/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/i; // the Worker checks the check digit; listings from OpenFIGI
   function openSearch(q){const w=openOrFocus('SRCH',{q:''});if(q!=null&&String(q).trim())runSearch(w,q);else{const i=w.bodyEl.querySelector('.sr-in');i&&i.focus();}return w;}
   // open a security window for an id from the search (US/FX/crypto: plain ticker; other venues: SYMBOL:MIC)
   function openSecurity(id){const t=inst(id);const w=openOrFocus('GP',{ticker:id,tf:'6M'});if(!t.q&&!t._pending&&!t._planBlocked)DATA.fetchNow([id]);return w;}
@@ -2232,9 +2234,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!SRCH_RE.test(q)){st.res=null;st.err='bad_request';return liveRepaint(win);}
     const k=q.toLowerCase(),seq=++srchSeq,done=j=>{st.res=j;st.err=null;(j.results||[]).forEach(x=>{META[x.id]=x;});
       // a ticker typed in the command line opens directly when the provider has exactly that symbol on the current plan
-      const top=j.results&&j.results[0];if(auto&&top&&top.symbol.toUpperCase()===q.toUpperCase()&&top.quotable)openSecurity(top.id);};
+      // an ISIN typed in the command line opens its first listing (the home market) when it can be quoted
+      const top=j.results&&j.results[0];if(auto&&top&&top.quotable&&(top.symbol.toUpperCase()===q.toUpperCase()||(j.isin&&j.isin===q.toUpperCase().replace(/ /g,''))))openSecurity(top.id);};
     // CNBC's own lookup in parallel: listings the symbol master does not reach (opened as C:<code>, no credit)
-    st.cn=CN_LK[k]||null;if(!CN_LK[k])fetch(`${CONFIG.proxyBase}/api/cnbc/lookup?q=${encodeURIComponent(q)}`,{cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&Array.isArray(c.results)){CN_LK[k]=c;c.results.forEach(x=>{META[x.id]={id:x.id,symbol:x.code,name:x.name,exchange:x.exchange,country:x.country,type:x.type,quotable:true,via:'CNBC',cnbc:x.code};});if(st.q.toLowerCase()===k){st.cn=c;liveRepaint(win);}}}).catch(()=>{});
+    st.cn=CN_LK[k]||null;if(!CN_LK[k]&&!ISIN_RE.test(q.replace(/ /g,'')))fetch(`${CONFIG.proxyBase}/api/cnbc/lookup?q=${encodeURIComponent(q)}`,{cache:'no-store'}).then(r=>r.json()).then(c=>{if(c&&Array.isArray(c.results)){CN_LK[k]=c;c.results.forEach(x=>{META[x.id]={id:x.id,symbol:x.code,name:x.name,exchange:x.exchange,country:x.country,type:x.type,quotable:true,via:'CNBC',cnbc:x.code};});if(st.q.toLowerCase()===k){st.cn=c;liveRepaint(win);}}}).catch(()=>{});
     if(SRCH_CACHE[k]){done(SRCH_CACHE[k]);return liveRepaint(win);}
     st.loading=true;st.err=null;st.res=null;liveRepaint(win);
     try{const r=await fetch(`${CONFIG.proxyBase}/api/search?q=${encodeURIComponent(q)}`,{cache:'no-store'});let j=null;try{j=await r.json();}catch(e){}
@@ -2260,9 +2263,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         <td><button class="sr-b" data-open="${esc(x.id)}" title="${blocked?'open: shown as N/A (not in the current plan)':'open the quote window (real quote + history, fetched now)'}">${tl('OPEN','APRI')}</button><button class="sr-b" data-add="${esc(x.id)}" ${inWl||blocked?'disabled':''} title="${inWl?'already in the watchlist':blocked?'not in the current data plan: it would only show N/A':'add to the watchlist (checked with a real quote)'}">${inWl?'IN WL':'+WL'}</button></td></tr>`;}).join('');
     const msg=st.msg?esc(st.msg):st.loading?`Searching the provider's symbol master for “${esc(st.q)}”…`:
       st.err?`<b>N/A</b> — search unavailable: ${esc(st.err==='bad_request'?'use 1–40 letters, digits, spaces or . & \' - / :':P.errorText(st.err))}`:
+      j&&j.isin?(j.count?`ISIN ${esc(j.isin)}${j.name?' · '+esc(j.name):''} — ${j.count} listing${j.count===1?'':'s'}, the home market first · ${j.quotable} quotable · source ${esc(j.source)} · fetched ${fmtDT(j.fetchedAt)}`:`ISIN ${esc(j.isin)} — ${tl('no listing found at OpenFIGI','nessuna quotazione trovata su OpenFIGI')}${j.note?' ('+esc(j.note)+')':''}`):
       j?`${j.count} listing${j.count===1?'':'s'} · ${j.quotable} quotable (Twelve Data ${PLAN}, or CNBC for listings outside the plan) · source ${esc(j.source)} · fetched ${fmtDT(j.fetchedAt)}${j.truncated?' · provider limit reached (120 listings): a broad name can be crowded out by warrants — search the ticker instead':''}`:
-      'Search any listed instrument by company name or ticker: US, Europe (UK, CH, DE, FR, IT, NL, ES), Canada, Japan, Hong Kong, ETFs, FX and crypto. Indices are not in the provider\'s search.';
-    body.innerHTML=`<div class="wl-add"><input class="sr-in" value="${esc(st.q||'')}" placeholder="company or ticker — e.g. Apple, Novartis, NESN, EUR/USD" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Search instruments"><button class="wl-btn sr-go">SEARCH</button></div>
+      'Search any listed instrument by company name, ticker or ISIN: US, Europe (UK, CH, DE, FR, IT, NL, ES), Canada, Japan, Hong Kong, ETFs, FX and crypto. Indices are not in the provider\'s search.';
+    body.innerHTML=`<div class="wl-add"><input class="sr-in" value="${esc(st.q||'')}" placeholder="company, ticker or ISIN — e.g. Apple, NESN, IT0000072618" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Search instruments"><button class="wl-btn sr-go">SEARCH</button></div>
       <div class="wl-msg">${msg}</div>${rows?`<table class="pf sr"><thead><tr><th class="l">SYMBOL</th><th class="l">NAME</th><th class="l">EXCHANGE</th><th class="l">COUNTRY</th><th class="l">TYPE</th><th>CCY</th><th>PLAN</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:(j&&!list.length?'<div class="empty">No listing found at the provider.</div>':'')}
       ${list.length>shown.length?`<div class="scr-count"><button class="sr-b sr-all">SHOW ALL ${list.length}</button></div>`:''}${srchCnbc(st,list)}`;
     setProv(win,j?{'ds:search':j.status==='STALE'?S.STALE:S.LIVE}:st.err?{'ds:search':S.NA}:{},'symbol master (reference data) — no prices in this window');

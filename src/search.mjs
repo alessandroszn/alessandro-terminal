@@ -1,11 +1,14 @@
 // SYMBOL DISCOVERY (T05) — the provider's own symbol master, never a hand-made list.
 //   GET /api/search?q=Roche  → Twelve Data /symbol_search (name or ticker, every exchange it lists,
 //                              with the data plan each listing requires). Metadata only: no prices.
+//   GET /api/search?q=IT0000072618 → an ISIN (check digit verified): its listings from OpenFIGI (isin.mjs), matched to
+//                              Twelve Data's records of the same tickers; the home market first. No prices either.
 // Quotes and history are then fetched on demand, only for the instrument the user selects.
 // Instrument id: plain symbol for US listings, FX, metals and crypto ("AAPL", "EUR/USD");
 // "SYMBOL:MIC" for every other listing ("NOVN:XSWX"), so quotes and history hit exactly that venue.
 import { cnbcCodeFor } from "./intl.mjs";
 import { fetchText, cachedSource, iso } from "./lib.mjs";
+import { isinValid, openFigi, ISIN_HOME, MIC_COUNTRY, MIC_EXCHANGE } from "./isin.mjs";
 
 const TD = "https://api.twelvedata.com";
 export const PLAN_RANK = { Basic: 0, Grow: 1, Pro: 2, Ultra: 3, Enterprise: 4 };
@@ -98,6 +101,8 @@ async function providerSearch(q, key) {
 export async function handleSearch(url, env, ctx, H, json) {
   const q = (url.searchParams.get("q") || "").trim().replace(/\s+/g, " ");
   if (!Q_RE.test(q)) return json({ error: "bad_request", message: "q must be 1-40 letters, digits, spaces or . & ' - / :" }, H, 400);
+  const isin = q.toUpperCase().replace(/ /g, "");
+  if (isinValid(isin)) return isinSearch(url, env, ctx, H, json, isin);
   let credits = 0;
   const r = await cachedSource({
     origin: url.origin, key: `search-rows/${encodeURIComponent(q.toLowerCase())}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
@@ -115,4 +120,30 @@ export async function handleSearch(url, env, ctx, H, json) {
   resp.headers.set("cache-control", "no-store");
   resp.headers.set("x-cache", r.cache);
   return resp;
+}
+
+// ---------- ISIN: OpenFIGI's listings, each matched to Twelve Data's record of the same listing when it has one ----------
+async function isinSearch(url, env, ctx, H, json, isin) {
+  const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
+  const f = await cachedSource({ origin: url.origin, key: `isin/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 60 * 86400_000, ctx, failTtlMs: 10 * 60_000, load: () => openFigi(isin, env) });
+  if (f.err) return send({ q: isin, isin, results: [], error: f.err, status: "N/A", source: "OpenFIGI" }, f.err === "rate_limited" ? 429 : 502);
+  const L = f.data.listings, home = ISIN_HOME[isin.slice(0, 2)] || null, base = { q: isin, isin, name: f.data.name, plan: CURRENT_PLAN, fetchedAt: iso(f.fetchedAt), status: f.cache === "STALE" ? "STALE" : "LIVE" };
+  if (!L.length) return send({ ...base, count: 0, results: [], quotable: 0, note: f.data.note || "no_listing", source: "OpenFIGI" });
+  const countryOf = (l) => (l.mic ? MIC_COUNTRY[l.mic] || null : "United States"), rank = (l) => (countryOf(l) === home ? 0 : l.mic ? 1 : 2); // a foreign issuer's U.S. line is mostly over the counter
+  // Twelve Data's own records for the tickers found (plan, currency, exchange name): at most three tickers, home market first
+  const tickers = [...new Set(L.slice().sort((a, b) => rank(a) - rank(b)).map((l) => l.ticker))].slice(0, 3);
+  let credits = 0;
+  const td = await Promise.all(tickers.map((t) => cachedSource({ origin: url.origin, key: `search-rows/${encodeURIComponent(t.toLowerCase())}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
+    load: async () => { const x = await providerSearch(t, env.TWELVEDATA_KEY); credits += x.credits || (x.data && x.data.credits) || 0; return x; } })));
+  const byId = new Map();
+  td.forEach((r, i) => { if (r.data) for (const x of normalizeSearch({ data: r.data.rows }, tickers[i])) if (!byId.has(x.id)) byId.set(x.id, x); });
+  const results = L.map((l) => {
+    const t = byId.get(l.id); if (t) return { ...t, isin, figi: l.figi };
+    const cn = cnbcCodeFor(l.id); // a listing Twelve Data does not list: named from OpenFIGI, quotable through CNBC when it carries it
+    return { id: l.id, symbol: l.ticker, name: l.name, exchange: l.mic ? MIC_EXCHANGE[l.mic] || l.exch : "US", mic: l.mic, country: countryOf(l), currency: null, type: l.type, timezone: null,
+      planRequired: null, quotable: cn ? true : null, ...(cn ? { via: "CNBC", cnbc: cn } : {}), isin, figi: l.figi, from: "OpenFIGI" };
+  });
+  const order = (x) => (x.country === home ? 0 : 2) + (x.quotable ? 0 : 1) + (x.mic ? 0.5 : 0);
+  results.sort((a, b) => order(a) - order(b));
+  return send({ ...base, count: results.length, results, quotable: results.filter((x) => x.quotable).length, source: "OpenFIGI (ISIN → listings) · Twelve Data symbol_search", credits });
 }

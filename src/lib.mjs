@@ -3,11 +3,11 @@
 
 export const UA = "AlessandroTerminal/1.0 (+https://alessandrozanichelli.com/terminal)";
 
-export async function fetchText(url, { timeoutMs = 8000, headers = {} } = {}) {
+export async function fetchText(url, { timeoutMs = 8000, headers = {}, method, body } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const r = await fetch(url, { signal: ac.signal, headers: { "user-agent": UA, ...headers } });
+    const r = await fetch(url, { signal: ac.signal, headers: { "user-agent": UA, ...headers }, ...(method ? { method } : {}), ...(body != null ? { body } : {}) });
     const text = await r.text();
     if (r.status === 429) return { err: "rate_limited", http: r.status };
     if (r.status === 403) return { err: "provider_forbidden", http: r.status };

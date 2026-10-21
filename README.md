@@ -176,6 +176,12 @@ search → select → fetch. Nothing is preloaded and no ticker list is maintain
 1. **Discovery**: `/api/search?q=Novartis` asks the provider's symbol master (name or ticker, all
    exchanges it lists) and returns listings with exchange, MIC, country, currency, type and the data
    plan each one needs. Provider call without a key (no credit); cached 24 h per query.
+   **ISIN** (`/api/search?q=IT0000072618`, check digit verified; approved 21 Oct 2026): OpenFIGI's
+   `/v3/mapping` gives the listings (ticker + Bloomberg exchange code → MIC; U.S. venues merged; venues
+   the terminal does not quote left out), each matched to Twelve Data's record of the same listing
+   (name, currency, plan) or named from OpenFIGI and quotable through CNBC when it carries it; the
+   home market first, then other markets, then a foreign issuer's U.S. line. Typed in the command line
+   it opens the first quotable listing. Reference data only; cached 7 days.
 2. **Quote on demand**: OPEN fetches one quote; listings outside the current plan are shown as N/A at
    once (no call spent). +WL validates with a real quote before adding.
 3. **History on demand**: requested only when a security window is open.
@@ -217,6 +223,7 @@ warrants: search the ticker); indices are not in the provider's search — they 
 - `GET /api/headlines?source=FT|BLOOMBERG|WSJ|MARKETWATCH|CB` → `{ items: [{ title, url, timestamp, section }], feeds, status }`
 - `GET /api/briefs?period=daily|evening|weekly|monthly` → `{ due: { id, d, writable }, dueWritten, briefs: [{ id, d, title }], schedule }`
 - `GET /api/briefs/item?id=daily-2026-10-07` · `POST /api/briefs/write?period=daily&symbols=…`
+- `GET /api/search?q=IT0000072618` (an ISIN) → `{ q, isin, name, count, results: [{ …, isin, figi, from? }], quotable, source: "OpenFIGI (ISIN → listings) · Twelve Data symbol_search", status }`; an unknown ISIN → `count: 0, note`; OpenFIGI over its limit → 429 `rate_limited`
 - `GET /api/search?q=Roche` → `{ q, count, results: [{ id, symbol, name, exchange, mic, country, currency, type, planRequired, quotable }], plan, quotable, source, fetchedAt, status, truncated, credits }`
 - `GET /api/quote?symbols=AAPL,MSFT` → `{ quotes: { AAPL: InstrumentData }, errors: { SYM: { error, status:"N/A" } }, meta }`
 - `GET /api/history?symbol=AAPL&range=1D|5D|1W|1M|3M|6M|1Y|5Y|10Y|MAX[&interval=5min|15min|1h|1day|1week|1month][&adjust=splits|all|none]` → `History` (defaults: 1D 5-min, 5D 15-min, 5Y and 10Y weekly, MAX monthly; `lastBarPartial` also for the current week's / month's bar)
@@ -274,6 +281,8 @@ market data comes back.
 - `SEC_CONTACT` — contact for the SEC fair-access User-Agent, if SEC starts refusing requests.
 - `FINNHUB_KEY` — Finnhub (free) for the earnings calendar (ERN); sent only in the `X-Finnhub-Token` header.
 - `FRED_KEY` — FRED (free): the U.S. curve (instead of the Treasury XML, which times out from Cloudflare) and U.S. inflation / credit in BOND. FRED accepts the key only as a URL parameter: it travels only in the Worker's request to `api.stlouisfed.org`.
+- `OPENFIGI_KEY` — optional (free at openfigi.com): raises OpenFIGI's limit from 25 to 250 ISIN searches a minute; sent
+  only in the `X-OPENFIGI-APIKEY` header. Not needed.
 - `TELEGRAM_BOT_TOKEN` — a Telegram bot (create it with @BotFather) that sends the alerts; the chat is linked from
   ALRT (FIND MY CHAT → LINK), or set `TELEGRAM_CHAT_ID`. The token goes only into the Worker's requests to
   `api.telegram.org`; it is never returned, logged or stored.
@@ -305,6 +314,7 @@ node test/access.test.mjs       # T05: /api refused without a valid Cloudflare A
 node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, FRED), BOND changes/spreads, CFTC COT, ETF list
 node test/sw.test.mjs           # the iPhone app's service worker: interface only, never /api, sign-in redirects
 node test/quant.test.mjs        # quant formulas against closed forms and known processes
+node test/isin.test.mjs         # ISIN: check digit, exchange codes, OpenFIGI listings matched to Twelve Data
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/yields-world.test.mjs # more countries' yields: parsers, past curves, spreads, OECD monthly
