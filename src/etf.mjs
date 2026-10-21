@@ -41,7 +41,8 @@ export function parseXetra(text) {
     if (type !== "ETF" && type !== "ETN" && type !== "ETC") continue;
     const isin = f[ci.isin]; if (!isinValid(isin)) continue;
     const mnem = (f[ci.mnem] || "").trim(), ccy = (f[ci.ccy] || "").trim(), grp = XETRA_GROUP[(f[ci.grp] || "").trim()] || null;
-    let e = by.get(isin); if (!e) { e = [isin, (f[ci.name] || "").trim(), type, grp, (f[ci.wkn] || "").trim(), []]; by.set(isin, e); }
+    const wkn = (f[ci.wkn] || "").trim(); // written with leading zeros ("000A0RPWH"): a WKN has six characters
+    let e = by.get(isin); if (!e) { e = [isin, (f[ci.name] || "").trim(), type, grp, wkn.length > 6 ? wkn.slice(-6) : wkn, []]; by.set(isin, e); }
     if (grp && (!e[3] || ccy === "EUR")) e[3] = grp; // a foreign-currency line's group ("ETF - CURRENCY USD") says nothing of the fund
     if (mnem && !e[5].some((x) => x[0] === mnem)) e[5].push([mnem, ccy]);
     if (ccy === "EUR" && f[ci.name]) e[1] = f[ci.name].trim();
@@ -97,15 +98,29 @@ export function weightPairs(text, max = 12) {
   while ((m = re.exec(String(text || ""))) && out.length < max) { const name = m[1].replace(/^[\s,;|·-]+/, "").trim(); if (!name || /^(Weight of top 10 holdings|out of [\d,]+)/i.test(name)) continue; out.push([name, Number(m[2])]); }
   return out;
 }
+// the weights listed right after a heading (countries, sectors): the first place the label is followed by "Name 12.34%"
+function weightsAfter(html, label, max = 12, span = 3000) {
+  let from = 0;
+  for (let k = 0; k < 8; k++) {
+    const i = html.indexOf(label, from); if (i < 0) return [];
+    from = i + label.length;
+    const t = clean(html.slice(from, from + span)).split(/ (?:Show more|Show less|Sectors|Countries|Top 10 Holdings|Source: justETF|As of \d)/)[0];
+    if (/^[A-Z][^%]{0,60}?\s\d{1,3}\.\d{1,2}%/.test(t)) return weightPairs(t, max);
+  }
+  return [];
+}
 export function parseJustEtfFull(html) {
   const base = parseJustEtf(html); if (!base) return null;
   const title = (/<title>([^<]*)<\/title>/.exec(html) || [])[1], name = title ? clean(title).split(" | ")[0].trim() : null;
-  const prov = /^(.{2,40}?) (?:Legal structure|Fund Structure|UCITS compliance)/.exec(textAfter(html, "Fund Provider", 200) || "");
+  // the provider's own cell (data-testid, checked 21 Oct 2026), else the text after its label
+  const provCell = /data-testid="tl_etf-basics_value_fund-provider"[^>]*>([^<]{1,60})</.exec(html);
+  const prov = provCell ? [null, provCell[1].trim()] : /^(.{2,40}?) (?:Legal structure|Fund Structure|UCITS compliance)/.exec(textAfter(html, "Fund Provider", 900) || "");
   const focusT = upToLabel(textAfter(html, "Investment focus", 260) || ""), focus = /^[A-Z][^%]{2,79}$/.test(focusT) ? [null, focusT] : null;
-  const top = textAfter(html, "Top 10 Holdings", 1800), topW = /Weight of top 10 holdings out of ([\d,]+) (\d{1,3}\.\d{1,2})%/.exec(top || "");
+  const top = textAfter(html, "Top 10 Holdings", 9000), topW = /Weight of top 10 holdings out of ([\d,]+) (\d{1,3}\.\d{1,2})%/.exec(top || "");
   const cut = (t) => (t ? t.split(/ (?:Sectors|Countries|Show more|Hide|Source: justETF)\b/)[0] : t);
   const holdings = top ? weightPairs(cut(top.replace(/^Weight of top 10 holdings out of [\d,]+ \d{1,3}\.\d{1,2}%/, "")), 10) : [];
-  const countries = weightPairs(cut(textAfter(html, ">Countries<", 900)), 12), sectors = weightPairs(cut(textAfter(html, ">Sectors<", 900)), 12);
+  // the page lists the largest countries / sectors (the rest behind "Show more", loaded by the page's script — not read)
+  const countries = weightsAfter(html, "Countries"), sectors = weightsAfter(html, "Sectors");
   return { ...base, name: name || null, provider: prov ? prov[1] : null, focus: focus ? focus[1] : null,
     top10: holdings.length ? holdings : null, top10Weight: topW ? Number(topW[2]) : null, holdingsTotal: topW ? Number(topW[1].replace(/,/g, "")) : base.holdings,
     countries: countries.length ? countries : null, sectors: sectors.length ? sectors : null };
@@ -218,14 +233,20 @@ export async function compareFunds(url, env, ctx, items, ccy) {
   });
 }
 
+export const NOT_LISTED = "Not listed";
 // ---------- exposure: the portfolio's ETFs looked through (justETF's top 10, countries, sectors), weighted ----------
 export function exposure(funds) {
   const total = funds.reduce((a, f) => a + (f.weight > 0 ? f.weight : 0), 0) || 1, agg = { countries: {}, sectors: {}, holdings: {} }, cover = { countries: 0, sectors: 0, holdings: 0 };
   for (const f of funds) {
     const w = (f.weight > 0 ? f.weight : 0) / total, d = f.detail; if (!d) continue;
-    for (const [k, list] of [["countries", d.countries], ["sectors", d.sectors], ["holdings", d.top10]]) { if (!list) continue; cover[k] += w; for (const [n, p] of list) agg[k][n] = (agg[k][n] || 0) + (w * p); }
+    for (const [k, list] of [["countries", d.countries], ["sectors", d.sectors], ["holdings", d.top10]]) {
+      if (!list) continue; cover[k] += w; let sum = 0;
+      for (const [n, p] of list) { agg[k][n] = (agg[k][n] || 0) + (w * p); sum += p; }
+      if (k !== "holdings" && 100 - sum >= 0.05) agg[k][NOT_LISTED] = (agg[k][NOT_LISTED] || 0) + w * (100 - sum); // the share the page does not list
+    }
   }
-  const sorted = (o) => Object.entries(o).sort((a, b) => (a[0] === "Other") - (b[0] === "Other") || b[1] - a[1]).map(([n, v]) => [n, v]); // "Other" last
+  const last = (n) => (n === NOT_LISTED ? 2 : n === "Other" ? 1 : 0);
+  const sorted = (o) => Object.entries(o).sort((a, b) => last(a[0]) - last(b[0]) || b[1] - a[1]).map(([n, v]) => [n, v]); // "Other", "Not listed" last
   return { countries: sorted(agg.countries), sectors: sorted(agg.sectors), holdings: sorted(agg.holdings).slice(0, 25), coverage: { countries: cover.countries * 100, sectors: cover.sectors * 100, holdings: cover.holdings * 100 } };
 }
 

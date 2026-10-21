@@ -53,6 +53,16 @@ const full = parseJustEtfFull(PAGE("IE00B4L5Y983"));
 ok("profile → the basics (TER, size, replication…) and name, provider, focus from the page", full.ter === 0.2 && full.fundSize.value === 131754e6 && full.name === "iShares Core MSCI World UCITS ETF USD (Acc)" && full.provider === "iShares" && full.focus === "Equity, World" && full.replication === "Physical (Optimized sampling)", JSON.stringify(full).slice(0, 300));
 ok("…the top 10 holdings with the top 10's weight and the number of holdings", full.top10.length === 3 && full.top10[0][0] === "NVIDIA Corp." && full.top10[0][1] === 5.53 && full.top10Weight === 26.64 && full.holdingsTotal === 1252, JSON.stringify(full.top10));
 ok("…countries and sectors as justETF lists them (with Other)", JSON.stringify(full.countries) === '[["United States",71.53],["Japan",5.28],["Other",23.19]]' && full.sectors[0][0] === "Technology" && full.sectors.length === 3, JSON.stringify(full.countries) + JSON.stringify(full.sectors));
+// the live page's layout (21 Oct 2026): the provider's cell by its data-testid; "Countries" first inside the page's
+// scripts, then as a heading followed by the largest countries and "Show more" (the rest loaded by script — not read)
+const LIVE = PAGE("IE00B4L5Y983").replace(/<h3>Countries<\/h3>[\s\S]*$/, "") + `<script>Wicket.Ajax.ajax({"u":"/en/etf-profile.html?0-1.0-holdingsSection-countries-loadMoreCountries&isin=IE00B4L5Y983","c":"loadMoreCountries6"});</script>
+<tr data-testid="etf-basics_row_fund-provider"><td class="vallabel"> Fund Provider </td><td class="val2" data-testid="tl_etf-basics_value_fund-provider">iShares</td></tr>
+<div><h3 class="h5"> Countries </h3><table><tr><td>United States</td><td><div style="width:70.32%"></div>70.32%</td></tr><tr><td>Japan</td><td>5.79%</td></tr><tr><td>United Kingdom</td><td>3.68%</td></tr></table><a id="loadMoreCountries6">Show more</a></div>
+<div><h3 class="h5"> Sectors </h3><table><tr><td>Technology</td><td>35.71%</td></tr><tr><td>Finance</td><td>18.01%</td></tr><tr><td>Industrials</td><td>9.57%</td></tr></table><a>Show more</a></div> As of 31/08/2026</body></html>`;
+const lv = parseJustEtfFull(LIVE);
+ok("live layout: the provider from its cell; countries and sectors after their heading (not inside the page's script), up to Show more", lv.provider === "iShares" && JSON.stringify(lv.countries) === '[["United States",70.32],["Japan",5.79],["United Kingdom",3.68]]' && JSON.stringify(lv.sectors) === '[["Technology",35.71],["Finance",18.01],["Industrials",9.57]]', JSON.stringify([lv.provider, lv.countries, lv.sectors]));
+const px2 = parseXetra(XETRA.replace("A0RPWH", "000A0RPWH"));
+ok("Xetra's WKN with leading zeros (000A0RPWH) → the six-character WKN", px2.rows.find((r) => r[0] === "IE00B4L5Y983")[4] === "A0RPWH");
 ok("weights read from text: names with dots, commas; never a price", JSON.stringify(weightPairs("Amazon.com, Inc. 2.74% Alphabet A 2.10%")) === '[["Amazon.com, Inc.",2.74],["Alphabet A",2.1]]' && !Object.keys(full).some((k) => /price|nav|return|perf/i.test(k)));
 
 // ---------- the compact table ----------
@@ -98,6 +108,8 @@ const days = []; for (let i = 0; i < 1300; i++) days.push([new Date(Date.parse("
 const ss = seriesStats(days);
 ok("stats from daily closes: 1Y and annualised 3Y returns, 1-year volatility, the maximum drawdown and its date", Number.isFinite(ss.returns["1Y"]) && Number.isFinite(ss.returns["3Ya"]) && ss.maxDrawdown < -19 && ss.maxDrawdown > -21 && /^2024/.test(ss.maxDrawdownAt) && Number.isFinite(ss.vol1Y), JSON.stringify(ss).slice(0, 300));
 const ex = exposure([{ isin: "A", weight: 60, detail: { countries: [["United States", 70], ["Japan", 30]], sectors: [["Technology", 50], ["Other", 50]], top10: [["Apple", 5]] } }, { isin: "B", weight: 40, detail: { countries: [["United States", 50], ["Germany", 50]], sectors: null, top10: [["Apple", 2], ["SAP", 4]] } }, { isin: "C", weight: 0, detail: null }]);
+const ex2 = exposure([{ isin: "A", weight: 100, detail: { countries: [["United States", 70.32], ["Japan", 5.79]], sectors: null, top10: null } }]);
+ok("exposure: what a fund's page does not list goes to Not listed (100 − 76.11), shown last", ex2.countries[ex2.countries.length - 1][0] === "Not listed" && Math.abs(ex2.countries[ex2.countries.length - 1][1] - 23.89) < 1e-9);
 ok("exposure: countries weighted by position (US 0.6×70 + 0.4×50 = 62), sectors covered by the funds that list them (60 %), holdings summed", Math.abs(ex.countries[0][1] - 62) < 1e-9 && ex.countries[0][0] === "United States" && Math.abs(ex.coverage.sectors - 60) < 1e-9 && Math.abs(ex.holdings.find((h) => h[0] === "Apple")[1] - 3.8) < 1e-9);
 
 // ---------- the endpoints ----------
