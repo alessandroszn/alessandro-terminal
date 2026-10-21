@@ -3127,10 +3127,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(t==='ef'){const ss=[...new Set(v('syms').toUpperCase().split(/[\s,;]+/).filter(Boolean))],rf=+v('rf');if(ss.length<2||ss.length>8||ss.some(x=>!SYMBOL_OK.test(x))){st.msg=tl('Two to eight symbols, separated by spaces','Da due a otto simboli, separati da spazi');return paintWin(win);}if(!fin(rf)){st.msg=tl('Risk-free rate: a number','Tasso privo di rischio: un numero');return paintWin(win);}Object.assign(st.ef,{syms:ss,rf});}
       paintWin(win);};};
     // history: one or more symbols (Twelve Data / CNBC daily closes, adjusted for splits and dividends; one credit each, cached)
-    const need=t==='ef'?st.ef.syms:t==='beta'?[st.sym,st.bench]:[st.sym],H={};let err=null,loading=false;
-    need.forEach(x=>{const h=hist7(x,st.range,'all',['QNT']);if(h.data)H[x]=h.data;else if(h.err)err=err||[x,h.err];else loading=true;});
-    let M=null;if(t==='seas'){const h=hist7(st.sym,'10Y','all',['QNT'],{interval:'1month'});if(h.data)M=h.data;else if(h.err)err=err||[st.sym,h.err];else loading=true;}
-    if(err||loading){setProv(win,{'ds:qnt':err?S.NA:S.LOADING});body.innerHTML=head+(err?naB(tl('history unavailable','storico non disponibile'),err[1],esc(err[0])):`<div class="empty">${tl('Loading real daily closes…','Caricamento delle chiusure giornaliere reali…')} (${tl('one Twelve Data credit per symbol, cached','un credito Twelve Data per simbolo, in cache')})</div>`);bind();return;}
+    const need=t==='ef'?st.ef.syms:t==='beta'?[st.sym,st.bench]:[st.sym],H={};let err=null,loading=false,waitMs=0;
+    need.forEach(x=>{const h=hist7(x,st.range,'all',['QNT']);if(h.data)H[x]=h.data;else if(h.err)err=err||[x,h.err];else{loading=true;if(h.eta)waitMs=Math.max(waitMs,h.eta);}});
+    let M=null;if(t==='seas'){const h=hist7(st.sym,'10Y','all',['QNT'],{interval:'1month'});if(h.data)M=h.data;else if(h.err)err=err||[st.sym,h.err];else{loading=true;if(h.eta)waitMs=Math.max(waitMs,h.eta);}}
+    // waiting for a credit: the page's other windows have used this minute's 8 (Twelve Data's free plan) — said so, with the wait
+    const waitTxt=waitMs?` — ${tl('waiting for a data credit: Twelve Data allows 8 a minute on this plan and the other windows used this minute\'s; about','in attesa di un credito dati: Twelve Data ne concede 8 al minuto con questo piano e le altre finestre hanno usato quelli di questo minuto; circa')} ${Math.ceil(waitMs/1000)} s`:'';
+    if(err||loading){setProv(win,{'ds:qnt':err?S.NA:S.LOADING});body.innerHTML=head+(err?naB(tl('history unavailable','storico non disponibile'),err[1],esc(err[0])):`<div class="empty">${tl('Loading real daily closes…','Caricamento delle chiusure giornaliere reali…')} (${tl('one Twelve Data credit per symbol, cached','un credito Twelve Data per simbolo, in cache')})${waitTxt}</div>`);bind();return;}
     const items={'ds:qnt':S.DERIVED};need.forEach(x=>items['h:'+x]=H[x].status==='STALE'?S.STALE:S.LIVE);if(M)items['h:'+st.sym+':M']=M.status==='STALE'?S.STALE:S.LIVE;
     const src=x=>H[x]&&H[x].source==='cnbc'?'CNBC':'Twelve Data',pts=H[st.sym]?qnDay(H[st.sym].points):[],span=p=>p.length?`${fmtDay(p[0].t)} – ${fmtDay(p[p.length-1].t)}`:'';
     const sig=p=>p.length+':'+(p.length?p[p.length-1].t+':'+p[p.length-1].c:'');
