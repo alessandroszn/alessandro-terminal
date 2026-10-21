@@ -422,6 +422,10 @@
   body.phone .win.front{display:flex}
   body.phone .win-head{cursor:default;touch-action:manipulation;padding:4px 2px 4px 12px;font-size:11px;min-height:44px}
   body.phone .w-min,body.phone .w-max,body.phone .w-grip{display:none}
+  .w-back{display:none}
+  body.phone .w-back:not([hidden]){display:inline-flex;align-items:center;min-height:40px;padding:0 10px 0 2px;margin-left:-6px;color:var(--amber);font-size:13px;letter-spacing:.04em;white-space:nowrap}
+  body.phone .w-back:not([hidden]) + .w-tag{display:none}
+  body.phone .w-back b{font-size:24px;font-weight:400;line-height:1;margin-right:5px;position:relative;top:-1px}
   body.phone .w-close{font-size:17px;min-width:44px;min-height:40px}
   body.phone .win-body{padding:10px 10px 18px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   body.phone input,body.phone select,body.phone textarea{font-size:16px!important}
@@ -568,6 +572,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-grp">IPHONE APP</div>
     <div class="help-row"><code>install</code><span>In Safari: Share → Add to Home Screen. It opens full screen with its own icon; sign in once with the e-mail code</span></div>
     <div class="help-row"><code>tab bar</code><span>Markets, Watchlist, News, Portfolio, Menu (every function) and Windows (switch, close, reopen, reload)</span></div>
+    <div class="help-row"><code>‹ back</code><span>The ‹ in the window's title, or a swipe from the left edge: back to the window shown before</span></div>
     <div class="help-row"><code>offline</code><span>The interface opens without a network; data is never stored on the phone, so it shows N/A until the connection is back</span></div>
     <div class="help-grp">WINDOWS</div>
     <div class="help-row"><code>drag title</code><span>Move a window; drag the corner grip to resize</span></div>
@@ -3310,11 +3315,20 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const phoneOn=()=>document.body.classList.contains('phone');let phFront=null;
   const focusCmd=()=>{if(!isMobile())$('#cmd').focus();}; // on a phone a focused field opens the keyboard
   // the front window is the one shown; closing or minimising it shows the most recent other one
+  // BACK (‹ and a swipe from the left edge): the windows shown before, most recent first; closed ones are skipped
+  const PH_HIST=[];let phBacking=false;
+  const phPrev=()=>{for(let i=PH_HIST.length-1;i>=0;i--){const w=wins.find(x=>x.id===PH_HIST[i]&&!x.min);if(w&&w.id!==phFront)return w;}return null;};
+  function phoneBack(){const w=phPrev();if(!w)return false;while(PH_HIST.length&&PH_HIST[PH_HIST.length-1]!==w.id)PH_HIST.pop();PH_HIST.pop();phBacking=true;try{bringFront(w);}finally{phBacking=false;}return true;}
+  function paintBack(f){const p=f?phPrev():null;wins.forEach(x=>{const b=x.el&&x.el.querySelector('.w-back');if(!b)return;b.hidden=!(x===f&&p);if(x===f&&p){b.innerHTML='<b aria-hidden="true">‹</b> '+esc(WINTYPES[p.type].tag);b.title=tl('Back to','Torna a')+' '+WINTYPES[p.type].title(p);b.setAttribute('aria-label',b.title);}});}
   function phoneSync(){if(!phoneOn()||!deskEl)return;const live=wins.filter(w=>!w.min),f=live.find(w=>w.id===activeId)||live.slice().sort((a,b)=>b.z-a.z)[0];
     wins.forEach(x=>x.el&&x.el.classList.toggle('front',x===f));
-    if(f){if(activeId!==f.id)activeId=f.id;if(phFront!==f.id){phFront=f.id;requestAnimationFrame(()=>reflowWin(f));}delete deskEl.dataset.empty;}
+    if(f){if(activeId!==f.id)activeId=f.id;if(phFront!==f.id){if(phFront!=null&&!phBacking&&wins.some(x=>x.id===phFront)){PH_HIST.push(phFront);if(PH_HIST.length>40)PH_HIST.shift();}phFront=f.id;requestAnimationFrame(()=>reflowWin(f));}delete deskEl.dataset.empty;}
     else{phFront=null;deskEl.dataset.empty=tl('No window open — tap a function below, or type a ticker or a function above.','Nessuna finestra aperta — tocca una funzione qui sotto, o scrivi un ticker o una funzione in alto.');}
-    paintPhoneTabs();renderWinSheet();}
+    paintBack(f);paintPhoneTabs();renderWinSheet();}
+  // a swipe from the left edge to the right goes back, as in iOS apps (not when it starts on content scrolled sideways)
+  {let t0=null;document.addEventListener('touchstart',e=>{if(!phoneOn()||e.touches.length!==1){t0=null;return;}const t=e.touches[0];if(t.clientX>22){t0=null;return;}
+      for(let el=e.target;el&&el!==document.body;el=el.parentElement)if(el.scrollLeft>0){t0=null;return;}t0={x:t.clientX,y:t.clientY,at:Date.now()};},{passive:true});
+    document.addEventListener('touchend',e=>{if(!t0)return;const t=e.changedTouches[0],dx=t.clientX-t0.x,dy=Math.abs(t.clientY-t0.y),fast=Date.now()-t0.at<700;t0=null;if(dx>70&&dy<dx*0.6&&fast)phoneBack();},{passive:true});}
   // the app's height = the window's (innerHeight), set as --app-h; re-read on rotation and when the app comes back
   // Installed on the home screen, iOS can shrink the window after the keyboard closes (by the status bar's height) and
   // not give it back: there the app keeps the tallest height it was given in that orientation (it never legitimately
@@ -3339,9 +3353,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
+    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
     deskEl.appendChild(el);w.el=el;w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
+    el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
     el.querySelector('.w-max').onclick=e=>{e.stopPropagation();toggleMax(w);};
     el.addEventListener('pointerdown',()=>bringFront(w),true);
@@ -3464,7 +3479,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     window.addEventListener('orientationchange',()=>setTimeout(fitPhone,250));window.addEventListener('pageshow',fitPhone);
     document.addEventListener('focusout',()=>{if(phoneOn())setTimeout(fitPhone,160);});
     // a phone starts with the watchlist and the markets board in front; a desk with four windows tiled
-    if(isMobile()){openWindow('WL',{});openWindow('MKT',{});}else{openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});}
+    if(isMobile()){openWindow('WL',{});openWindow('MKT',{});PH_HIST.length=0;phoneSync();}else{openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});}
     if(!isMobile())tileAll();
     setTape(tapeOn());renderTape();tickClock();setInterval(tickClock,1000);
     $('#tsLabel').onclick=()=>openOrFocus('SYS',defaultState('SYS'));$('#mktsOpen').onclick=()=>openOrFocus('EXCH',defaultState('EXCH'));$('#nextEv').onclick=()=>openOrFocus('CAL',defaultState('CAL'));setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);

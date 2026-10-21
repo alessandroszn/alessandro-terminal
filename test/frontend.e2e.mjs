@@ -1228,8 +1228,22 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const fit = await page.evaluate(() => ({ h: innerHeight, app: document.querySelector("#app").getBoundingClientRect().height, dock: document.querySelector("#dock").getBoundingClientRect().bottom, v: getComputedStyle(document.documentElement).getPropertyValue("--app-h").trim() }));
   ok("[L] iPhone: the app is exactly the window's height (no viewport units): the tab bar sits on the bottom edge", fit.v === fit.h + "px" && Math.abs(fit.app - fit.h) < 1 && Math.abs(fit.dock - fit.h) < 1, JSON.stringify(fit));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/phone-markets.png" });
+  const backOf = () => page.evaluate(() => { const b = [...document.querySelectorAll(".win.front .w-back")][0]; return b && !b.hidden && getComputedStyle(b).display !== "none" ? b.textContent : null; });
+  ok("[L] iPhone: at start there is nothing to go back to (no ‹)", (await backOf()) === null);
   await page.tap('#fnbar .ptab[data-code="WL"]'); await page.waitForTimeout(500);
   ok("[L] iPhone: tapping WATCH brings the watchlist to the front and hides the board", JSON.stringify(await vis()) === '["WATCHLIST"]' && (await page.$eval('#fnbar .ptab[data-code="WL"]', (b) => b.classList.contains("on"))));
+  ok("[L] iPhone: BACK shows where it goes (‹ MKT)", (await backOf()) === "‹ MKT", String(await backOf()));
+  await page.tap(".win.front .w-back"); await page.waitForTimeout(400);
+  ok("[L] iPhone: ‹ goes back to the board; nothing further back", JSON.stringify(await vis()) === '["MARKETS"]' && (await backOf()) === null);
+  await page.tap('#fnbar .ptab[data-code="N"]'); await page.waitForTimeout(500); await page.tap('#fnbar .ptab[data-code="WL"]'); await page.waitForTimeout(500);
+  // a swipe from the left edge to the right, as in iOS apps
+  await page.evaluate(() => { const el = document.querySelector(".win.front .win-body"), mk = (x, y) => new Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+    el.dispatchEvent(new TouchEvent("touchstart", { touches: [mk(8, 400)], changedTouches: [mk(8, 400)], bubbles: true }));
+    el.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [mk(150, 410)], bubbles: true })); });
+  await page.waitForTimeout(400);
+  ok("[L] iPhone: a swipe from the left edge goes back one window (WATCHLIST → NEWS)", JSON.stringify(await vis()) === '["NEWS"]' && (await backOf()) === "‹ MKT", JSON.stringify(await vis()) + " " + (await backOf()));
+  await page.tap(".win.front .w-close"); await page.waitForTimeout(400);
+  ok("[L] iPhone: closing the window in front shows the previous one; a closed window is never a BACK target", JSON.stringify(await vis()) === '["WATCHLIST"]' && (await backOf()) === "‹ MKT", JSON.stringify(await vis()) + " " + (await backOf()));
   await page.tap("#cmd"); await page.fill("#cmd", "NVDA"); await page.press("#cmd", "Enter"); await page.waitForTimeout(900);
   const gp = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, n: document.querySelector("#fnbar .pt-n").textContent }));
   ok("[L] iPhone: a ticker typed in the command line opens full screen and the keyboard closes", (await vis())[0].startsWith("NVDA") && gp.active !== "cmd" && gp.n === "3", JSON.stringify(gp));

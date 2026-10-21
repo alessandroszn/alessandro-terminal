@@ -119,7 +119,8 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
   per Access session (24 h today; the session length is set in Access). The manifest is fetched with credentials.
 - Layout at ≤ 880 px (phone, and the installed app): one window at a time, full screen; a tab bar (MARKETS, WATCH, NEWS,
   PORTF., MENU, WINDOWS with the count); WINDOWS is a sheet to switch, close, close all, reopen, reload; the function
-  menu full screen with a close button; fields at 16 px (iOS does not zoom); no field focused automatically (no
+  menu full screen with a close button; BACK (‹ with the previous window's code in the title, or a swipe from the
+  left edge) goes to the window shown before, closed windows skipped, the windows opened at start are not a history; fields at 16 px (iOS does not zoom); no field focused automatically (no
   keyboard pop-ups); home indicator and landscape insets respected. The height is the window's own (`innerHeight` →
   `--app-h`), never vh / dvh, which leave a gap at the bottom of home-screen apps on recent iOS. Wider (a rotated tablet, a desktop):
   floating windows as before.

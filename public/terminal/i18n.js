@@ -52,7 +52,7 @@
     "No instruments selected": "Nessuno strumento selezionato", "Select instruments below": "Seleziona gli strumenti qui sotto",
     "PRESET THEMES": "TEMI PREDEFINITI", "TICKER TAPE": "NASTRO DEI PREZZI", "? HELP": "? AIUTO", "CUSTOM COLOURS": "COLORI PERSONALIZZATI", "RESET TO DEFAULT": "RIPRISTINA PREDEFINITI",
     "DATA LABELS · only real data is shown": "ETICHETTE DEI DATI · si mostrano solo dati reali",
-    "COMMAND LINE": "RIGA DI COMANDO", "IPHONE APP": "APP IPHONE", "install": "installa", "tab bar": "barra in basso", "offline": "senza rete",
+    "COMMAND LINE": "RIGA DI COMANDO", "IPHONE APP": "APP IPHONE", "‹ back": "‹ indietro", "The ‹ in the window's title, or a swipe from the left edge: back to the window shown before": "La ‹ nel titolo della finestra, o uno scorrimento dal bordo sinistro: torna alla finestra vista prima", "install": "installa", "tab bar": "barra in basso", "offline": "senza rete",
     "In Safari: Share → Add to Home Screen. It opens full screen with its own icon; sign in once with the e-mail code": "In Safari: Condividi → Aggiungi alla schermata Home. Si apre a schermo intero con la sua icona; accedi una volta con il codice via email",
     "Markets, Watchlist, News, Portfolio, Menu (every function) and Windows (switch, close, reopen, reload)": "Mercati, Watchlist, Notizie, Portafoglio, Menu (tutte le funzioni) e Finestre (passa, chiudi, riapri, ricarica)",
     "The interface opens without a network; data is never stored on the phone, so it shows N/A until the connection is back": "L'interfaccia si apre anche senza rete; i dati non vengono mai salvati sul telefono, quindi sono N/A finché la connessione non torna", "FUNCTIONS": "FUNZIONI", "WINDOWS": "FINESTRE", "GOT IT": "HO CAPITO",
