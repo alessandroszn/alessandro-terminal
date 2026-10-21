@@ -14,6 +14,7 @@ import { loadCnbcRaw, isCnbcId, cnbcCodeFor, cnbcForeignFallback } from "./intl.
 import { isinValid } from "./isin.mjs";
 import { UCITS_ETFS, lineOf } from "./ucits.mjs";
 import { tableMap } from "./etfref.mjs";
+import { fundLines } from "./etf.mjs";
 
 export const FF_SOURCE = "Kenneth R. French Data Library";
 export const FF_PAGE = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html";
@@ -116,6 +117,13 @@ export function factorTarget(id, uni = {}) {
   return { id: s, error: "unsupported" };
 }
 
+// an ISIN on neither list (an ETF listed off Xetra): its listings through the terminal's ISIN search (OpenFIGI / Twelve
+// Data → CNBC codes, as the ETF profile finds them), the line in the currency first, else the first one (EUR lines first)
+export async function offListTarget(url, env, ctx, isin, to, lines = fundLines) {
+  const L = await lines(url, env, ctx, isin, null), list = (L && L.lines) || [];
+  const l = list.find((x) => x.ccy === to) || list[0];
+  return l ? { id: isin, isin, name: l.name || null, cnbc: l.cnbc, ccy: l.ccy, pence: !!l.pence, venue: l.venue, ticker: l.ticker, offList: true } : { id: isin, isin, error: "not_listed" };
+}
 // ---------- monthly series ----------
 // the last daily close of each calendar month: [["2026-08", close, "2026-08-31"]]
 export function monthEnds(rows) {
@@ -176,6 +184,8 @@ export async function handleFactors(url, env, ctx, H, json, deps = {}) {
   const items = raw.map((x) => { const i = x.lastIndexOf(":"), w = i > 0 ? Number(x.slice(i + 1)) : NaN; return Number.isFinite(w) && /^[\d.]+$/.test(x.slice(i + 1)) ? { id: x.slice(0, i), weight: w } : { id: x, weight: null }; });
   const uni = items.some((x) => isinValid(x.id.toUpperCase()) || /-DE$|:XETR$/.test(x.id.toUpperCase())) ? uniMaps(await getJ(env, "etf/universe")) : {};
   const targets = items.map((x) => ({ ...factorTarget(x.id, uni), weight: x.weight }));
+  // an ISIN on neither list: its listings through the ISIN search (as the ETF profile finds them)
+  for (let i = 0; i < targets.length; i++) if (targets[i].error === "not_listed" && targets[i].isin) targets[i] = { ...(await offListTarget(url, env, ctx, targets[i].isin, "USD", deps.fundLines)), weight: targets[i].weight };
   // the listing's currency and name from one CNBC quote request (a venue code CNBC answers from the U.S. is not this listing)
   const codes = [...new Set(targets.filter((t) => !t.error).map((t) => t.cnbc))];
   const q = codes.length ? await (deps.loadQuotes || loadCnbcRaw)(codes) : { data: {} };

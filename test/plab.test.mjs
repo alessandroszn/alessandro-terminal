@@ -34,17 +34,32 @@ ok("delete → gone", r.st === 200 && r.b.plab.length === 0);
 // ---------- one instrument's daily closes in EUR ----------
 const json = (b, H, st = 200) => new Response(JSON.stringify(b), { status: st, headers: { "content-type": "application/json" } });
 const D = ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19"];
-const BARS = { "EUNL-DE": D.map((d, i) => [d, 100 + i]), "IWDA-GB": D.map((d, i) => [d, 110 + i]), "SWDA-GB": D.map((d, i) => [d, 9000 + 10 * i]), "NOVN-CH": D.map((d, i) => [d, 80 + i]), NVDA: D.map((d, i) => [d, 180 + i]),
+const BARS = { "XMIL-IT": D.map((d, i) => [d, 50 + i]), "EUNL-DE": D.map((d, i) => [d, 100 + i]), "IWDA-GB": D.map((d, i) => [d, 110 + i]), "SWDA-GB": D.map((d, i) => [d, 9000 + 10 * i]), "NOVN-CH": D.map((d, i) => [d, 80 + i]), NVDA: D.map((d, i) => [d, 180 + i]),
   "EUR=": D.map((d, i) => [d, 1.1 + i / 100]), "GBP=": D.map((d, i) => [d, 1.3]), "CHF=": D.map((d, i) => [d, 0.8]) };
-const QS = { "NOVN-CH": "CHF", NVDA: "USD", "SSAC-NL": "USD", "ZZZ-DE": "EUR" };
+const QS = { "XMIL-IT": "EUR", "NOVN-CH": "CHF", NVDA: "USD", "SSAC-NL": "USD", "ZZZ-DE": "EUR" };
 const deps = { now: Date.parse("2026-10-20T10:00:00Z"), loadQuotes: async (codes) => ({ data: Object.fromEntries(codes.map((c) => [c, { symbol: c, code: 0, currencyCode: QS[c], name: c === "NVDA" ? "NVIDIA Corp" : c, countryCode: c === "SSAC-NL" || c === "NVDA" ? "US" : "CH" }])) }),
+  fundLines: async (url, env, ctx, isin) => (isin === "IE00BL25JP72" ? { lines: [{ cnbc: "XMIL-IT", ccy: "EUR", pence: false, venue: "Borsa Italiana", ticker: "XMIL", name: "A fund listed in Milan" }] } : { lines: [] }),
   daily: async (c) => (BARS[c] ? { data: BARS[c], cache: "HIT", fetchedAt: deps.now } : { err: "no_data" }) };
-const series = async (id) => { const res = await handlePlab(new URL("https://x.test/api/plab/series?id=" + encodeURIComponent(id)), env, {}, {}, json, deps); return { st: res.status, b: await res.json() }; };
+const series = async (id) => { const [i, q] = id.split("&"); const res = await handlePlab(new URL("https://x.test/api/plab/series?id=" + encodeURIComponent(i) + (q ? "&" + q : "")), env, {}, {}, json, deps); return { st: res.status, b: await res.json() }; };
 kv.set("ref/je/table", ["IE00BK5BQT80\t0.19\t55100\tEUR\tA\tP\tSampling\tIreland\tUSD\t0\tVanguard\tEquity, World\tETF\t23 July 2019\tVanguard FTSE All-World\t2026-10-20", "IE00B4L5Y983\t0.2\t131754\tEUR\tA\tP\tOptimized sampling\tIreland\tUSD\t0\tiShares\tEquity, World\tETF\t25 September 2009\tiShares Core MSCI World UCITS ETF USD (Acc)\t2026-10-20"].join("\n"));
 r = await series("C:EUNL-DE");
 ok("a EUR listing: its closes as they are, the fund's ISIN and justETF line (TER, Acc)", r.st === 200 && r.b.ccy === "EUR" && !r.b.conv && r.b.v.join() === "100,101,102,103" && r.b.isin === "IE00B4L5Y983" && r.b.ref.ter === 0.2 && r.b.ref.distribution === "Accumulating" && r.b.first === "2026-10-14", JSON.stringify(r.b).slice(0, 400));
 r = await series("IE00B4L5Y983");
-ok("an ISIN of the UCITS list → its USD line, converted to EUR at the same day's EUR=", r.st === 200 && r.b.cnbc === "IWDA-GB" && r.b.conv.from === "USD" && near(r.b.v[0], 110 / 1.1, 1e-4) && near(r.b.v[3], 113 / 1.13, 1e-4), JSON.stringify(r.b.v));
+ok("an ISIN of the UCITS list in EUR → its own EUR line, no conversion", r.st === 200 && r.b.cnbc === "EUNL-DE" && !r.b.conv && r.b.v.join() === "100,101,102,103", JSON.stringify(r.b).slice(0, 200));
+r = await series("IE00B4L5Y983&ccy=USD");
+ok("…in USD → its USD line (London), no conversion", r.st === 200 && r.b.cnbc === "IWDA-GB" && !r.b.conv && r.b.v[0] === 110 && r.b.to === "USD");
+r = await series("IE00B4L5Y983&ccy=GBP");
+ok("…in GBP → its GBp line ÷ 100", r.st === 200 && r.b.cnbc === "SWDA-GB" && r.b.v[0] === 90);
+r = await series("IE00B4L5Y983&ccy=CHF");
+ok("…in CHF (no CHF line) → the USD line converted: USD → CHF at CHF= (CHF per USD)", r.st === 200 && r.b.cnbc === "IWDA-GB" && r.b.conv.to === "CHF" && near(r.b.v[0], 110 * 0.8, 1e-4), JSON.stringify(r.b.v));
+r = await series("IE00B4L5Y983&ccy=JPY");
+ok("…a currency not offered → 400", r.st === 400);
+r = await series("IE00BL25JP72");
+ok("an ISIN on neither list: its listing through the ISIN search (here Milan), flagged off-list", r.st === 200 && r.b.cnbc === "XMIL-IT" && r.b.offList && r.b.v[0] === 50 && r.b.name === "A fund listed in Milan", JSON.stringify(r.b).slice(0, 300));
+r = await series("US0378331005");
+ok("…found nowhere → not listed", r.st === 404 && r.b.error === "not_listed");
+r = await series("C:NVDA");
+ok("a plain CNBC code without a known line → USD from the quote, converted to EUR", r.st === 200 && near(r.b.v[0], 180 / 1.1, 1e-4));
 r = await series("C:NOVN-CH");
 ok("a CHF listing: CHF= is CHF per USD, then USD → EUR", r.st === 200 && r.b.ccy === "CHF" && near(r.b.v[0], (80 / 0.8) / 1.1, 1e-4), JSON.stringify(r.b.v));
 r = await series("NVDA");

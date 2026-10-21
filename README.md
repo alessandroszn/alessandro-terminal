@@ -133,6 +133,14 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   Jarque–Bera, quantiles, days beyond 2σ / 3σ vs normal, autocorrelation of returns and squared returns with Ljung–Box Q(10).
 - `BETA NVDA SPY` — OLS on the benchmark's daily returns: β (± s.e., t), α annualised, R², correlation, idiosyncratic
   volatility, tracking error, information ratio, up / down capture; scatter with the line; rolling 63-day β.
+- ETF section, 22 Oct 2026: the screener shows 1Y, 3Y and 5Y a year, volatility (3 years) and max drawdown (5 years)
+  for every fund, sortable — from CNBC's daily bars of each fund's Xetra EUR line (U.S. ETFs: USD), computed by their own
+  cron (`2-59/10`, 8 funds a run, KV `etf/perf`, each fund about weekly) and live for the rows on screen
+  (`/api/etf/perf?ids=`, `/api/etf/perftable`). ETF COMPARE: up to 8 funds on up to 15 years (each fund's own line in
+  EUR / USD / GBP / CHF, else converted), period ALL / 10Y / 5Y / 3Y / 1Y, total, a year, volatility, Sharpe, Sortino, max
+  drawdown with dates, Calmar, worst month, months up, calendar years, correlations, rebased and drawdown charts. +LAB in
+  the screener, the profile and the compare adds a fund to the lab portfolio being built. An ISIN on neither list (a fund
+  listed off Xetra) is found through the ISIN search (OpenFIGI / Twelve Data → CNBC) in PLAB, EFC and FACT.
 - `PLAB` — portfolio lab (menu MY STUFF): portfolios with target weights (ETFs by Xetra / Milan / UCITS ticker or ISIN,
   stocks, C:codes, SYMBOL:MIC, CASH at 0 %; or imported from PORTFOLIO at today's market values), up to 20 saved on the
   server (`/api/user/plab`, 1–15 holdings, weights adding up to 100). Each instrument's CNBC daily closes in EUR, up to 15
@@ -354,6 +362,7 @@ node test/bonds.test.mjs        # world curves (Bundesbank, BoE, MOF, SNB, BoC, 
 node test/sw.test.mjs           # the iPhone app's service worker: interface only, never /api, sign-in redirects
 node test/quant.test.mjs        # quant formulas against closed forms and known processes
 node test/isin.test.mjs         # ISIN: check digit, exchange codes, OpenFIGI listings matched to Twelve Data
+node test/etfperf.test.mjs      # screener returns / risk: 1Y–5Y, volatility, drawdown, the cron's batch, routes
 node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, CHF, CNBC's U.S. fallback), backtest / IRR / stats / risk / stress / projection
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve

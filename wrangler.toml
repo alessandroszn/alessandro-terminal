@@ -26,8 +26,9 @@ binding = "AI"
 # Rome slots in both CET and CEST (Daily 07:30, Weekly/Monthly Sat 08:00, Evening 22:30).
 # Outside a slot's ~30 minutes a run returns at once; 300 runs a day.
 # alerts (src/alerts.mjs): checked every 5 minutes, 288 runs a day. Free plan: 5 cron triggers per account.
+# ETF screener returns and risk (src/etfperf.mjs): minutes 2, 12, 22 … — 8 funds a run, 144 runs and KV writes a day.
 [triggers]
-crons = ["* 5-7 * * *", "* 20-21 * * *", "*/5 * * * *"]
+crons = ["* 5-7 * * *", "* 20-21 * * *", "*/5 * * * *", "2-59/10 * * * *"]
 
 # briefing archive (Daily / Evening / Weekly / Monthly editions) + staged inputs of scheduled runs
 [[kv_namespaces]]
