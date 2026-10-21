@@ -4,6 +4,7 @@
 //   GET /api/cnbc/futures|returns|curve|implied|history   futures and markets from CNBC (src/cnbc.mjs)
 //   GET /api/nasdaq/calendar|screener|movers   Nasdaq (src/nasdaq.mjs) · GET /api/reddit   ApeWisdom (src/reddit.mjs)
 //   GET /api/search?q=Novartis              (T05 symbol discovery, see src/search.mjs)
+//   GET /api/etf/ucits[/returns?part=N]     UCITS ETFs by asset class: CNBC prices, justETF reference data (src/ucits.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
@@ -44,7 +45,7 @@ import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
 import { handleMarkets } from "./markets.mjs";
-import { fetchText } from "./lib.mjs"; // TEMPORARY (diagJustEtf)
+import { handleUcits, refreshJustEtf } from "./ucits.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
 const SOURCE = "twelvedata";
@@ -594,22 +595,6 @@ function json(obj, headers, status = 200, cacheSec = 0) {
 }
 
 // routing without the access check (unit tests exercise the handlers through this)
-// TEMPORARY: one justETF profile page → status, size and short text windows around the reference-data labels (no prices)
-async function diagJustEtf(url, H) {
-  const isin = String(url.searchParams.get("isin") || "").toUpperCase();
-  if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(isin)) return json({ error: "bad isin" }, H, 400);
-  const what = url.searchParams.get("what") || "profile";
-  const target = what === "robots" ? "https://www.justetf.com/robots.txt" : `https://www.justetf.com/en/etf-profile.html?isin=${isin}`;
-  const f = await fetchText(target, { timeoutMs: 15000, headers: { accept: "text/html,text/plain", "accept-language": "en" } });
-  if (f.err) return json({ err: f.err, http: f.http || null }, H, 200);
-  if (what === "robots") return json({ http: f.http, robots: f.text.slice(0, 3000) }, H);
-  const html = f.text, text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
-  const labels = ["Total expense ratio", "Fund size", "Distribution policy", "Replication", "Fund domicile", "Fund currency", "Inception", "Fund Provider", "Legal structure", "Investment focus", "Holdings", "Currency risk", "Securities lending"];
-  const windows = {}; for (const l of labels) { const i = text.indexOf(l); windows[l] = i < 0 ? null : text.slice(i, i + 140); }
-  const hi = html.indexOf("Total expense ratio");
-  return json({ http: f.http, bytes: html.length, title: (html.match(/<title>([^<]*)<\/title>/) || [])[1] || null, windows, htmlNearTer: hi < 0 ? null : html.slice(Math.max(0, hi - 300), hi + 500), hasCaptcha: /captcha|challenge-platform|cf-chl/i.test(html) }, H);
-}
-
 export const app = {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
@@ -650,7 +635,7 @@ export const app = {
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
-    if (url.pathname === "/api/diag/justetf") return diagJustEtf(url, H); // TEMPORARY (page structure check), removed after
+    if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
@@ -672,7 +657,7 @@ export default {
   // Cron Triggers (wrangler.toml [triggers]): the alerts check every 5 minutes (alerts.mjs); briefing editions written at
   // their time (cron.mjs)
   async scheduled(event, env, ctx) {
-    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); return; }
+    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshJustEtf(env).catch(() => null)); return; }
     ctx.waitUntil(runCron(event.scheduledTime, env, ctx, { fetchQuotes: (syms) => fetchQuotesCoalesced(syms, env.TWELVEDATA_KEY) }));
   },
 };

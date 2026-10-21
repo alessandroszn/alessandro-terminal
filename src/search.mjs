@@ -9,6 +9,7 @@
 import { cnbcCodeFor } from "./intl.mjs";
 import { fetchText, cachedSource, iso } from "./lib.mjs";
 import { isinValid, openFigi, ISIN_HOME, MIC_COUNTRY, MIC_EXCHANGE } from "./isin.mjs";
+import { ucitsMatch } from "./ucits.mjs";
 
 const TD = "https://api.twelvedata.com";
 export const PLAN_RANK = { Basic: 0, Grow: 1, Pro: 2, Ultra: 3, Enterprise: 4 };
@@ -102,13 +103,14 @@ export async function handleSearch(url, env, ctx, H, json) {
   const q = (url.searchParams.get("q") || "").trim().replace(/\s+/g, " ");
   if (!Q_RE.test(q)) return json({ error: "bad_request", message: "q must be 1-40 letters, digits, spaces or . & ' - / :" }, H, 400);
   const isin = q.toUpperCase().replace(/ /g, "");
-  if (isinValid(isin)) return isinSearch(url, env, ctx, H, json, isin);
+  const ucits = ucitsMatch(q);
+  if (isinValid(isin)) return isinSearch(url, env, ctx, H, json, isin, ucits);
   let credits = 0;
   const r = await cachedSource({
     origin: url.origin, key: `search-rows/${encodeURIComponent(q.toLowerCase())}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx,
     load: async () => { const x = await providerSearch(q, env.TWELVEDATA_KEY); credits = x.credits || (x.data && x.data.credits) || 0; return x; },
   });
-  if (r.err) return json({ q, results: [], error: r.err, status: "N/A", credits }, H, r.err === "rate_limited" ? 429 : 502);
+  if (r.err) return json({ q, results: [], error: r.err, status: "N/A", credits, ucits }, H, r.err === "rate_limited" ? 429 : 502);
   const results = normalizeSearch({ data: r.data.rows }, q);
   const resp = json({
     q, count: results.length, results,
@@ -116,6 +118,7 @@ export async function handleSearch(url, env, ctx, H, json) {
     source: "Twelve Data symbol_search", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE",
     // the provider returns at most 120 listings: a broad name can be crowded out by warrants → search the ticker
     truncated: (r.data.raw || 0) >= 120, credits: r.cache === "MISS" ? credits : 0,
+    ucits, // the UCITS list's funds this query names (src/ucits.mjs): their price line on CNBC
   }, H);
   resp.headers.set("cache-control", "no-store");
   resp.headers.set("x-cache", r.cache);
@@ -123,8 +126,8 @@ export async function handleSearch(url, env, ctx, H, json) {
 }
 
 // ---------- ISIN: OpenFIGI's listings, each matched to Twelve Data's record of the same listing when it has one ----------
-async function isinSearch(url, env, ctx, H, json, isin) {
-  const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
+async function isinSearch(url, env, ctx, H, json, isin, ucits = []) {
+  const send = (b, st = 200) => { const r = json({ ...b, ucits }, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const f = await cachedSource({ origin: url.origin, key: `isin/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 60 * 86400_000, ctx, failTtlMs: 10 * 60_000, load: () => openFigi(isin, env) });
   const home = ISIN_HOME[isin.slice(0, 2)] || null;
   // OpenFIGI unreachable, or the ISIN unknown to it: Twelve Data's own symbol search also answers ISINs (seen live

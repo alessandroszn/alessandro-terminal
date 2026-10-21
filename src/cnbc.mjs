@@ -117,7 +117,7 @@ async function loadDaily(sym, days, now) {
   let rows; try { rows = dailyCloses(JSON.parse(f.text)); } catch { return { err: "provider_error" }; }
   return rows.length ? { data: rows } : { err: "no_data" };
 }
-const daily = (origin, ctx, sym, days, now) => cachedSource({ origin, key: `cnbc/d${days}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, load: () => loadDaily(sym, days, now) });
+export const cnbcDaily = (origin, ctx, sym, days, now) => cachedSource({ origin, key: `cnbc/d${days}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, load: () => loadDaily(sym, days, now) });
 
 // the reference closes for returns: the last close on or before 7 / 30 / 91 / 365 days before the latest bar, and the last
 // close of the previous year (YTD) — never interpolated
@@ -161,7 +161,7 @@ export async function handleCnbc(url, env, ctx, H, json) {
   if (p === "/api/cnbc/returns") {
     const syms = [...new Set(String(url.searchParams.get("syms") || "").split(",").map((s) => s.trim()).filter(isAllowed))].slice(0, 16);
     if (!syms.length) return send({ error: "bad_request", message: "syms: up to 16 known symbols" }, 400);
-    const res = await Promise.all(syms.map((s) => daily(url.origin, ctx, s, 400, now)));
+    const res = await Promise.all(syms.map((s) => cnbcDaily(url.origin, ctx, s, 400, now)));
     const out = {}, errors = {};
     syms.forEach((s, i) => { const r = res[i]; if (!r.data) { errors[s] = r.err; return; } const rows = r.data; out[s] = { ref: referenceCloses(rows), last: rows[rows.length - 1], line: rows.slice(-63).map((x) => x[1]) }; });
     return send({ returns: out, errors, basis: "CNBC's daily bars of the same symbol, dated as CNBC dates them; returns = latest price ÷ the reference close − 1 (DERIVED in the page)", ...SRC }, Object.keys(out).length ? 200 : 502);
@@ -172,7 +172,7 @@ export async function handleCnbc(url, env, ctx, H, json) {
     const syms = Array.from({ length: c[1] }, (_, i) => `@${root}.${i + 1}`);
     const q = await cachedSource({ origin: url.origin, key: `cnbc/crv/${root}`, ttlMs: 120_000, staleMaxMs: 3 * 86400_000, failTtlMs: 60_000, ctx, load: () => loadCnbcQuotes(syms) });
     if (!q.data) return send({ root, status: "N/A", error: q.err, ...SRC }, 502);
-    const hist = await Promise.all(syms.map((s) => daily(url.origin, ctx, s, 400, now)));
+    const hist = await Promise.all(syms.map((s) => cnbcDaily(url.origin, ctx, s, 400, now)));
     const points = syms.map((s, i) => { const x = q.data[s], h = hist[i].data; return { pos: i + 1, sym: s, contract: x ? x.contract : null, last: x ? x.last : null, chgPct: x ? x.chgPct : null, time: x ? iso(x.time) : null, ref: h ? referenceCloses(h) : {} }; });
     return send({ root, name: c[0], points, ...SRC, basis: "each position is CNBC's continuous contract (1 = front month); earlier curves are the same positions' daily closes, so their contract months can differ (a roll)", status: q.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(q.fetchedAt) });
   }
@@ -204,7 +204,7 @@ export async function handleCnbc(url, env, ctx, H, json) {
   if (p === "/api/cnbc/history") {
     const sym = String(url.searchParams.get("sym") || "");
     if (!isAllowed(sym)) return send({ error: "bad_request", message: "unknown symbol" }, 400);
-    const r = await daily(url.origin, ctx, sym, 1830, now);
+    const r = await cnbcDaily(url.origin, ctx, sym, 1830, now);
     if (!r.data) return send({ sym, status: "N/A", error: r.err }, 502);
     return send({ sym, points: r.data, ...SRC, basis: "CNBC's daily bars, dated as CNBC dates them", status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
   }

@@ -40,8 +40,13 @@ export function cnbcBig(v) {
   return x * ({ K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[String(m[2] || "").toUpperCase()] || 1);
 }
 // CNBC quote → the terminal's flat quote record; Asian exchanges often carry a date without a time ("2026-10-20")
+// CNBC answers a venue code it does not carry with the U.S. symbol of the same root (checked 21 Oct 2026: SMH-IT → VanEck
+// Semiconductor on NASDAQ, SSAC-NL → a U.S. SPAC, AGGH-IT → a NYSE Arca ETF): a non-U.S. code answered from the U.S. is
+// another instrument, never this listing's price
+const VENUE_SUFFIXES = [...new Set(Object.values(MIC_CNBC))];
+export const cnbcForeignFallback = (q) => { const s = String((q && q.symbol) || "").toUpperCase(); return VENUE_SUFFIXES.some((x) => s.endsWith(x)) && String((q && q.countryCode) || "").toUpperCase() === "US"; };
 export function cnbcIntlRec(id, q) {
-  if (!q || q.code !== 0) return null;
+  if (!q || q.code !== 0 || cnbcForeignFallback(q)) return null;
   const price = cnbcNum(q.last); if (price == null) return null;
   const lt = String(q.last_time || "").trim(), dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(lt) ? lt : null, t = dateOnly ? null : cnbcTime(lt);
   if (!dateOnly && t == null) return null;

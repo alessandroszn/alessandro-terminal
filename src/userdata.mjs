@@ -148,6 +148,7 @@ export function sourcesStatus(env) {
     { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: !!finnhubKey(env) },
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and weekly inventories (CMDTY)", configured: !!env.EIA_KEY },
     { id: "openfigi", name: "OpenFIGI", use: "ISIN → listings in symbol search (SRCH)", configured: true, note: env.OPENFIGI_KEY ? "free key set: higher limit" : "no key needed (25 searches a minute; OPENFIGI_KEY optional)" },
+    { id: "justetf", name: "justETF", use: "UCITS ETF reference data: TER, fund size, distribution, replication (UCITS) — never prices", configured: !!env.BRIEFS, note: "no key; one profile page every 5 minutes by the cron, each fund refreshed weekly" },
     { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
     { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },
     { id: "telegram", name: "Telegram bot", use: "alerts sent to your chat (ALRT)", configured: !!tgToken(env), note: env.TELEGRAM_BOT_TOKEN && !tgToken(env) ? "TELEGRAM_BOT_TOKEN is set but does not look like a bot token" : undefined },

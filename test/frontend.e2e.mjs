@@ -9,6 +9,7 @@ import { normalizeQuote, buildInstrument, app as workerApp } from "../src/worker
 import { normalizeSearch } from "../src/search.mjs";
 import { cnbcIntlRec, cnbcInstrument } from "../src/intl.mjs";
 import { settlementCandidates } from "../src/finra.mjs";
+import { ucitsMatch, JUSTETF_KEY } from "../src/ucits.mjs";
 
 const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
@@ -400,7 +401,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra)\//.test(u.pathname) || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -1371,6 +1372,44 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[O] an ISIN OpenFIGI does not know: said so, nothing listed", /ISIN DE0007164600 — no listing found at OpenFIGI \(No identifier found\.\)/.test(sr2) && !/SYMBOL\s+NAME\s+EXCHANGE/.test(sr2), sr2.slice(0, 400));
   ok("[O] no JavaScript errors", errors.length === 0, errors.join(" | "));
   await page.close();
+}
+
+// =============== P. UCITS ETFs: the European list (SWDA, VWCE …) priced on its CNBC lines; justETF reference data ===============
+{
+  PV.kv.set(JUSTETF_KEY, JSON.stringify({ IE00B4L5Y983: { ter: 0.2, fundSize: { value: 131754e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Optimized sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "25 September 2009", holdings: 1252, legalStructure: "ETF", fetchedAt: Date.now() - 86400_000 } }));
+  const api = { ...OK_API, search: (q) => ({ body: { ...searchBody(q), ucits: ucitsMatch(q) } }) };
+  const { page, errors } = await openTerminal(api);
+  await page.waitForTimeout(1000);
+  PV.cnbcAsked.length = 0;
+  await cmd(page, "UCITS");
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("UCITS ETFs")); return w && /SWDA/.test(w.querySelector(".win-body").innerText) && /\+\d+\.\d\d%/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 30000 }).catch(() => null);
+  await page.waitForTimeout(2500);
+  let w = await winOf(page, "UCITS ETFs");
+  ok("[P] UCITS command: the European list by class — SWDA priced on its Xetra line (EUNL · Xetra), VWCE, CSSPX; Milan ETFMIB on its Milan line", w && /WORLD EQUITY/.test(w.text) && /SWDA\s+iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983\s+EUNL · Xetra\s+[\d.,]+\s/.test(w.text) && /VWCE/.test(w.text) && /CSSPX/.test(w.text) && /ETFMIB · Borsa Italiana/.test(w.text), w && w.text.slice(0, 900));
+  ok("[P] prices from CNBC in two requests for the whole list (≤ 40 codes each), no Twelve Data quote for them", PV.cnbcAsked.filter((x) => x.includes("EUNL-DE") || x.includes("XEON-DE")).length >= 1 && PV.cnbcAsked.every((x) => x.length <= 40));
+  ok("[P] returns 1D…1Y from the same line's daily bars; TER, fund size, Acc from justETF for SWDA; N/A where justETF was not read yet", /SWDA[^\n]*\+\d+\.\d\d%[^\n]*0\.20%\s+EUR 131\.8B\s+Acc/.test(w.text) && /VWCE[^\n]*N\/A\s+N\/A/.test(w.text), (w.text.match(/SWDA[^\n]*/) || [""])[0] + " || " + (w.text.match(/VWCE[^\n]*/) || [""])[0]);
+  ok("[P] the footer says which price is shown (the line, not necessarily Milan), returns DERIVED, justETF reference data and how many funds were read", /not necessarily the Milan price/.test(w.text) && /returns DERIVED/.test(w.text) && /justETF \(reference data, read weekly\) — 1\/72 read so far/.test(w.text));
+  await page.fill(".uc-q", "vwce"); await page.waitForTimeout(300);
+  const vis = await page.$$eval("tr[data-uc]", (t) => t.filter((x) => x.style.display !== "none").map((x) => x.querySelector("b").textContent));
+  ok("[P] the filter keeps the funds a ticker names (VWCE → one row)", vis.length === 1 && vis[0] === "VWCE", vis.join());
+  await page.fill(".uc-q", ""); await page.click('[data-usort="ter"]'); await page.waitForTimeout(400);
+  w = await winOf(page, "UCITS ETFs");
+  ok("[P] sorted by TER: the fund with a TER first, the ones not read after it", /^[\s\S]*?SYM[^\n]*\n\s*SWDA/.test(w.text), w.text.slice(0, 400));
+  await page.click('[data-euniv="US"]'); await page.waitForTimeout(800);
+  const titles = await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent));
+  ok("[P] the same window switches back to the US-listed ETFs", titles.includes("ETFs BY ASSET CLASS"), titles.join(" | "));
+  await page.click('[data-euniv="UCITS"]'); await page.waitForTimeout(800);
+  await page.click('tr[data-uc="C:EUNL-DE"]'); await page.waitForTimeout(1200);
+  const t2 = await page.$$eval(".win .w-title", (t) => t.map((x) => x.textContent));
+  ok("[P] a row opens its price line (C:EUNL-DE)", t2.some((t) => /^C:EUNL-DE/.test(t)), t2.join(" | "));
+  await cmd(page, "SRCH SWDA"); await page.waitForTimeout(1200);
+  const sr = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-tag").textContent === "SRCH"); return w ? w.querySelector(".win-body").innerText : ""; });
+  ok("[P] SRCH SWDA: the UCITS fund with its price line on top (EUNL · Xetra), OPEN / +WL / LIST", /UCITS ETF · PRICE ON THE LINE SHOWN \(CNBC\)/.test(sr) && /SWDA\s+iShares Core MSCI World UCITS ETF USD \(Acc\)\s+IE00B4L5Y983\s+EUNL · Xetra/.test(sr), sr.slice(0, 500));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/ucits.png" });
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[P] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
+  await page.close();
+  PV.kv.delete(JUSTETF_KEY);
 }
 
 // =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============
