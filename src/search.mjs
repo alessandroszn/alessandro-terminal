@@ -126,8 +126,17 @@ export async function handleSearch(url, env, ctx, H, json) {
 async function isinSearch(url, env, ctx, H, json, isin) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const f = await cachedSource({ origin: url.origin, key: `isin/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 60 * 86400_000, ctx, failTtlMs: 10 * 60_000, load: () => openFigi(isin, env) });
-  if (f.err) return send({ q: isin, isin, results: [], error: f.err, status: "N/A", source: "OpenFIGI" }, f.err === "rate_limited" ? 429 : 502);
-  const L = f.data.listings, home = ISIN_HOME[isin.slice(0, 2)] || null, base = { q: isin, isin, name: f.data.name, plan: CURRENT_PLAN, fetchedAt: iso(f.fetchedAt), status: f.cache === "STALE" ? "STALE" : "LIVE" };
+  const home = ISIN_HOME[isin.slice(0, 2)] || null;
+  // OpenFIGI unreachable, or the ISIN unknown to it: Twelve Data's own symbol search also answers ISINs (seen live
+  // 21 Oct 2026) — its listings, the home market first; otherwise N/A / no listing, said so
+  if (f.err || !f.data.listings.length) {
+    const t = await cachedSource({ origin: url.origin, key: `search-rows/${isin.toLowerCase()}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, load: () => providerSearch(isin, env.TWELVEDATA_KEY) });
+    const rows = t.data ? normalizeSearch({ data: t.data.rows }, isin).map((x) => ({ ...x, isin })) : [];
+    if (rows.length) { rows.sort((a, b) => (a.country === home ? 0 : 2) + (a.quotable ? 0 : 1) - ((b.country === home ? 0 : 2) + (b.quotable ? 0 : 1)));
+      return send({ q: isin, isin, name: rows[0].name, count: rows.length, results: rows, quotable: rows.filter((x) => x.quotable).length, plan: CURRENT_PLAN, source: "Twelve Data symbol_search (ISIN)", openfigi: f.err || "no_identifier", fetchedAt: iso(t.fetchedAt), status: t.cache === "STALE" ? "STALE" : "LIVE" }); }
+    if (f.err) return send({ q: isin, isin, results: [], error: f.err, status: "N/A", source: "OpenFIGI" }, f.err === "rate_limited" ? 429 : 502);
+  }
+  const L = f.data.listings, base = { q: isin, isin, name: f.data.name, plan: CURRENT_PLAN, fetchedAt: iso(f.fetchedAt), status: f.cache === "STALE" ? "STALE" : "LIVE" };
   if (!L.length) return send({ ...base, count: 0, results: [], quotable: 0, note: f.data.note || "no_listing", source: "OpenFIGI" });
   const countryOf = (l) => (l.mic ? MIC_COUNTRY[l.mic] || null : "United States"), rank = (l) => (countryOf(l) === home ? 0 : l.mic ? 1 : 2); // a foreign issuer's U.S. line is mostly over the counter
   // Twelve Data's own records for the tickers found (plan, currency, exchange name): at most three tickers, home market first

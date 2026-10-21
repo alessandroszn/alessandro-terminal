@@ -181,7 +181,9 @@ search → select → fetch. Nothing is preloaded and no ticker list is maintain
    the terminal does not quote left out), each matched to Twelve Data's record of the same listing
    (name, currency, plan) or named from OpenFIGI and quotable through CNBC when it carries it; the
    home market first, then other markets, then a foreign issuer's U.S. line. Typed in the command line
-   it opens the first quotable listing. Reference data only; cached 7 days.
+   it opens the first quotable listing. Reference data only; cached 7 days. When OpenFIGI is unreachable
+   or does not know the ISIN, Twelve Data's own symbol search (which also answers ISINs, seen live
+   21 Oct 2026) gives the listings, the home market first (`source: "Twelve Data symbol_search (ISIN)"`).
 2. **Quote on demand**: OPEN fetches one quote; listings outside the current plan are shown as N/A at
    once (no call spent). +WL validates with a real quote before adding.
 3. **History on demand**: requested only when a security window is open.

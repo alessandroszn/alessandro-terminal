@@ -64,6 +64,13 @@ figiDown = true; r = await call("CH0012005267", { ...env, OPENFIGI_KEY: undefine
 ok("OpenFIGI over its limit → N/A rate_limited (429), no listing invented", r.status === 429 && r.j.error === "rate_limited" && r.j.results.length === 0);
 const nokey = seen.filter((x) => x.u.includes("openfigi")).pop();
 ok("without OPENFIGI_KEY no key header is sent", nokey && !("x-openfigi-apikey" in nokey.init.headers));
+// OpenFIGI does not know it, Twelve Data's own search does: its listings, the home market first
+TD.CH0012005267 = [row("NOVN", "Novartis AG", "SIX", "XSWX", "Switzerland", "CHF", "Grow"), row("NVS", "Novartis AG", "NYSE", "XNYS", "United States", "USD", "Basic"), row("NOT", "Novartis AG", "XETR", "XETR", "Germany", "EUR", "Grow")];
+figiDown = false; r = await call("CH0012005267");
+ok("OpenFIGI without the ISIN, Twelve Data's search with it: those listings, the home market (SIX) first, the source said", r.status === 200 && r.j.results[0].id === "NOVN:XSWX" && r.j.count === 3 && /Twelve Data symbol_search \(ISIN\)/.test(r.j.source) && r.j.openfigi === "no_identifier" && r.j.results.every((x) => x.isin === "CH0012005267"), JSON.stringify(r.j).slice(0, 300));
+figiDown = true; r = await call("CH0012005267");
+ok("OpenFIGI over its limit, Twelve Data knows the ISIN: its listings rather than N/A", r.status === 200 && r.j.results[0].id === "NOVN:XSWX" && r.j.openfigi === "rate_limited");
+figiDown = false; delete TD.CH0012005267;
 r = await call("it0000072618");
 ok("lower case is accepted (ISINs are case-insensitive)", r.j.isin === "IT0000072618");
 
