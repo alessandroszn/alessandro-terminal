@@ -680,7 +680,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 <script src="/terminal/vendor/lightweight-charts.js"></script>
 <script src="/terminal/provenance.js"></script>
 <script src="/terminal/i18n.js"></script>
-<script src="/terminal/quant.js"></script>
+<script src="/terminal/qmath.js"></script>
 <script>
 "use strict";
 (function(){
@@ -3076,7 +3076,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     lwLines(win,body.querySelector('.bt-cv'),'bt',[{name:st.strat==='bh'?tl('Buy & hold','Compra e tieni'):`SMA ${st.fast}/${st.slow}`,col:C.amber,pts:res.dates.map((d,i)=>({time:d,value:res.eq[i]/res.eq[0]*100}))},{name:tl('Buy & hold','Compra e tieni')+' '+st.sym,col:C.muted,w:1,pts:res.dates.map((d,i)=>({time:d,value:res.bh[i]/res.bh[0]*100}))}],{fmt:v=>v.toFixed(1),ref:100,pf:{type:'price',precision:1,minMove:0.1}});bind();}
 
   // ---------- QNT: quant tools on real daily closes — Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ----------
-  // Every number is DERIVED here (quant.js) from the closes /api/history returns; the Monte Carlo paths are a model of
+  // Every number is DERIVED here (qmath.js) from the closes /api/history returns; the Monte Carlo paths are a model of
   // possible outcomes from past returns (numbered runs, reproducible), never prices. Results are cached per input in the window.
   const QN_TOOLS=()=>[['mc','MONTE CARLO'],['var','VaR · ES'],['vol',tl('VOLATILITY','VOLATILITÀ')],['dist',tl('DISTRIBUTION','DISTRIBUZIONE')],['beta',tl('BETA · REGRESSION','BETA · REGRESSIONE')],['ef',tl('OPTIMISER','OTTIMIZZATORE')],['seas',tl('SEASONALITY','STAGIONALITÀ')]];
   const QN_CODE={MC:'mc',VAR:'var',VOL:'vol',DIST:'dist',BETA:'beta',EF:'ef',SEAS:'seas'};
@@ -3104,6 +3104,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     st.mc=Object.assign({days:252,paths:5000,method:'block',run:1,target:''},st.mc);st.vr=Object.assign({conf:0.99,h:1,amount:''},st.vr);st.bench=st.bench||'SPY';st.ef=Object.assign({syms:WATCH.filter(x=>!x.includes(':')).slice(0,5),rf:0},st.ef);if(st.ef.syms.length<2)st.ef.syms=['SPY','TLT','GLD'];
     const Q=window.QUANT,tabs=`<div class="tfbar" style="margin-top:0">${tb7('qt',QN_TOOLS(),st.tool)}</div>`,msg=st.msg?`<div class="wl-msg">${esc(st.msg)}</div>`:'';
     const bindTabs=()=>$$('[data-qt]',body).forEach(b=>b.onclick=()=>{st.tool=b.dataset.qt;st.msg='';paintWin(win);});
+    // the formulas file did not load (a content blocker, or no network): said so — nothing is computed without it
+    if(!Q){setProv(win,{'ds:qnt':S.NA});body.innerHTML=tabs+`<div class="banner warn"><b>N/A</b> — ${tl('the quant formulas (qmath.js) did not load: reload the page; if it persists, a content blocker or the network is stopping the file','le formule quant (qmath.js) non si sono caricate: ricarica la pagina; se continua, un blocco contenuti o la rete ferma il file')}.</div>`;bindTabs();return;}
     if(!Q){setProv(win,{'ds:qnt':S.NA});body.innerHTML=tabs+naB(tl('quant library not loaded','libreria quant non caricata'),'network');bindTabs();return;}
     const t=st.tool,symIn=`<input name="sym" value="${esc(st.sym)}" maxlength="20" aria-label="symbol" style="width:100px">`,rangeIn=`<select name="range" aria-label="history"><option value="1Y" ${st.range==='1Y'?'selected':''}>${tl('1Y history','storico 1A')}</option><option value="5Y" ${st.range==='5Y'?'selected':''}>${tl('5Y history','storico 5A')}</option></select>`;
     const opt=(name,list,cur)=>`<select name="${name}">${list.map(([v,l])=>`<option value="${v}" ${String(v)===String(cur)?'selected':''}>${l}</option>`).join('')}</select>`;

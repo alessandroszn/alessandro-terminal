@@ -113,8 +113,8 @@ time zone). `src/cron.mjs`, triggers in `wrangler.toml` (`* 5-7 * * *`, `* 20-21
 - Usage: ~300 runs/day, ~130 KV writes/day (free: 100k requests, 1,000 KV writes), 6 Twelve Data credits per edition (the markets inputs cost none).
 
 ## Quant tools (QNT)
-One window, seven tools, all DERIVED in the page (`public/terminal/quant.js`, formulas only, unit-tested in
-`test/quant.test.mjs`) from real daily closes (`/api/history`, adjusted, one Twelve Data credit per symbol, cached;
+One window, seven tools, all DERIVED in the page (`public/terminal/qmath.js`, formulas only, unit-tested in
+`test/quant.test.mjs`; not called quant.js, a name content blockers block as Quantcast's tracker) from real daily closes (`/api/history`, adjusted, one Twelve Data credit per symbol, cached;
 CNBC for listings outside the plan). Results are cached per input; too little history → N/A, never an estimate.
 - `MC NVDA` — Monte Carlo: 1,000 / 5,000 / 10,000 paths over 1 month … 1 year from the past daily log returns: block
   bootstrap (runs of 5 days, keeps volatility clustering), bootstrap or normal (past μ, σ). Fan of the 5 / 25 / 50 / 75 /

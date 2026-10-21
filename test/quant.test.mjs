@@ -1,8 +1,8 @@
-// Quant library (public/terminal/quant.js): checked against closed-form values and against processes whose
+// Quant library (public/terminal/qmath.js): checked against closed-form values and against processes whose
 // parameters are known (generated here with a numbered generator — test inputs only, never shown in the terminal).
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const Q = require("../public/terminal/quant.js");
+const Q = require("../public/terminal/qmath.js");
 
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };

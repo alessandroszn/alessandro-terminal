@@ -17,7 +17,7 @@ const htmlFast = html0.replace("creditsPerMin:8,", "creditsPerMin:60,");
 const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.meta.url), "utf8");
 const i18nJs = readFileSync(new URL("../public/terminal/i18n.js", import.meta.url), "utf8");
 const lwcJs = readFileSync(new URL("../public/terminal/vendor/lightweight-charts.js", import.meta.url), "utf8");
-const quantJs = readFileSync(new URL("../public/terminal/quant.js", import.meta.url), "utf8");
+const quantJs = readFileSync(new URL("../public/terminal/qmath.js", import.meta.url), "utf8");
 const ORIGIN = "https://alessandrozanichelli.com";
 const SHOTS = process.env.SHOTS_DIR || null;
 const WL = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "JPM"];
@@ -381,7 +381,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/vendor/lightweight-charts.js") return route.fulfill({ contentType: "application/javascript", body: lwcJs });
-    if (u.origin === ORIGIN && u.pathname === "/terminal/quant.js") return route.fulfill({ contentType: "application/javascript", body: quantJs });
+    if (u.origin === ORIGIN && u.pathname === "/terminal/qmath.js") return route.fulfill({ contentType: "application/javascript", body: quantJs });
     if (u.origin === ORIGIN && (u.pathname === "/terminal/manifest.webmanifest" || u.pathname.startsWith("/terminal/app/"))) { const f = "public" + u.pathname; return existsSync(f) ? route.fulfill({ contentType: f.endsWith(".png") ? "image/png" : "application/manifest+json", body: readFileSync(f) }) : route.fulfill({ status: 404, body: "" }); }
     if (u.origin === ORIGIN && u.pathname.startsWith("/terminal")) return route.fulfill({ contentType: "text/html", body: html });
     if (u.origin === ORIGIN && u.pathname === "/api/health") { const h = api.health ? api.health() : { body: { ok: true } }; return h === "abort" ? route.abort() : send(h); }

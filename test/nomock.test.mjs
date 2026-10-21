@@ -17,7 +17,7 @@ const all = Object.values(shipped).join("\n");
 const html = shipped["terminal/index.html"];
 const script = (html.match(/<script>\n([\s\S]*?)<\/script>/) || [])[1] || "";
 
-ok("shipped files = the page, its provenance rules, its interface translations, the self-hosted chart library with its license, the app's manifest and service worker, and the quant library (formulas only)", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/manifest.webmanifest,terminal/provenance.js,terminal/quant.js,terminal/sw.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
+ok("shipped files = the page, its provenance rules, its interface translations, the self-hosted chart library with its license, the app's manifest and service worker, and the quant library (formulas only)", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/manifest.webmanifest,terminal/provenance.js,terminal/qmath.js,terminal/sw.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
 ok("the only images are the app's icons and iOS launch images, under terminal/app/", images.length === 15 && images.every((f) => /^terminal\/app\/(icon-(32|180|192|512|maskable-512)|launch-\d+x\d+)\.png$/.test(f)), images.join());
 // the chart library draws only what the page gives it: unmodified TradingView Lightweight Charts 5.2.1 (Apache-2.0), no network access
 const lwc = shipped["terminal/vendor/lightweight-charts.js"];
