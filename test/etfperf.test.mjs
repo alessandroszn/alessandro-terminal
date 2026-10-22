@@ -43,5 +43,12 @@ ok("…more than 8 → 400", res.status === 400);
 res = await worker.fetch(new Request("https://x.test/api/etf/perftable"), env, { waitUntil() {} }); b = await res.json();
 ok("the table through the Worker, with its basis", res.status === 200 && b.count === 11 && /DERIVED/.test(b.basis));
 
+// CNBC refusing the bars (403): a pause for every bar request, not one request after another
+const { cnbcDaily } = await import("../src/cnbc.mjs");
+const store = new Map(); globalThis.caches = { default: { match: async (q) => { const k = typeof q === "string" ? q : q.url; return store.has(k) ? new Response(store.get(k)) : undefined; }, put: async (q, r) => { store.set(typeof q === "string" ? q : q.url, await r.text()); } } };
+let calls = 0; const realFetch = globalThis.fetch; globalThis.fetch = async (u) => { calls++; return new Response("Forbidden", { status: 403 }); };
+const a1 = await cnbcDaily("https://x.test", { waitUntil() {} }, "AAA-DE", 1900, Date.now()), a2 = await cnbcDaily("https://x.test", { waitUntil() {} }, "BBB-DE", 1900, Date.now());
+ok("CNBC refuses (403): the error said, then a 10-minute pause — the next symbol is not asked", a1.err === "provider_forbidden" && a2.err === "provider_forbidden" && calls === 1, `calls ${calls}`);
+globalThis.fetch = realFetch;
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

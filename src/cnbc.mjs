@@ -9,7 +9,7 @@
 //   GET /api/cnbc/lookup?q=tencent        CNBC's symbol lookup: listings by name or ticker, with CNBC's code (opened as C:<code>)
 //   GET /api/cnbc/implied                 index futures vs the cash index's last print: implied opening move
 //   GET /api/cnbc/history?sym=@GC.1       daily closes (5 years)
-import { fetchText, cachedSource, iso } from "./lib.mjs";
+import { fetchText, cachedSource, iso, cacheRead, cacheWrite } from "./lib.mjs";
 
 export const CNBC_SOURCE = "CNBC quote service";
 export const CNBC_PAGE = "https://www.cnbc.com/markets/";
@@ -117,7 +117,13 @@ async function loadDaily(sym, days, now) {
   let rows; try { rows = dailyCloses(JSON.parse(f.text)); } catch { return { err: "provider_error" }; }
   return rows.length ? { data: rows } : { err: "no_data" };
 }
-export const cnbcDaily = (origin, ctx, sym, days, now) => cachedSource({ origin, key: `cnbc/d${days}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx, load: () => loadDaily(sym, days, now) });
+// CNBC's bar service refusing the Worker (403 / 429): every bar request pauses 10 minutes (Cache API, per location) instead
+// of asking again — a burst of requests is what gets it refused; the last real bars kept are served meanwhile (STALE)
+const BLOCK_KEY = "cnbc/bars-block", BLOCK_MS = 600_000;
+export async function barsBlocked(origin, ctx) { if (ctx && ctx.store) return null; const b = await cacheRead(origin, BLOCK_KEY); return b && Date.now() < b.until ? b : null; }
+export function noteBarsRefused(origin, err, ctx) { if ((err === "provider_forbidden" || err === "rate_limited") && !(ctx && ctx.store)) return cacheWrite(origin, BLOCK_KEY, { until: Date.now() + BLOCK_MS, err }, ctx, BLOCK_MS / 1000); }
+export const cnbcDaily = (origin, ctx, sym, days, now) => cachedSource({ origin, key: `cnbc/d${days}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx,
+  load: async () => { const b = await barsBlocked(origin, ctx); if (b) return { err: b.err }; const r = await loadDaily(sym, days, now); if (r.err) await noteBarsRefused(origin, r.err, ctx); return r; } });
 
 // the reference closes for returns: the last close on or before 7 / 30 / 91 / 365 days before the latest bar, and the last
 // close of the previous year (YTD) — never interpolated

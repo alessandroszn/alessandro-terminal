@@ -23,7 +23,7 @@
 import { handleYields } from "./yields.mjs";
 import { handleMarketYields } from "./mktyields.mjs";
 import { handleCbWorld } from "./cbworld.mjs";
-import { handleCnbc } from "./cnbc.mjs";
+import { handleCnbc, barsBlocked, noteBarsRefused } from "./cnbc.mjs";
 import { handleNasdaq } from "./nasdaq.mjs";
 import { handleReddit } from "./reddit.mjs";
 import { handleCalendar } from "./calendar.mjs";
@@ -522,7 +522,8 @@ async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "pl
   };
   const respond = (body, xc, status = 200) => { const r = json(body, H, status, status === 200 ? ttl : 0); r.headers.set("x-cache", xc); return r; };
   if (entry && entry.points && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.points, entry.fetchedAt, false), "HIT");
-  const r = await cnbcHistory(code, { range, interval, now });
+  const blocked = await barsBlocked(url.origin, ctx), r = blocked ? { err: blocked.err } : await cnbcHistory(code, { range, interval, now });
+  if (!blocked && r.err) await noteBarsRefused(url.origin, r.err, ctx);
   if (r.data) { const fetchedAt = Date.now(); cachePut(cache, key, { points: r.data, fetchedAt }, ctx); return respond(envelope(r.data, fetchedAt, false), "MISS"); }
   if (entry && entry.points && now - entry.fetchedAt < STALE_MAX_MS) return respond(envelope(entry.points, entry.fetchedAt, true, r.err), "STALE");
   const error = isCnbcId(id) ? (r.err === "no_data" ? "no_data" : r.err) : tdError;
