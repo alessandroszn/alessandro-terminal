@@ -12,6 +12,19 @@ Browser ──► alessandrozanichelli.com/terminal/         public page (public
 The Twelve Data API key lives only in the Worker as the secret `TWELVEDATA_KEY`.
 It is never in this repository, in the page, in a URL the browser sees, or in a response.
 
+## ETF compare, deeper (EFC, 23 Oct 2026, no new provider)
+Six views of up to 8 funds side by side: PERFORMANCE (as before: CNBC bars, DERIVED), PROFILE (justETF: asset class and
+focus, index, provider, TER, size, holdings, top-10 weight, replication, distribution and its frequency, fund currency
+and hedging, domicile, inception, approach, sustainability; ◆ marks the lowest TER, largest size, most holdings of these
+funds), HOLDINGS (each fund's top 10; overlap of each pair = Σ of the smaller weight over the holdings both list in their
+top 10, matched by the holding's ISIN from justETF's link — a floor of the real overlap; the holdings in more than one
+top 10), COUNTRIES and SECTORS (one row per name any fund lists; — = not listed for that fund, not zero; the rest per
+fund), FACTORS (Fama/French five factors + momentum per fund on its own months, region AUTO / Developed / Europe / U.S.,
+5 or 10 years; t, alpha, R², how to read them). justETF parser v3: index, approach, sustainability, payout frequency, the
+top 10 with each holding's ISIN, countries and sectors by their data-testid (the old text reading as fallback). U.S. ETFs
+have no justETF record (N/A, said). Bond analytics (duration, yield to maturity, rating) are not on justETF's page: they
+would need the issuers' own files (not connected).
+
 ## KV budget (free plan: 1,000 writes a day)
 Warned at 50 % on 22 Oct 2026 (756 writes in 24 h). Since then: the justETF reader every 15 minutes (96 a day, was 288),
 the screener at minutes 2, 22, 42 (72, was 144), kept copies of CNBC series rewritten only when 3 days old (none by the

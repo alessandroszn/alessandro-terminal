@@ -528,7 +528,11 @@
 tr.ex-open td{background:color-mix(in srgb,var(--up) 7%,transparent)}
 .pf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:8px}
 .pf-k{border:1px solid var(--line);padding:6px 8px;display:flex;flex-direction:column;gap:2px}.pf-k span{font-size:10px;letter-spacing:.06em;color:var(--muted)}.pf-k b{font-size:16px;font-variant-numeric:tabular-nums}.pf-k b small{font-size:11px}.pf-k i{font-style:normal;font-size:10px;color:var(--dim)}
-.nowrap,td.nowrap{white-space:nowrap}table.pf.efc-t td{white-space:nowrap}table.pf.efc-t td.nm{white-space:normal;min-width:170px}
+.nowrap,td.nowrap{white-space:nowrap}table.pf.efc-t td{white-space:nowrap}
+  .efc-p th.efc-fh{min-width:150px;max-width:240px;text-align:left;white-space:normal;font-weight:600;vertical-align:bottom}
+  .efc-p th.efc-fh span{display:block;line-height:1.25}
+  .efc-p td{vertical-align:top}
+  .efc-hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}table.pf.efc-t td.nm{white-space:normal;min-width:170px}
 .efc-head{flex-wrap:wrap}.efc-head .efc-in{flex:1 1 220px;min-width:160px}
 table.pf.wf-t td{white-space:nowrap;vertical-align:middle}table.pf.wf-t td.nm{white-space:normal;min-width:180px}.wf-t select{font:inherit;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--line-2);border-radius:3px;padding:3px}
 .pl-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.pl-bl{border:1px solid var(--line-2);border-radius:4px;padding:8px;margin:8px 0}.pl-ord{font:inherit;font-size:11.5px;background:var(--bg-2,transparent);border:1px solid var(--line-2);border-radius:3px;padding:6px 8px;margin:4px 0;white-space:pre-wrap}.pl-bls{max-height:260px;overflow:auto;margin:6px 0}.pl-head select,.pl-cmp{font:inherit;font-size:11.5px}.pl-head select{background:var(--bg);color:var(--fg);border:1px solid var(--line-2);border-radius:3px;padding:4px 6px;max-width:240px}.pl-foot{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:8px 0}.pl-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:14px;align-items:start}@media(max-width:880px){.pl-cols{grid-template-columns:1fr}}table.pf.pl-k td{white-space:nowrap}table.pf.pl-corr td,table.pf.pl-corr th{padding:3px 5px;font-size:10.5px}.pl-cmp{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 8px}table.pf.pl-t td{vertical-align:middle}.wl-btn[disabled]{opacity:.45;cursor:not-allowed}
@@ -670,7 +674,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>ETF</code><span>ETFs by asset class (140): equities, dividends, industries and themes, Treasuries, credit, commodities, real estate, international, currencies, volatility, crypto, leveraged</span></div>
     <div class="help-row"><code>EFS</code><span>ETF screener: every ETF / ETC / ETN on Xetra (Deutsche Börse's list) and every U.S. ETF (Twelve Data's list). Search by ticker, ISIN or name; filter by type, class, provider, TER, size, Acc / Dist, replication, hedging (justETF data, read one fund every 5 minutes). EFS MSCI WORLD searches at once</span></div>
     <div class="help-row"><code>EFP</code><span>ETF profile (EFP SWDA, EFP IE00B4L5Y983): TER, size, replication, provider, focus (justETF), every listing CNBC carries with its price, returns 1M–5Y, volatility, drawdown, top 10 holdings, countries, sectors</span></div>
-    <div class="help-row"><code>EFC</code><span>Compare up to 4 ETFs (EFC SWDA VWCE CSSPX) in EUR / USD / GBP / CHF: TER, size, returns, volatility, drawdown, rebased chart</span></div>
+    <div class="help-row"><code>EFC</code><span>Compare up to 8 ETFs (EFC SWDA VWCE CSSPX): PERFORMANCE (returns, volatility, Sharpe, drawdown, years, correlations, charts in EUR / USD / GBP / CHF), PROFILE (asset class, index, provider, TER, size, holdings, replication, distribution…), HOLDINGS (top 10 side by side, overlap, holdings in common), COUNTRIES, SECTORS, FACTORS (Fama/French loadings)</span></div>
     <div class="help-row"><code>EXPO</code><span>Your portfolio looked through its ETFs: countries, sectors and largest holdings, weighted by today's market value (justETF composition)</span></div>
     <div class="help-row"><code>UCITS</code><span>UCITS ETFs listed in Europe (72): SWDA, VWCE, CSSPX, EIMI, AGGH, XEON, gold ETCs, bitcoin ETPs… by asset class. Price of the line shown (CNBC, Xetra in EUR where it has it), returns 1D–1Y, TER / fund size / distribution from justETF (read weekly). Also in SRCH by ticker or ISIN</span></div>
     <div class="help-row"><code>ERN</code><span>Earnings calendar with surprise and price reaction</span></div>
@@ -4122,15 +4126,115 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const R=vals.map(v=>{const r=[];for(let t=1;t<v.length;t++)r.push(v[t]/v[t-1]-1);return r;}),m=R.map(r=>Q.mean(r)),sd=R.map(r=>Q.stdev(r));
     const corr=R.map((a,i)=>R.map((b,j)=>{let c=0;for(let t=0;t<a.length;t++)c+=(a[t]-m[i])*(b[t]-m[j]);return sd[i]>0&&sd[j]>0?c/(a.length-1)/(sd[i]*sd[j]):NaN;}));
     return{dates,idx,ps,corr};}
-  function renderEfc(body,win){const st=win.state;st.ids=st.ids||[];st.ccy=st.ccy||'EUR';st.per=EFC_P().some(([k])=>k===st.per)?st.per:'max';const X=efData(),Q=window.QUANT;
+  // ETF COMPARE beyond prices (23 Oct 2026): what each fund is and holds, side by side — justETF's profile of each fund
+  // (/api/etf/profile: index, focus, provider, costs, structure, the top 10 with their ISINs, countries, sectors — as its
+  // page lists them, never prices) and Fama/French factor loadings (/api/factors: the Kenneth R. French Data Library and
+  // CNBC month-end closes, the regression computed here). Overlaps and shadings are DERIVED from the listed weights.
+  const EFC_V=()=>[['PERF',tl('PERFORMANCE','RENDIMENTI')],['PROF',tl('PROFILE','PROFILO')],['HOLD',tl('HOLDINGS','TITOLI')],['CTRY',tl('COUNTRIES','PAESI')],['SECT',tl('SECTORS','SETTORI')],['FACT',tl('FACTORS','FATTORI')]];
+  // a holding's key across funds: its ISIN from justETF's link, else its name without legal forms and punctuation
+  const efHKey=h=>h[2]?h[2]:'n:'+String(h[0]).toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\b(corp|corporation|inc|plc|ltd|limited|sa|ag|nv|se|co|company|the|class [a-z]|cl [a-z])\b/g,' ').replace(/\s+/g,' ').trim();
+  // justETF's focus "Bonds, EUR, World, Corporate, All maturities" → the asset class and the rest
+  const efFocus=f=>{const p=String(f||'').split(',').map(x=>x.trim()).filter(Boolean);return{cls:p[0]||null,rest:p.slice(1).join(' · ')||null};};
+  const efClassName=c=>({Equity:tl('Equity','Azionario'),Bonds:tl('Bonds','Obbligazionario'),Commodities:tl('Commodities','Materie prime'),'Real Estate':tl('Real estate','Immobiliare'),'Money Market':tl('Money market','Monetario'),'Multi-Asset':tl('Multi-asset','Multi-asset'),Currency:tl('Currency','Valute'),Volatility:tl('Volatility','Volatilità')})[c]||c;
+  // the fund's first Xetra ticker (the list keeps each line as [ticker, currency])
+  const efTk=xr=>{const ln=xr&&xr.lines;if(Array.isArray(ln)&&ln.length)return Array.isArray(ln[0])?ln[0][0]:String(ln[0]).split(':')[0];return ln?String(ln).split(' ')[0].split(':')[0]:null;};
+  function efcDeep(body,win,head,bind,Q,X){const st=win.state;
+    const F=st.ids.map((id,i)=>{const isin=ISIN_RE.test(id)?id:null,G=isin?get7('/api/etf/profile?isin='+isin,600000,['EFC']):null,d=G&&G.data,ref=d&&d.ref,xr=X&&isin?X.byIsin.get(isin):null;
+      return{id,isin,col:CMPCOL[i%CMPCOL.length],ref,loading:!!(isin&&!G.data&&!G.err),err:!isin?'not_covered_us':G&&G.err?G.err:d&&!ref?(d.refError||'no_data'):null,name:(ref&&ref.name)||(xr&&xr.name)||id,tk:efTk(xr)||id};});
+    win._load=()=>F.forEach(f=>{if(f.isin)get7('/api/etf/profile?isin='+f.isin,600000,['EFC']);});
+    if(st.v==='FACT')return efcFactors(body,win,head,bind,Q,F);
+    const hd=f=>`<th class="efc-fh" style="border-top:2px solid ${f.col}" title="${esc(f.name+(f.isin?' · '+f.isin:''))}"><span>${esc(f.name)}</span><div class="k">${esc(f.isin||'U.S. · '+f.id)}</div></th>`;
+    const naCell=f=>f.loading?`<span class="k">${tl('reading…','lettura…')}</span>`:`<span class="na" title="${esc(f.err==='not_covered_us'?tl('justETF covers European-listed funds only','justETF copre solo i fondi quotati in Europa'):P.errorText(f.err))}">N/A</span>${f.err==='not_covered_us'?` <span class="k">${tl('U.S. fund: not on justETF','fondo USA: non su justETF')}</span>`:''}`;
+    const ok=F.filter(f=>f.ref),src=`<a href="https://www.justetf.com/" target="_blank" rel="noopener">justETF</a>`;
+    const jeStat=ok.some(f=>f.ref.status==='STALE')?S.STALE:ok.length?S.LIVE:F.some(f=>f.loading)?S.LOADING:S.NA;
+    const read=ok.length?`· ${tl('read','letti')} ${[...new Set(ok.map(f=>fmtDay(String(f.ref.fetchedAt).slice(0,10))))].join(', ')}`:'';
+    const short=f=>esc(String(f.tk||f.id).slice(0,10));
+    let html='';
+    if(st.v==='PROF'){
+      const row=(label,fn,hint)=>`<tr><td class="l k" ${hint?`title="${esc(hint)}"`:''}>${label}</td>${F.map(f=>`<td class="l">${f.ref?fn(f.ref,f):naCell(f)}</td>`).join('')}</tr>`;
+      const pick=(arr)=>arr.filter(fin),terMin=Math.min(...pick(ok.map(f=>f.ref.ter))),sizeMax=Math.max(...pick(ok.map(f=>f.ref.fundSize?f.ref.fundSize.value:NaN))),holdMax=Math.max(...pick(ok.map(f=>f.ref.holdingsTotal)));
+      const best=(v,b)=>fin(v)&&v===b&&ok.length>1,mark=(t,on)=>on?`<span class="up">${t} ◆</span>`:t;
+      html=`<div style="overflow:auto"><table class="pf efc-p"><thead><tr><th></th>${F.map(hd).join('')}</tr></thead><tbody>
+        ${row(tl('ASSET CLASS','CLASSE'),r=>`<b>${esc(efClassName(efFocus(r.focus).cls)||'—')}</b>`)}
+        ${row(tl('FOCUS','FOCUS'),r=>esc(efFocus(r.focus).rest||'—'))}
+        ${row(tl('INDEX','INDICE'),r=>esc(r.index||'—'))}
+        ${row(tl('PROVIDER','EMITTENTE'),r=>esc(r.provider||'—'))}
+        ${row('TER',r=>fin(r.ter)?mark(r.ter.toFixed(2)+'% p.a.',best(r.ter,terMin)):'—',tl('◆ the lowest of these funds','◆ il più basso di questi fondi'))}
+        ${row(tl('FUND SIZE','PATRIMONIO'),r=>r.fundSize?mark(esc(efSize(r.fundSize.value/1e6,r.fundSize.currency)),best(r.fundSize.value,sizeMax)):'—',tl('◆ the largest of these funds','◆ il più grande di questi fondi'))}
+        ${row(tl('HOLDINGS','TITOLI'),r=>fin(r.holdingsTotal)?mark(r.holdingsTotal.toLocaleString('en-US'),best(r.holdingsTotal,holdMax)):'—',tl('◆ the most holdings of these funds','◆ il maggior numero di titoli di questi fondi'))}
+        ${row(tl('TOP 10 WEIGHT','PESO PRIME 10'),r=>fin(r.top10Weight)?r.top10Weight.toFixed(2)+'%':'—',tl('how concentrated the fund is: the weight of its 10 largest holdings','quanto è concentrato il fondo: il peso dei suoi 10 titoli maggiori'))}
+        ${row(tl('REPLICATION','REPLICA'),r=>esc(r.replication||'—'))}
+        ${row(tl('DISTRIBUTION','DISTRIBUZIONE'),r=>esc((r.distribution||'—')+(r.payouts&&r.distribution==='Distributing'?' · '+r.payouts:'')))}
+        ${row(tl('FUND CURRENCY','VALUTA DEL FONDO'),r=>esc((r.fundCurrency||'—')+(r.hedged!=null?' · '+(r.hedged?tl('hedged','con copertura'):tl('unhedged','senza copertura')):'')))}
+        ${row(tl('DOMICILE','DOMICILIO'),r=>esc(r.domicile||'—'))}
+        ${row(tl('INCEPTION','LANCIO'),r=>esc(r.inception||'—'))}
+        ${row(tl('APPROACH','STRATEGIA'),r=>esc(r.approach||'—'))}
+        ${row(tl('SUSTAINABLE','SOSTENIBILE'),r=>r.sustainable==null?'—':r.sustainable?tl('Yes','Sì'):tl('No','No'))}
+        ${row(tl('STRUCTURE','STRUTTURA'),r=>esc(r.legalStructure||'—'))}
+      </tbody></table></div><div class="src-line">${chip(jeStat)}<span style="flex:1 1 320px;min-width:0">${src} ${read} · ${tl("as each fund's page states it; reference data, never prices. ◆ compares these funds only.","come lo dichiara la pagina di ogni fondo; dati anagrafici, mai prezzi. ◆ confronta solo questi fondi.")}</span></div>`;}
+    else if(st.v==='HOLD'){
+      const lists=F.map(f=>`<div><div class="yc-h" style="border-top:2px solid ${f.col};padding-top:4px">${esc(f.name)}${f.ref&&fin(f.ref.top10Weight)?` <span class="k">${f.ref.top10Weight.toFixed(2)}% ${tl('of','di')} ${fin(f.ref.holdingsTotal)?f.ref.holdingsTotal.toLocaleString('en-US'):'—'}</span>`:''}</div>${f.ref?efBars(f.ref.top10):`<div class="k">${naCell(f)}</div>`}</div>`).join('');
+      // overlap of two funds: Σ min(weight) over the holdings both list in their top 10 — a floor: the rest is not listed
+      const maps=F.map(f=>{const m=new Map();if(f.ref&&f.ref.top10)for(const h of f.ref.top10)m.set(efHKey(h),h);return m;});
+      const ov=(a,b)=>{let t=0,n=0;for(const [k,h] of maps[a]){const g=maps[b].get(k);if(g){t+=Math.min(h[1],g[1]);n++;}}return{t,n};};
+      const ovT=`<table class="pf pl-corr"><thead><tr><th></th>${F.map(f=>`<th style="color:${f.col}">${short(f)}</th>`).join('')}</tr></thead><tbody>${F.map((f,i)=>`<tr><td class="l"><b style="color:${f.col}">${short(f)}</b></td>${F.map((g,j)=>{if(i===j||!f.ref||!g.ref||!f.ref.top10||!g.ref.top10)return'<td class="num k">—</td>';const o=ov(i,j);return`<td class="num" style="${o.t>0?`background:color-mix(in srgb,var(--amber) ${Math.min(60,o.t*2).toFixed(0)}%,transparent)`:''}" title="${o.n} ${tl('holdings in both top 10s','titoli in entrambe le prime 10')}">${o.t.toFixed(1)}%</td>`;}).join('')}</tr>`).join('')}</tbody></table>`;
+      const common=new Map();maps.forEach((m,i)=>{for(const [k,h] of m){if(!common.has(k))common.set(k,{name:h[0],isin:h[2]||null,w:F.map(()=>null)});common.get(k).w[i]=h[1];}});
+      const cnt=x=>x.w.filter(v=>v!=null).length,top=x=>Math.max(...x.w.filter(fin));
+      const shared=[...common.values()].filter(x=>cnt(x)>=2).sort((a,b)=>cnt(b)-cnt(a)||top(b)-top(a));
+      const notTop=tl("not in that fund's top 10 (it may hold it with a smaller weight)","non tra le prime 10 di quel fondo (potrebbe averlo con un peso minore)");
+      const shT=shared.length?`<table class="pf"><thead><tr><th class="l">${tl('HOLDING','TITOLO')}</th>${F.map(f=>`<th style="color:${f.col}">${short(f)}</th>`).join('')}</tr></thead><tbody>${shared.map(x=>`<tr><td class="l"><b>${esc(x.name)}</b>${x.isin?` <span class="k">${esc(x.isin)}</span>`:''}</td>${x.w.map(v=>`<td class="num">${fin(v)?v.toFixed(2)+'%':`<span class="k" title="${esc(notTop)}">—</span>`}</td>`).join('')}</tr>`).join('')}</tbody></table>`:`<div class="k">${ok.length>1?tl('No holding appears in more than one of these top 10s.','Nessun titolo compare in più di una di queste prime 10.'):''}</div>`;
+      html=`<div class="efc-hgrid">${lists}</div>${F.length>1?`<div class="pl-cols" style="margin-top:10px"><div style="overflow:auto"><div class="yc-h">${tl('OVERLAP (TOP 10s)','SOVRAPPOSIZIONE (PRIME 10)')}</div>${ovT}</div><div style="overflow:auto"><div class="yc-h">${tl('HOLDINGS IN MORE THAN ONE TOP 10','TITOLI IN PIÙ DI UNA PRIMA 10')}</div>${shT}</div></div>`:''}
+        <div class="src-line">${chip(jeStat)}<span style="flex:1 1 320px;min-width:0">${src} ${read} · ${tl("Top 10 holdings as each fund's page lists them, matched by their ISIN (else by name). Overlap = the sum, over the holdings both funds list in their top 10, of the smaller weight — a floor of the real overlap, since the other holdings are not listed. DERIVED.","Prime 10 posizioni come le elenca la pagina di ogni fondo, abbinate per ISIN (altrimenti per nome). Sovrapposizione = la somma, sui titoli che entrambi i fondi elencano tra le prime 10, del peso minore — un minimo della sovrapposizione reale, perché gli altri titoli non sono elencati. DERIVED.")}</span></div>`;}
+    else{const key=st.v==='CTRY'?'countries':'sectors',lbl=st.v==='CTRY'?tl('COUNTRY','PAESE'):tl('SECTOR','SETTORE');
+      const isOther=n=>/^other$/i.test(n),names=new Map();
+      ok.forEach(f=>(f.ref[key]||[]).forEach(([n,v])=>{if(!isOther(n))names.set(n,Math.max(names.get(n)||0,v));}));
+      const order=[...names.keys()].sort((a,b)=>names.get(b)-names.get(a));
+      const val=(f,n)=>{const x=f.ref&&f.ref[key]?f.ref[key].find(y=>y[0]===n):null;return x?x[1]:null;};
+      const rest=f=>{if(!f.ref||!f.ref[key]||!f.ref[key].length)return null;const o=f.ref[key].find(y=>isOther(y[0]));if(o)return o[1];return Math.max(0,100-f.ref[key].reduce((a,y)=>a+y[1],0));};
+      const cell=v=>`<td class="num" style="${fin(v)?`background:color-mix(in srgb,var(--amber) ${Math.min(70,v*0.9).toFixed(0)}%,transparent)`:''}">${fin(v)?v.toFixed(2)+'%':'<span class="k">—</span>'}</td>`;
+      html=`<div style="overflow:auto"><table class="pf efc-p"><thead><tr><th class="l">${lbl}</th>${F.map(hd).join('')}</tr></thead><tbody>${order.map(n=>`<tr><td class="l"><b>${esc(n)}</b></td>${F.map(f=>f.ref?cell(val(f,n)):`<td class="l">${naCell(f)}</td>`).join('')}</tr>`).join('')}
+        <tr><td class="l k">${tl('Other / not listed','Altri / non elencati')}</td>${F.map(f=>f.ref?`<td class="num k">${fin(rest(f))?rest(f).toFixed(2)+'%':'—'}</td>`:'<td></td>').join('')}</tr></tbody></table></div>
+        <div class="src-line">${chip(jeStat)}<span style="flex:1 1 320px;min-width:0">${src} ${read} · ${st.v==='CTRY'?tl("The countries each fund's page lists (its largest ones): — means not among the ones listed for that fund, not zero.","I paesi che elenca la pagina di ogni fondo (i maggiori): — vuol dire non tra quelli elencati per quel fondo, non zero."):tl("The sectors each fund's page lists (its largest ones): — means not among the ones listed for that fund, not zero.","I settori che elenca la pagina di ogni fondo (i maggiori): — vuol dire non tra quelli elencati per quel fondo, non zero.")}</span></div>`;}
+    setProv(win,{'ds:efc-je':jeStat},'ETF compare: justETF reference data');
+    body.innerHTML=head+html;bind();}
+  // FACTORS: each fund's Fama/French loadings (5 factors + momentum) on its own months — the same regression as FACT
+  function efcFactors(body,win,head,bind,Q,F){const st=win.state;st.freg=['auto','dev','eu','us'].includes(st.freg)?st.freg:'auto';st.fy=st.fy==='10'?'10':'5';
+    const sel=`<div class="tfbar" style="margin:0 0 6px">${tb7('efcr',[['auto','AUTO'],['dev',FF_REG().dev],['eu',FF_REG().eu],['us',FF_REG().us]],st.freg)}<span class="w-sp"></span>${tb7('efcy',[['5','5Y'],['10','10Y']],st.fy)}</div>`;
+    const bind2=()=>{bind();$$('[data-efcr]',body).forEach(b=>b.onclick=()=>{st.freg=b.dataset.efcr;paintWin(win);});$$('[data-efcy]',body).forEach(b=>b.onclick=()=>{st.fy=b.dataset.efcy;paintWin(win);});};
+    const path=`/api/factors?ids=${encodeURIComponent(F.map(f=>f.id).join(','))}&region=${st.freg}&years=${st.fy}`,G=get7(path,6*3600000,['EFC']);win._load=()=>get7(path,6*3600000,['EFC']);
+    if(!G.data){setProv(win,{'ds:fact':G.err?S.NA:S.LOADING});body.innerHTML=head+sel+(G.err?naB(tl('factor data unavailable','dati dei fattori non disponibili'),G.err):`<div class="empty">${tl("Reading the Fama/French factors and CNBC's month-end closes…","Lettura dei fattori Fama/French e delle chiusure di fine mese di CNBC…")}</div>`);bind2();return;}
+    const D=G.data;if(D.error||!D.factors){setProv(win,{'ds:fact':S.NA});body.innerHTML=head+sel+naB(tl('factor data unavailable','dati dei fattori non disponibili'),D.error||'no_data');bind2();return;}
+    const FR=new Map(D.factors.rows.map(r=>[r[0],r])),names=Q.FACTOR_MODELS.ff6,L=FF_LBL(),fOk=m=>{const r=FR.get(m);return r&&r.slice(1).every(v=>fin(v));};
+    const col=k=>D.factors.cols.indexOf(k)+1,byId=new Map(D.items.map(x=>[String(x.id).toUpperCase(),x]));
+    const fits=F.map(f=>{const it=byId.get(String(f.id).toUpperCase());if(!it||it.error||!it.months)return{f,it,err:(it&&it.error)||'no_data'};
+      const months=[],y=[];it.months.forEach((m,i)=>{if(fOk(m)&&fin(it.r[i])){months.push(m);y.push(it.r[i]-FR.get(m)[col('rf')]);}});
+      if(months.length<FF_MIN)return{f,it,err:null,short:months.length};
+      const Fx={};names.forEach(k=>{Fx[k]=months.map(m=>FR.get(m)[col(k)]);});
+      const M=qnCached(win,['efcf',path,G.at,f.id,months.length].join('|'),()=>Q.factorFit(y,Fx,names));return M?{f,it,M,months}:{f,it,err:'no_data'};});
+    const sig=t=>fin(t)&&Math.abs(t)>=2;
+    const bc=b=>!b||!fin(b.b)?'—':`<span style="${sig(b.t)?'font-weight:700':'opacity:.75'}">${b.b>=0?'+':''}${b.b.toFixed(2)}</span> <span class="k">t ${fin(b.t)?b.t.toFixed(1):'—'}</span>`;
+    const cellOf=(x,fn)=>x.M?`<td class="num">${fn(x.M)}</td>`:`<td class="l k">${x.err?'N/A — '+esc(P.errorText(x.err)):x.short!=null?`${tl('history too short','storico troppo breve')}: ${x.short} ${tl('months','mesi')} (${FF_MIN})`:'—'}</td>`;
+    const hd=f=>`<th class="efc-fh" style="border-top:2px solid ${f.col}" title="${esc(f.name)}"><span>${esc(f.name)}</span><div class="k">${esc(f.isin||'U.S. · '+f.id)}</div></th>`;
+    const rows=names.map(k=>`<tr><td class="l"><b>${L[k][0]}</b> <span class="k">${L[k][1]}</span></td>${fits.map(x=>cellOf(x,M=>bc(M.betas[k]))).join('')}</tr>`).join('')
+      +`<tr><td class="l"><b>ALPHA</b> <span class="k">${tl('a year','annuo')}</span></td>${fits.map(x=>cellOf(x,M=>`<span style="${sig(M.alphaT)?'font-weight:700':'opacity:.75'}">${M.alphaAnn>=0?'+':''}${(M.alphaAnn*100).toFixed(2)}%</span> <span class="k">t ${fin(M.alphaT)?M.alphaT.toFixed(1):'—'}</span>`)).join('')}</tr>`
+      +`<tr><td class="l"><b>R²</b> <span class="k">${tl('explained','spiegato')}</span></td>${fits.map(x=>cellOf(x,M=>`${(M.r2*100).toFixed(0)}%`)).join('')}</tr>`
+      +`<tr><td class="l k">${tl('MONTHS','MESI')}</td>${fits.map(x=>cellOf(x,M=>`${M.n} <span class="k">${fmtMon(x.months[0])} – ${fmtMon(x.months[x.months.length-1])}</span>`)).join('')}</tr>`
+      +`<tr><td class="l k">${tl('LISTING','QUOTAZIONE')}</td>${fits.map(x=>`<td class="l k">${x.it&&x.it.cnbc?esc([x.it.ticker||x.it.cnbc,x.it.venue,x.it.ccy].filter(Boolean).join(' · '))+(x.it.conv?' → USD':''):'—'}</td>`).join('')}</tr>`;
+    const regName=FF_REG()[D.region]||D.regionName,lib=`<a href="${esc(D.factors.sourceUrl)}" target="_blank" rel="noopener">${esc(D.factors.source)}</a>`;
+    setProv(win,{'ds:fact-ff':D.factors.status==='STALE'?S.STALE:S.LIVE,'ds:qnt':S.DERIVED},'ETF compare: Fama/French factors');
+    body.innerHTML=head+sel+`<div style="overflow:auto"><table class="pf efc-p"><thead><tr><th class="l">${tl('FACTOR','FATTORE')}</th>${F.map(hd).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="src-line"><span>${tl(`Loadings on the ${esc(regName)} factors (${D.auto?"chosen from the funds' focus — ":''}${lib}, to ${fmtMon(D.factors.asOf)}), each fund on its own months (at least ${FF_MIN}), monthly returns in USD from CNBC month-end closes; bold = |t| ≥ 2. How to read them: MARKET ≈ 1 moves with the market; SIZE > 0 tilts to small companies, < 0 to large; VALUE > 0 cheap companies, < 0 growth; PROFITABILITY > 0 profitable firms; INVESTMENT > 0 firms that invest conservatively; MOMENTUM > 0 recent winners. A bond fund: equity factors explain little (see R²). DERIVED.`,`Esposizioni ai fattori ${esc(regName)} (${D.auto?'scelti dal focus dei fondi — ':''}${lib}, fino a ${fmtMon(D.factors.asOf)}), ogni fondo sui suoi mesi (almeno ${FF_MIN}), rendimenti mensili in USD dalle chiusure di fine mese di CNBC; grassetto = |t| ≥ 2. Come leggerli: MERCATO ≈ 1 si muove con il mercato; DIMENSIONE > 0 tende alle piccole società, < 0 alle grandi; VALUE > 0 società a buon mercato, < 0 crescita; REDDITIVITÀ > 0 aziende redditizie; INVESTIMENTI > 0 aziende che investono con prudenza; MOMENTUM > 0 i titoli saliti di recente. Un fondo obbligazionario: i fattori azionari spiegano poco (vedi R²). DERIVED.`)}</span></div>`;
+    bind2();}
+  function renderEfc(body,win){const st=win.state;st.ids=st.ids||[];st.ccy=st.ccy||'EUR';st.per=EFC_P().some(([k])=>k===st.per)?st.per:'max';st.v=EFC_V().some(([k])=>k===st.v)?st.v:'PERF';const X=efData(),Q=window.QUANT;
     if(st.pending&&st.pending.length){const keep=[],bad=[];for(const t of st.pending){const r=efResolve(t);if(r&&(r.isin||r.us)){const v=r.isin||r.us;if(!st.ids.includes(v))st.ids=st.ids.concat(v).slice(-8);}else if(!X&&!ISIN_RE.test(t))keep.push(t);else bad.push(t);}
       st.pending=keep;if(bad.length)st.msg=tl(`Not an ETF in the Xetra or U.S. lists: ${bad.join(', ')} — type the ISIN.`,`Non è un ETF delle liste Xetra o USA: ${bad.join(', ')} — scrivi l'ISIN.`);}
     if(st.pending&&st.pending.length)efUni();
-    const head=`<div class="wl-add efc-head"><input class="sr-in efc-in" name="efcin" placeholder="${tl('add: ISIN or ticker (up to 8)','aggiungi: ISIN o ticker (fino a 8)')}" maxlength="20" autocomplete="off" spellcheck="false"><button class="wl-btn efc-add">${tl('ADD','AGGIUNGI')}</button><span class="grp" style="margin-left:8px">${tb7('efcc',UC_CCY.map(x=>[x,x]),st.ccy)}</span><span class="grp" style="margin-left:8px">${tb7('efcp',EFC_P(),st.per)}</span></div>`;
-    const bind=()=>{const i=body.querySelector('.efc-in'),add=()=>{const v=i.value.trim();if(v)efAddCompare(v);};body.querySelector('.efc-add').onclick=add;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add();}};$$('[data-efcc]',body).forEach(b=>b.onclick=()=>{st.ccy=b.dataset.efcc;paintWin(win);});$$('[data-efcp]',body).forEach(b=>b.onclick=()=>{st.per=b.dataset.efcp;paintWin(win);});$$('[data-efcx]',body).forEach(b=>b.onclick=()=>{st.ids=st.ids.filter(x=>x!==b.dataset.efcx);paintWin(win);});$$('[data-eflab]',body).forEach(b=>b.onclick=()=>plabAdd(b.dataset.eflab));};
+    const head=`<div class="wl-add efc-head"><input class="sr-in efc-in" name="efcin" placeholder="${tl('add: ISIN or ticker (up to 8)','aggiungi: ISIN o ticker (fino a 8)')}" maxlength="20" autocomplete="off" spellcheck="false"><button class="wl-btn efc-add">${tl('ADD','AGGIUNGI')}</button>${st.v==='PERF'?`<span class="grp" style="margin-left:8px">${tb7('efcc',UC_CCY.map(x=>[x,x]),st.ccy)}</span><span class="grp" style="margin-left:8px">${tb7('efcp',EFC_P(),st.per)}</span>`:''}</div>${st.ids.length?`<div class="tfbar efc-v" style="margin:2px 0 8px">${tb7('efcv',EFC_V(),st.v)}</div>`:''}`;
+    const bind=()=>{$$('[data-efcv]',body).forEach(b=>b.onclick=()=>{st.v=b.dataset.efcv;paintWin(win);});const i=body.querySelector('.efc-in'),add=()=>{const v=i.value.trim();if(v)efAddCompare(v);};body.querySelector('.efc-add').onclick=add;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add();}};$$('[data-efcc]',body).forEach(b=>b.onclick=()=>{st.ccy=b.dataset.efcc;paintWin(win);});$$('[data-efcp]',body).forEach(b=>b.onclick=()=>{st.per=b.dataset.efcp;paintWin(win);});$$('[data-efcx]',body).forEach(b=>b.onclick=()=>{st.ids=st.ids.filter(x=>x!==b.dataset.efcx);paintWin(win);});$$('[data-eflab]',body).forEach(b=>b.onclick=()=>plabAdd(b.dataset.eflab));};
     const msgB=st.msg?`<div class="wl-msg">${esc(st.msg)}</div>`:'';
     if(!st.ids.length){setProv(win,{});body.innerHTML=head+msgB+(st.pending&&st.pending.length?`<div class="empty">${tl('Loading the ETF lists…','Caricamento delle liste ETF…')}</div>`:'')+`<div class="empty">${tl('Add up to eight ETFs (ISIN, Xetra / Milan ticker, U.S. symbol), or +CMP from the screener or a profile.','Aggiungi fino a otto ETF (ISIN, ticker Xetra / Milano, simbolo USA), o +CMP dallo screener o da una scheda.')}</div>`;bind();return;}
     if(!Q){body.innerHTML=head+naB(tl('the quant formulas (qmath.js) did not load','le formule quant (qmath.js) non si sono caricate'),'network');bind();return;}
+    if(st.v!=='PERF'){efcDeep(body,win,head+msgB,bind,Q,X);return;}
     const path=id=>`/api/plab/series?id=${encodeURIComponent(id)}&ccy=${st.ccy}`,E=st.ids.map(id=>({id,G:get7(path(id),6*3600000,['EFC'])}));win._load=()=>st.ids.forEach(id=>get7(path(id),6*3600000,['EFC']));
     if(E.some(x=>!x.G.data&&!x.G.err)){setProv(win,{'ds:efc':S.LOADING});body.innerHTML=head+msgB+`<div class="empty">${tl('Loading up to 15 years of daily bars (CNBC)…','Caricamento fino a 15 anni di barre giornaliere (CNBC)…')}</div>`;bind();return;}
     const okF=E.filter(x=>x.G.data&&!x.G.data.error&&x.G.data.d),badF=E.filter(x=>!(x.G.data&&!x.G.data.error&&x.G.data.d));

@@ -20,7 +20,7 @@ export const XETRA_URL = "https://www.cashmarket.deutsche-boerse.com/resource/bl
 export const XETRA_PAGE = "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/Tradable-Instruments-Xetra/";
 export const TD_ETFS_URL = "https://api.twelvedata.com/etfs?country=United%20States";
 // the parser's version: records read by an earlier one are read again (prio2: every priority fund re-read once)
-const PARSER_V = 2;
+const PARSER_V = 3; // 3 (23 Oct 2026): index, approach, sustainability, payout frequency, the top 10 with their ISINs
 const K = { uni: "etf/universe", isins: "etf/isins", us: "etf/us", table: "ref/je/table", prio: "ref/je/prio2", detail: (i) => `ref/je/${i}` };
 const DAY = 86400_000, YEAR = 31_557_600_000, SLOT = 900_000, REFRESH = 7 * DAY, BACKOFF = 6 * 3600_000, KEEP = 45 * 86400;
 const put = (env, k, v) => env.BRIEFS.put(k, typeof v === "string" ? v : JSON.stringify(v), { expirationTtl: KEEP });
@@ -112,6 +112,21 @@ function weightsAfter(html, label, max = 12, span = 3000) {
   }
   return [];
 }
+// the page's own cells by their data-testid (checked 23 Oct 2026 on an equity and a bond fund): a basics value, and the
+// rows of the top 10 (each holding's ISIN in its link, its full name in the title), the countries and the sectors
+export function cellOf(html, id) {
+  const m = new RegExp(`data-testid="${id}"[^>]*>([\\s\\S]{0,400}?)</(?:td|div|span|a)>`).exec(String(html || ""));
+  const t = m ? clean(m[1]) : ""; return t && t !== "-" ? t : null;
+}
+export function rowsOf(html, nameId, pctId, max = 12) {
+  const out = [], re = new RegExp(`data-testid="${nameId}"([^>]*)>([\\s\\S]{0,400}?)</(?:td|a)>[\\s\\S]{0,700}?data-testid="${pctId}"[^>]*>\\s*(\\d{1,3}(?:\\.\\d{1,2})?)%`, "g");
+  let m;
+  while ((m = re.exec(String(html || ""))) && out.length < max) {
+    const attrs = m[1], isin = (/stock-profiles\/([A-Z]{2}[A-Z0-9]{9}\d)/.exec(attrs) || [])[1] || null, title = (/title="([^"]{1,160})"/.exec(attrs) || [])[1];
+    const name = clean(title || m[2]); if (name) out.push(isin ? [name, Number(m[3]), isin] : [name, Number(m[3])]);
+  }
+  return out;
+}
 export function parseJustEtfFull(html) {
   const base = parseJustEtf(html); if (!base) return null;
   const title = (/<title>([^<]*)<\/title>/.exec(html) || [])[1], name = title ? clean(title).split(" | ")[0].trim() : null;
@@ -121,10 +136,15 @@ export function parseJustEtfFull(html) {
   const focusT = upToLabel(textAfter(html, "Investment focus", 260) || ""), focus = /^[A-Z][^%]{2,79}$/.test(focusT) ? [null, focusT] : null;
   const top = textAfter(html, "Top 10 Holdings", 9000), topW = /Weight of top 10 holdings out of ([\d,]+) (\d{1,3}\.\d{1,2})%/.exec(top || "");
   const cut = (t) => (t ? t.split(/ (?:Sectors|Countries|Show more|Hide|Source: justETF)\b/)[0] : t);
-  const holdings = top ? weightPairs(cut(top.replace(/^Weight of top 10 holdings out of [\d,]+ \d{1,3}\.\d{1,2}%/, "")), 10) : [];
+  // the rows by their data-testid first (exact names, a bond's coupon kept, each holding's ISIN); else the page's text
+  const holdT = rowsOf(html, "tl_etf-holdings_top-holdings_link_name", "tl_etf-holdings_top-holdings_value_percentage", 10);
+  const holdings = holdT.length ? holdT : top ? weightPairs(cut(top.replace(/^Weight of top 10 holdings out of [\d,]+ \d{1,3}\.\d{1,2}%/, "")), 10) : [];
   // the page lists the largest countries / sectors (the rest behind "Show more", loaded by the page's script — not read)
-  const countries = weightsAfter(html, "Countries"), sectors = weightsAfter(html, "Sectors");
+  const cT = rowsOf(html, "tl_etf-holdings_countries_value_name", "tl_etf-holdings_countries_value_percentage"), sT = rowsOf(html, "tl_etf-holdings_sectors_value_name", "tl_etf-holdings_sectors_value_percentage");
+  const countries = cT.length ? cT : weightsAfter(html, "Countries"), sectors = sT.length ? sT : weightsAfter(html, "Sectors");
+  const index = cellOf(html, "tl_etf-basics_value_index-name"), approach = cellOf(html, "tl_etf-basics_value_strategy-risk"), sust = cellOf(html, "tl_etf-basics_value_sustainable"), every = cellOf(html, "tl_etf-basics_value_distribution-interval");
   return { ...base, name: name || null, provider: prov ? prov[1] : null, focus: focus ? focus[1] : null,
+    index: index && index.length <= 120 ? index : null, approach: approach && approach.length <= 40 ? approach : null, sustainable: sust === "Yes" ? true : sust === "No" ? false : null, payouts: every && every.length <= 30 ? every : null,
     top10: holdings.length ? holdings : null, top10Weight: topW ? Number(topW[2]) : null, holdingsTotal: topW ? Number(topW[1].replace(/,/g, "")) : base.holdings,
     countries: countries.length ? countries : null, sectors: sectors.length ? sectors : null };
 }
