@@ -36,7 +36,16 @@ icon(180, 1.0, "icon-180.png")      # apple-touch-icon (iOS rounds the corners i
 icon(192, 1.0, "icon-192.png")
 icon(512, 1.0, "icon-512.png")
 icon(512, 0.74, "icon-maskable-512.png")  # inside the 80% safe zone
-icon(32, 1.0, "icon-32.png")
+# the browser tab's icon (22 Oct 2026, the look of Nico's): an amber ">" on black, as the SVG in the pages' <link rel="icon">
+def tab_icon(px, name):
+    S = 8  # drawn 8x larger, then reduced: smooth edges
+    im = Image.new("RGB", (px * S, px * S), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    k = px * S / 64  # the SVG's 64-unit grid: M10 22 L38 35 L10 48, stroke 6
+    d.line([(10 * k, 22 * k), (38 * k, 35 * k), (10 * k, 48 * k)], fill=AMBER, width=round(6 * k), joint="curve")
+    im.resize((px, px), Image.LANCZOS).save(f"{OUT}/{name}", optimize=True)
+
+tab_icon(32, "icon-32.png")
 
 # iOS launch images (portrait): CSS size, pixel ratio
 LAUNCH = [(440, 956, 3), (402, 874, 3), (420, 912, 3), (393, 852, 3), (430, 932, 3), (390, 844, 3), (375, 812, 3), (414, 896, 3), (414, 896, 2), (375, 667, 2)]
