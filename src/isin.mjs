@@ -44,6 +44,16 @@ export function figiListings(rows) {
   }
   return out;
 }
+// the raw OpenFIGI rows of an ISIN (every row: ticker, exchCode, name, securityType, marketSector …) — for bonds (YAS)
+export async function openFigiRows(isin, env) {
+  const headers = { "content-type": "application/json", accept: "application/json" };
+  if (env.OPENFIGI_KEY) headers["x-openfigi-apikey"] = env.OPENFIGI_KEY; // only in this header
+  const f = await fetchText("https://api.openfigi.com/v3/mapping", { timeoutMs: 10000, headers, method: "POST", body: JSON.stringify([{ idType: "ID_ISIN", idValue: isin }]) });
+  if (f.err) return { err: f.http === 429 ? "rate_limited" : f.http === 401 ? "provider_auth" : f.err };
+  let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+  const res = Array.isArray(j) ? j[0] : null; if (!res) return { err: "provider_error" };
+  return { data: Array.isArray(res.data) ? res.data : [], note: res.warning || res.error || null };
+}
 export async function openFigi(isin, env) {
   const headers = { "content-type": "application/json", accept: "application/json" };
   if (env.OPENFIGI_KEY) headers["x-openfigi-apikey"] = env.OPENFIGI_KEY; // the key goes only in this header, never in a URL or a response

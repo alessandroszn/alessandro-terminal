@@ -141,6 +141,21 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   drawdown with dates, Calmar, worst month, months up, calendar years, correlations, rebased and drawdown charts. +LAB in
   the screener, the profile and the compare adds a fund to the lab portfolio being built. An ISIN on neither list (a fund
   listed off Xetra) is found through the ISIN search (OpenFIGI / Twelve Data → CNBC) in PLAB, EFC and FACT.
+- `WIF` — what if I had bought… (menu MY STUFF): purchases of stocks, ETFs, bond ETFs — once or every month (same day,
+  from / until), amount and fee in EUR — on real history: each bought at the close of the first day the instrument traded
+  on or after the date (none within 7 days → not bought, shown), valued daily at each one's last close (CNBC, EUR via
+  `/api/plab/series`). Per row: buys, money put in, value today, gain, money-weighted return, units, average price; total,
+  IRR, the same money on the same dates in a benchmark, time-weighted max drawdown and volatility, where the gain came from,
+  chart. Saved on the server (`/api/user/wif`, ≤ 20).
+- `YAS IT0005…` — bond yield calculator (menu RATES & MACRO): coupon and maturity parsed from OpenFIGI's Bloomberg-style
+  ticker (`/api/bond/ref`, "BTPS 4.4 05/01/33"; floating-rate → not applicable) or typed; frequency by issuer country
+  (IT / US half-yearly, euro area annual); the clean price typed (no bond price source connected). Yield to maturity
+  (compounded at the coupon frequency) and effective, net of 12.5 % / 26 % tax (coupons and a gain at maturity — a
+  simplification), current yield, accrued ACT/ACT (ICMA) or 30E/360, dirty price, Macaulay / modified duration, convexity,
+  DV01, cash flows on the nominal (gross, net, present value), price if yields move ±50 / 100 / 200 bp.
+- PLAB PROJECTION, "with your assumptions": per holding a return (compound, a year) and volatility — the past on the
+  common window as the starting values — correlations from the holdings' past monthly returns; monthly log-normal draws
+  (Cholesky), rebalanced monthly; labelled a model, not data.
 - `PLAB` — portfolio lab (menu MY STUFF): portfolios with target weights (ETFs by Xetra / Milan / UCITS ticker or ISIN,
   stocks, C:codes, SYMBOL:MIC, CASH at 0 %; or imported from PORTFOLIO at today's market values), up to 20 saved on the
   server (`/api/user/plab`, 1–15 holdings, weights adding up to 100). Each instrument's CNBC daily closes in EUR, up to 15
@@ -363,6 +378,7 @@ node test/sw.test.mjs           # the iPhone app's service worker: interface onl
 node test/quant.test.mjs        # quant formulas against closed forms and known processes
 node test/isin.test.mjs         # ISIN: check digit, exchange codes, OpenFIGI listings matched to Twelve Data
 node test/etfperf.test.mjs      # screener returns / risk: 1Y–5Y, volatility, drawdown, the cron's batch, routes
+node test/whatif.test.mjs       # WIF purchases, YAS bond math and OpenFIGI terms, projection with assumptions, saved what-ifs
 node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, CHF, CNBC's U.S. fallback), backtest / IRR / stats / risk / stress / projection
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve

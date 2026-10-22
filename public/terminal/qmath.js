@@ -325,13 +325,92 @@
     return { months, cps, bands, put, median: quantileSorted(sf, 0.5), p5: quantileSorted(sf, 0.05), p95: quantileSorted(sf, 0.95), mean: mean(Array.from(fin)),
       pTarget: target > 0 ? fin.filter((v) => v >= target).length / paths : NaN, pBelowPut: fin.filter((v) => v < put).length / paths, paths, run, block, n }; }
 
+  // ---------- WHAT IF: purchases on real history (one-off or monthly), valued every day at real closes ----------
+  const ymdAdd = (d, months) => { const [y, m, dd] = d.split("-").map(Number), t = y * 12 + (m - 1) + months, Y = Math.floor(t / 12), M = (t % 12) + 1, last = new Date(Date.UTC(Y, M, 0)).getUTCDate(); return `${Y}-${String(M).padStart(2, "0")}-${String(Math.min(dd, last)).padStart(2, "0")}`; };
+  // the dates of a plan: one date, or the same day each month from `from` to `to`
+  function planDates(kind, from, to) { if (kind !== "monthly") return [from]; const out = []; for (let k = 0; k < 600; k++) { const d = ymdAdd(from, k); if (d > to) break; out.push(d); } return out; }
+  const firstOnOrAfter = (s, date) => { let lo = 0, hi = s.d.length - 1, k = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (s.d[m] >= date) { k = m; hi = m - 1; } else lo = m + 1; } return k; };
+  // items: [{ s: { d, v }, flows: [{ date, amount, fee }] }] — each flow bought at the close of the first day the instrument
+  // traded on or after its date (none within 7 days: not bought, listed); every day valued at each one's last close on or
+  // before it. bench: the same money on the same dates into one series. → per item, the total, the daily value and index.
+  function whatIf({ items, bench = null }) {
+    const ex = items.map((it) => { const done = [], miss = [];
+      for (const f of it.flows) { const k = firstOnOrAfter(it.s, f.date); if (k < 0 || Date.parse(it.s.d[k]) - Date.parse(f.date) > 7 * DAY_MS || !(f.amount > (f.fee || 0))) { miss.push(f); continue; } done.push({ k, d: it.s.d[k], amount: f.amount, fee: f.fee || 0, units: (f.amount - (f.fee || 0)) / it.s.v[k], px: it.s.v[k] }); }
+      return { done, miss }; });
+    const all = ex.flatMap((e) => e.done.map((x) => x.d)); if (!all.length) return null;
+    const d0 = all.reduce((a, b) => (a < b ? a : b)), set = new Set(); items.forEach((it) => it.s.d.forEach((d) => { if (d >= d0) set.add(d); })); const dates = [...set].sort();
+    const n = dates.length, value = new Float64Array(n), invested = new Float64Array(n), flow = new Float64Array(n), idx = new Float64Array(n), ptr = items.map(() => -1), units = items.map(() => 0), qi = items.map(() => 0), byDate = new Map();
+    ex.forEach((e, i) => e.done.forEach((x) => { const a = byDate.get(x.d) || []; a.push([i, x]); byDate.set(x.d, a); }));
+    let put = 0;
+    for (let t = 0; t < n; t++) { const d = dates[t];
+      for (const [i, x] of byDate.get(d) || []) { units[i] += x.units; put += x.amount; flow[t] += x.amount; }
+      let v = 0; items.forEach((it, i) => { while (ptr[i] + 1 < it.s.d.length && it.s.d[ptr[i] + 1] <= d) ptr[i]++; if (units[i] && ptr[i] >= 0) v += units[i] * it.s.v[ptr[i]]; });
+      value[t] = v; invested[t] = put; idx[t] = t === 0 || !(value[t - 1] > 0) ? 1 : idx[t - 1] * ((v - flow[t]) / value[t - 1]); }
+    const end = dates[n - 1], tEnd = Date.parse(end + "T12:00:00Z") + 1;
+    const rows = items.map((it, i) => { const e = ex[i], last = it.s.d.length - 1, px = it.s.v[last], u = e.done.reduce((a, x) => a + x.units, 0), inv = e.done.reduce((a, x) => a + x.amount, 0), fees = e.done.reduce((a, x) => a + x.fee, 0), val = u * px;
+      const fl = e.done.map((x) => ({ t: Date.parse(x.d + "T12:00:00Z"), a: -x.amount })).concat(u ? [{ t: tEnd, a: val }] : []);
+      return { units: u, invested: inv, fees, value: val, gain: val - inv, gainPct: inv > 0 ? val / inv - 1 : NaN, irr: fl.length > 1 ? xirr(fl) : NaN, price: px, priceDate: it.s.d[last], avgPx: u > 0 ? (inv - fees) / u : NaN, buys: e.done.length, first: e.done.length ? e.done[0].d : null, missed: e.miss }; });
+    const tot = { invested: put, value: value[n - 1], gain: value[n - 1] - put, irr: xirr(ex.flatMap((e) => e.done.map((x) => ({ t: Date.parse(x.d + "T12:00:00Z"), a: -x.amount }))).sort((a, b) => a.t - b.t).concat([{ t: tEnd, a: value[n - 1] }])) };
+    let B = null;
+    if (bench) { const bu = []; let bput = 0; const bflows = [];
+      ex.forEach((e) => e.done.forEach((x) => { const k = firstOnOrAfter(bench, x.d); if (k >= 0 && Date.parse(bench.d[k]) - Date.parse(x.d) <= 7 * DAY_MS) { bu.push([bench.d[k], (x.amount - x.fee) / bench.v[k], x.amount]); bflows.push({ t: Date.parse(bench.d[k] + "T12:00:00Z"), a: -x.amount }); } }));
+      bu.sort((a, b) => (a[0] < b[0] ? -1 : 1)); const bv = new Float64Array(n); let j = -1, k2 = 0, u = 0;
+      for (let t = 0; t < n; t++) { while (k2 < bu.length && bu[k2][0] <= dates[t]) { u += bu[k2][1]; bput += bu[k2][2]; k2++; } while (j + 1 < bench.d.length && bench.d[j + 1] <= dates[t]) j++; bv[t] = j >= 0 ? u * bench.v[j] : 0; }
+      B = { value: Array.from(bv), final: bv[n - 1], put: bput, irr: xirr(bflows.sort((a, b) => a.t - b.t).concat([{ t: tEnd, a: bv[n - 1] }])), bought: bflows.length }; }
+    return { dates, value: Array.from(value), invested: Array.from(invested), idx: Array.from(idx), rows, total: tot, bench: B, from: dates[0], to: end }; }
+  // ---------- YAS: a fixed-coupon bond — accrued interest, yield to maturity, durations, convexity, cash flows ----------
+  const dayN = (d) => Date.parse(d + "T12:00:00Z") / DAY_MS;
+  const d30e = (a, b) => { const [y1, m1, x1] = a.split("-").map(Number), [y2, m2, x2] = b.split("-").map(Number); return 360 * (y2 - y1) + 30 * (m2 - m1) + (Math.min(x2, 30) - Math.min(x1, 30)); };
+  // coupon dates counted back from maturity every 12/freq months: the last one on or before settlement, the ones after it
+  function bondSchedule(maturity, freq, settle) { const step = 12 / freq, after = []; let k = 0, d = maturity;
+    while (d > settle && k < 2000) { after.unshift(d); k++; d = ymdAdd(maturity, -k * step); } return { prev: d, next: after[0], dates: after }; }
+  // coupon in % a year, clean price per 100; ACT/ACT (ICMA) or 30E/360 for the accrued interest; yield compounded `freq`
+  // times a year (the market convention for BTP semi-annual, Bund / OAT annual); tax: on coupons and on a gain at maturity
+  function bondCalc({ coupon, freq = 1, maturity, settle, clean, redemption = 100, basis = "ACT", tax = 0 }) {
+    if (!(freq > 0) || !maturity || !settle || !(maturity > settle) || !(clean > 0)) return null;
+    const S = bondSchedule(maturity, freq, settle), c = coupon / freq, frac = basis === "30E" ? d30e(S.prev, settle) / (360 / freq) : (dayN(settle) - dayN(S.prev)) / (dayN(S.next) - dayN(S.prev));
+    const accrued = c * frac, dirty = clean + accrued, w = 1 - frac, n = S.dates.length;
+    const cfs = S.dates.map((d, i) => ({ d, t: w + i, cf: c + (i === n - 1 ? redemption : 0) }));
+    const pv = (y, list = cfs) => list.reduce((a, x) => a + x.cf / Math.pow(1 + y / freq, x.t), 0);
+    const solve = (target, list) => { let lo = -0.9 * freq, hi = 5; if ((pv(lo, list) - target) * (pv(hi, list) - target) > 0) return NaN; for (let i = 0; i < 300; i++) { const m = (lo + hi) / 2, f = pv(m, list) - target; if (Math.abs(f) < 1e-11) return m; if (f > 0) lo = m; else hi = m; } return (lo + hi) / 2; };
+    const y = solve(dirty, cfs); if (!fin(y)) return null;
+    const v = 1 + y / freq, PV = cfs.map((x) => x.cf / Math.pow(v, x.t)), P = PV.reduce((a, b) => a + b, 0);
+    const mac = cfs.reduce((a, x, i) => a + (x.t / freq) * PV[i], 0) / P, mod = mac / v, conv = cfs.reduce((a, x, i) => a + x.t * (x.t + 1) * PV[i], 0) / (P * v * v * freq * freq);
+    const dv01 = (pv(y - 0.0001) - pv(y + 0.0001)) / 2;
+    const net = cfs.map((x, i) => ({ ...x, cf: c * (1 - tax) + (i === n - 1 ? redemption - tax * Math.max(0, redemption - clean) : 0) })), yNet = tax > 0 ? solve(dirty, net) : y;
+    const shocks = [-200, -100, -50, 50, 100, 200].map((bp) => { const p2 = pv(y + bp / 10000); return { bp, dirty: p2, clean: p2 - accrued, chg: p2 / dirty - 1 }; });
+    const years = (dayN(maturity) - dayN(settle)) / 365.25;
+    return { ytm: y, effective: Math.pow(v, freq) - 1, current: coupon / clean, accrued, dirty, clean, prev: S.prev, next: S.next, flows: cfs.map((x, i) => ({ d: x.d, coupon: c, principal: i === n - 1 ? redemption : 0, pv: PV[i], net: net[i].cf })), macaulay: mac, modified: mod, convexity: conv, dv01, ytmNet: yNet, effectiveNet: fin(yNet) ? Math.pow(1 + yNet / freq, freq) - 1 : NaN, shocks, years, n, frac };
+  }
+  // the price for a yield (to go back the other way)
+  function bondPrice({ coupon, freq = 1, maturity, settle, ytm, redemption = 100, basis = "ACT" }) { if (!(maturity > settle)) return null; const S = bondSchedule(maturity, freq, settle), c = coupon / freq, frac = basis === "30E" ? d30e(S.prev, settle) / (360 / freq) : (dayN(settle) - dayN(S.prev)) / (dayN(S.next) - dayN(S.prev)), w = 1 - frac;
+    const dirty = S.dates.reduce((a, d, i) => a + (c + (i === S.dates.length - 1 ? redemption : 0)) / Math.pow(1 + ytm / freq, w + i), 0); return { dirty, accrued: c * frac, clean: dirty - c * frac }; }
+  // ---------- projection with the owner's assumptions: expected return (compound, a year) and volatility per holding,
+  //            correlations from the past; monthly log-normal draws, rebalanced to the weights each month ----------
+  function cholesky(A) { const n = A.length, L = A.map(() => new Array(n).fill(0)); for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) { let s = A[i][j]; for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k]; if (i === j) { if (!(s > 0)) return null; L[i][i] = Math.sqrt(s); } else L[i][j] = s / L[j][j]; } return L; }
+  function projectAssumed({ mu, vol, corr, weights, months, start, monthly = 0, paths = 5000, run = 1, target = 0 }) {
+    const k = mu.length; if (!k || !(months > 0) || !(start >= 0) || (!(start > 0) && !(monthly > 0))) return null;
+    const m = mu.map((x) => Math.log(1 + x) / 12), s = vol.map((x) => Math.max(0, x) / Math.sqrt(12)), rnd = s.map((x, i) => (x > 0 ? i : -1)).filter((i) => i >= 0);
+    const C = rnd.map((i) => rnd.map((j) => s[i] * s[j] * (i === j ? 1 : fin(corr && corr[i] && corr[i][j]) ? corr[i][j] : 0)));
+    let L = cholesky(C); if (!L && C.length) L = cholesky(C.map((r, i) => r.map((v, j) => (i === j ? v : v * 0.98)))); if (!L && C.length) L = C.map((r, i) => r.map((v, j) => (i === j ? Math.sqrt(v) : 0)));
+    const rng = mulberry32(run * 7919 + 29), gauss = () => { let u = 0; while (u === 0) u = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng()); };
+    const step = months <= 240 ? 1 : 3, cps = []; for (let q = step; q <= months; q += step) cps.push(q); if (cps[cps.length - 1] !== months) cps.push(months);
+    const at = cps.map(() => new Float32Array(paths)), fin2 = new Float64Array(paths), z = new Array(rnd.length);
+    for (let p = 0; p < paths; p++) { let v = start, c2 = 0;
+      for (let q = 1; q <= months; q++) { for (let a = 0; a < rnd.length; a++) z[a] = gauss(); let r = 0;
+        for (let i = 0; i < k; i++) { let x = m[i]; const a = rnd.indexOf(i); if (a >= 0) for (let b = 0; b <= a; b++) x += L[a][b] * z[b]; r += weights[i] * (Math.exp(x) - 1); }
+        v = v * (1 + r) + monthly; if (q === cps[c2]) { at[c2][p] = v; c2++; } }
+      fin2[p] = v; }
+    const P = [0.05, 0.25, 0.5, 0.75, 0.95], bands = at.map((a) => { const so = Float64Array.from(a).sort(); return P.map((x) => quantileSorted(so, x)); }), sf = Float64Array.from(fin2).sort(), put = start + monthly * months;
+    return { months, cps, bands, put, median: quantileSorted(sf, 0.5), p5: quantileSorted(sf, 0.05), p95: quantileSorted(sf, 0.95), mean: mean(Array.from(fin2)), pTarget: target > 0 ? fin2.filter((x) => x >= target).length / paths : NaN, pBelowPut: fin2.filter((x) => x < put).length / paths, paths, run, assumed: true }; }
+
   // align several date-ordered closes on the dates they all have → { dates, closes: [[...], ...] }
   function align(series) { const maps = series.map((s) => new Map(s.map((p) => [String(p.t).slice(0, 10), p.c]))); const dates = [...maps[0].keys()].filter((d) => maps.every((m) => m.get(d) > 0)).sort();
     return { dates, closes: maps.map((m) => dates.map((d) => m.get(d))) }; }
 
   const QUANT = { mean, variance, stdev, skewness, exKurtosis, quantileSorted, logReturns, simpleReturns, normCdf, normInv, normPdf, chi2Sf, gammaQ,
     distStats, acf, ljungBox, histogram, ewmaSigma, riskMeasures, varBacktest, cornishFisherZ, rangeVol, yangZhang, rollingVol, volCone, nelderMead, garch11,
-    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
+    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, planDates, whatIf, bondSchedule, bondCalc, bondPrice, cholesky, projectAssumed, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
   root.QUANT = QUANT;
   if (typeof module !== "undefined" && module.exports) module.exports = QUANT;
 })(typeof window !== "undefined" ? window : globalThis);

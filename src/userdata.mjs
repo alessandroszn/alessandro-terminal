@@ -8,6 +8,7 @@
 //                                              (a name saved again replaces that view)
 //   GET|POST|DELETE  /api/user/plab            portfolio lab: portfolios to test [{id, name, holdings:[{id, w}], settings, saved}]
 //                                              (target weights in %, adding up to 100; POST with an existing id replaces it)
+//   GET|POST|DELETE  /api/user/wif             WHAT IF: purchases to test [{id, name, rows:[{id, kind once|monthly, from, to?, amount, fee}], bench, saved}]
 //   GET              /api/status[?usage=1]     system status for SYS: which sources are configured (yes/no only),
 //                                              Twelve Data credit usage (checked on request: 1 credit), the scheduler's last run
 // Nothing here is market data: these are the owner's own entries. All start empty.
@@ -16,10 +17,10 @@ import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 
-export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views", plab: "ud/plab" };
+export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views", plab: "ud/plab", wif: "ud/wif" };
 // quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
 // Alerts are checked on CNBC quotes (one request for all of them): at most 25 different symbols
-export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000, plab: 20, plabHoldings: 15 };
+export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000, plab: 20, plabHoldings: 15, wif: 20, wifRows: 15 };
 const SYM_RE = /^[A-Z0-9][A-Z0-9.\-:/]{0,19}$/;
 
 async function load(env, k) { try { const t = await env.BRIEFS.get(UD_KEYS[k]); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
@@ -73,6 +74,26 @@ export function validatePlab(b) {
   if (js.length > 1000) return "settings too large";
   return { name, holdings: out, settings: JSON.parse(js) };
 }
+// a WHAT IF: a name, 1–15 rows of purchases (instrument, once or monthly, from / to dates, amount and fee in EUR), a benchmark
+const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+export function validateWif(b, today = new Date().toISOString().slice(0, 10)) {
+  if (!b || typeof b !== "object") return "body required";
+  const name = clean(b.name, 40); if (!name) return "a name is required";
+  const list = Array.isArray(b.rows) ? b.rows : null; if (!list || !list.length) return "rows[] required (at least one)";
+  if (list.length > LIMITS.wifRows) return `at most ${LIMITS.wifRows} rows`;
+  const rows = [];
+  for (const r of list) {
+    const id = clean(r && r.id, 24).toUpperCase(); if (!PLAB_ID_RE.test(id) || id === "CASH") return `bad instrument: ${id || "(empty)"}`;
+    const kind = r.kind === "monthly" ? "monthly" : "once", from = String(r.from || ""), to = r.to ? String(r.to) : null;
+    if (!DATE_RE.test(from) || from > today) return `${id}: a purchase date up to today`;
+    if (to && (!DATE_RE.test(to) || to < from)) return `${id}: an end date after the start`;
+    const amount = Number(r.amount), fee = r.fee == null || r.fee === "" ? 0 : Number(r.fee);
+    if (!(amount > 0 && amount <= 1e9)) return `${id}: an amount above 0`; if (!(fee >= 0 && fee < amount)) return `${id}: a fee from 0 to less than the amount`;
+    rows.push({ id, kind, from, ...(kind === "monthly" && to ? { to } : {}), amount, fee });
+  }
+  const bench = b.bench ? clean(b.bench, 24).toUpperCase() : ""; if (bench && !PLAB_ID_RE.test(bench)) return "bad benchmark";
+  return { name, rows, bench: bench || null };
+}
 export function validateBoards(b) {
   const list = b && Array.isArray(b.boards) ? b.boards : null;
   if (!list) return "boards[] required";
@@ -114,6 +135,15 @@ export async function handleUserData(url, env, ctx, H, json, req) {
     const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
     const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
     await save(env, kind, next); return send({ saved: item.id, replaced: !!same, views: next }, same ? 200 : 201);
+  }
+  if (kind === "wif" && method === "POST" && !sub) {
+    const p = await body(); if (p.e) return p.e;
+    const v = validateWif(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
+    const list = await load(env, kind), same = p.b.id ? list.find((x) => x.id === p.b.id) : null;
+    if (!same && list.length >= LIMITS.wif) return send({ error: "bad_request", message: `limit of ${LIMITS.wif} saved reached` }, 400);
+    const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
+    const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
+    await save(env, kind, next); return send({ saved: item.id, replaced: !!same, wif: next }, same ? 200 : 201);
   }
   if (kind === "plab" && method === "POST" && !sub) {
     const p = await body(); if (p.e) return p.e;

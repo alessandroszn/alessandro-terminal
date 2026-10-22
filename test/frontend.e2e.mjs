@@ -360,6 +360,7 @@ globalThis.fetch = async (u, init = {}) => {
   if (u.startsWith("https://symlookup.cnbc.com/")) return new Response(JSON.stringify([{ TotalMatchAvailable: "3" }, { symbolName: "NOV-DE", companyName: "Novartis AG", exchangeName: "XETRA", countryCode: "DE", issueType: "STOCK" }, { symbolName: "NVS", companyName: "Novartis AG", exchangeName: "NYSE", countryCode: "US", issueType: "STOCK" }, { symbolName: "NOVN-CH", companyName: "Novartis AG", exchangeName: "Swiss Exchange", countryCode: "CH", issueType: "STOCK" }]));
   // OpenFIGI /v3/mapping and Twelve Data /symbol_search (ISIN search)
   if (u === "https://api.openfigi.com/v3/mapping") { const b = JSON.parse(init.body || "[]"); PV.figi = (PV.figi || 0) + 1;
+    if (b[0].idValue === "IT0005518128") return new Response(JSON.stringify([{ data: [{ figi: "BBG01FV7X8M1", name: "BUONI POLIENNALI DEL TES", ticker: "BTPS 4.4 05/01/33", exchCode: "IM", securityType: "EURO-ZONE", marketSector: "Govt", securityType2: "Govt" }] }]));
     return new Response(JSON.stringify(b[0].idValue === "IT0000072618" ? [{ data: [{ figi: "BBG000BNSF93", name: "INTESA SANPAOLO", ticker: "ISP", exchCode: "IM", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" },
       { figi: "BBG000BNSF02", name: "INTESA SANPAOLO", ticker: "IES", exchCode: "GY", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }, { figi: "BBG000BNSF39", name: "INTESA SANPAOLO", ticker: "ISNPF", exchCode: "US", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }] }] : [{ warning: "No identifier found." }])); }
   if (u.startsWith("https://api.twelvedata.com/symbol_search")) { const q = new URL(u).searchParams.get("symbol"), rw = (symbol, mic, country, currency, plan) => ({ symbol, instrument_name: "Intesa Sanpaolo S.p.A.", exchange: mic, mic_code: mic, exchange_timezone: "Europe/Rome", instrument_type: "Common Stock", country, currency, access: { global: plan, plan } });
@@ -422,7 +423,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -882,7 +883,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1532,6 +1533,10 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.fill('.pl-pf input[name="target"]', "60000"); await page.click('.pl-pf button[type="submit"]'); await page.waitForTimeout(1500); w = await winOf(page, "PORTFOLIO LAB");
   if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-proj.png" });
   ok("[Q] PLAB projection: median in 10 years, 5–95 %, money put in, probability of the target and of a loss; numbered run; chart", /MEDIAN IN 10 YEARS\s+€ [\d,]+/.test(w.text) && /PROBABILITY OF REACHING € 60,000\s+\d+\.\d%/.test(w.text) && /MONEY PUT IN\s+€ 34,000/.test(w.text) && /Run 1: the same inputs/.test(w.text) && (await page.$$(".pl-pc canvas")).length > 0, w.text.slice(0, 900));
+  await page.click('[data-plpm="mine"]'); await page.waitForTimeout(800);
+  await page.fill('.pl-pf input[name="mu_0"]', "7"); await page.fill('.pl-pf input[name="vol_0"]', "16"); await page.click('.pl-pf button[type="submit"]'); await page.waitForTimeout(1500); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] PLAB projection with your assumptions: a table per holding (past as the start), your return / volatility, said to be a model", /A MODEL WITH YOUR ASSUMPTIONS — not data/.test(w.text) && /YOUR RETURN % A YEAR/.test(w.text) && /MEDIAN IN 10 YEARS\s+€ [\d,]+/.test(w.text) && /log-normal law with your return/.test(w.text), w.text.slice(0, 1400));
+  await page.click('[data-plpm="past"]'); await page.waitForTimeout(400);
   await page.click('[data-plt="build"]'); await page.waitForTimeout(500); await page.click(".pl-copy"); await page.waitForTimeout(900);
   await page.click('[data-plt="cmp"]'); await page.waitForTimeout(600);
   const nPlc = (await page.$$("[data-plc]")).length; for (let i = 0; i < nPlc; i++) { await page.locator("[data-plc]").nth(i).check(); await page.waitForTimeout(400); }
@@ -1544,6 +1549,21 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.click('.win .w-tag:text("PLAB")').catch(() => null); await cmd(page, "PLAB"); await page.waitForTimeout(500);
   await page.click(".pl-del"); await page.click(".pl-del"); await page.waitForTimeout(900);
   ok("[Q] PLAB delete: asked twice, removed from the server", JSON.parse(PV.kv.get("ud/plab")).length === 1);
+  // WHAT IF: NVDA once in March 2020, SWDA every month from 2019 with a €1 fee
+  await cmd(page, "WIF"); await page.waitForTimeout(700);
+  const wfAdd = async (id, kind, from, amt, fee) => { await page.fill(".wf-nid", id); await page.selectOption(".wf-nkind", kind); await page.fill(".wf-nfrom", from); await page.fill(".wf-namt", amt); if (fee) await page.fill(".wf-nfee", fee); await page.click(".wf-add"); await page.waitForTimeout(500); };
+  await wfAdd("NVDA", "once", "2020-03-16", "2000"); await wfAdd("SWDA", "monthly", "2019-01-01", "200", "1");
+  await page.waitForFunction(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("WHAT IF")); return w && /VALUE TODAY/.test(w.querySelector(".win-body").innerText); }, null, { timeout: 25000 }).catch(() => null);
+  await page.waitForTimeout(800); w = await winOf(page, "WHAT IF");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/wif.png" });
+  ok("[Q] WIF: NVDA once, SWDA monthly with a fee — per row buys, put in, value, gain, a year; total, money-weighted return, the same money in the benchmark; where the gain came from; chart", w && /NVDA\s+16 Mar 2020\s+1\s+€ 2,000\s+€ [\d,]+/.test(w.text) && /MONEY PUT IN\s+€ [\d,]+/.test(w.text) && /YOUR RETURN A YEAR \(MONEY-WEIGHTED\)\s+[+-]?\d+\.\d%/.test(w.text) && /SAME MONEY IN THE BENCHMARK/.test(w.text) && /WHERE THE GAIN CAME FROM/.test(w.text) && /stocks without dividends: NVDA/.test(w.text) && (await page.$$(".wf-cv canvas")).length > 0, w && w.text.slice(0, 1800));
+  await page.fill(".wf-name", "Covid buys"); await page.press(".wf-name", "Tab"); await page.waitForTimeout(300); await page.click(".wf-save"); await page.waitForTimeout(900);
+  ok("[Q] …saved on the server", JSON.parse(PV.kv.get("ud/wif") || "[]").length === 1 && JSON.parse(PV.kv.get("ud/wif"))[0].rows[1].kind === "monthly");
+  // YAS: a BTP's terms from OpenFIGI's ticker, a price typed
+  await cmd(page, "YAS IT0005518128"); await page.waitForTimeout(1200);
+  await page.fill('.ys-f input[name="price"]', "102.5"); await page.fill('.ys-f input[name="settle"]', "2026-05-01"); await page.click('.ys-f button[type="submit"]'); await page.waitForTimeout(900); w = await winOf(page, "YAS");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/yas.png" });
+  ok("[Q] YAS: coupon 4.4 % and maturity 1 May 2033 read from OpenFIGI's ticker, half-yearly; your price → yield gross and net, accrued 0 on a coupon date, durations, cash flows, shocks", w && /BTPS 4\.4 05\/01\/33/.test(w.text) && /YIELD TO MATURITY \(GROSS\)\s+3\.9\d\d%/.test(w.text) && /NET OF TAX \(12\.5%\)\s+3\.\d{3}%/.test(w.text) && /ACCRUED INTEREST\s+0\.0000/.test(w.text) && /DURATION \(MACAULAY · MODIFIED\)\s+6\.\d\d · 5\.\d\d/.test(w.text) && /CASH FLOWS ON THE NOMINAL/.test(w.text) && /\+100 bp/.test(w.text), w && w.text.slice(0, 1500));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/etf-section.png" });
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[Q] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
@@ -1563,7 +1583,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     ok("[Q] …no JavaScript errors", errors.length === 0, errors.join(" | "));
     await page.close();
   }
-  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2", "ud/plab"]) PV.kv.delete(k);
+  for (const k of ["etf/universe", "etf/isins", "etf/us", "ref/je/table", "ref/je/" + HD[0], "ref/je/prio2", "ud/plab", "ud/wif"]) PV.kv.delete(k);
 }
 
 // =============== N. quant tools: Monte Carlo, VaR / ES, volatility, distribution, beta, optimiser, seasonality ===============

@@ -7,6 +7,7 @@
 //   GET /api/etf/ucits[/returns?part=N]     UCITS ETFs by asset class: CNBC prices, justETF reference data (src/ucits.mjs)
 //   GET /api/etf/perf?ids= | /api/etf/perftable   screener returns and risk (src/etfperf.mjs; cron PERF_CRON)
 //   GET /api/etf/universe|profile|compare|exposure|resolve   the ETF section: every ETF (Xetra list, U.S. list), justETF, CNBC (src/etf.mjs)
+//   GET /api/bond/ref?isin=   a bond's coupon and maturity from OpenFIGI's ticker (src/yas.mjs, YAS)
 //   GET /api/plab/series?id=   one instrument's daily closes in EUR for the portfolio lab (src/plab.mjs)
 //   GET /api/factors?ids=&region=&years=   Fama/French factors (Kenneth R. French Data Library) + monthly USD returns (src/factors.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
@@ -53,6 +54,7 @@ import { handleUcits } from "./ucits.mjs";
 import { handleEtf, refreshEtfRef, buildEtfUniverse } from "./etf.mjs";
 import { handleFactors } from "./factors.mjs";
 import { handlePlab } from "./plab.mjs";
+import { handleBondRef } from "./yas.mjs";
 import { handleEtfPerf, refreshEtfPerf, PERF_CRON } from "./etfperf.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -649,6 +651,7 @@ export const app = {
     if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
     if (url.pathname === "/api/factors") return handleFactors(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/plab/")) return handlePlab(url, env, ctx, H, json);
+    if (url.pathname === "/api/bond/ref") return handleBondRef(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
