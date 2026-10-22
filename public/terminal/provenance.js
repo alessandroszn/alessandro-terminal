@@ -128,7 +128,16 @@
     telegram_unauthorized: "Telegram refused the bot token (check TELEGRAM_BOT_TOKEN)",
     telegram_blocked: "the bot cannot write to this chat (blocked, or never started)",
     telegram_bad_request: "Telegram refused the message (chat not found?)",
-    no_chat: "no Telegram chat linked"
+    no_chat: "no Telegram chat linked",
+    not_listed: "not found on the lists CNBC answers for",
+    not_carried: "this listing is not carried by CNBC",
+    fx_unavailable: "no FX rate for this currency",
+    not_a_bond: "neither the ECB list nor OpenFIGI names a bond for this ISIN",
+    floating_bond: "a floating-rate or index-linked bond: its coupons cannot be priced from a curve here",
+    bond_matured: "the bond matures within 30 days or has matured",
+    no_curve: "no government curve for this bond's currency",
+    no_currency: "the bond's currency is not known (not on the ECB list)",
+    not_loaded: "the ECB list has not been read yet (it is read a slice every 10 minutes)"
   };
   function errorText(code) { return ERRORS[code] || code || "unavailable"; }
 

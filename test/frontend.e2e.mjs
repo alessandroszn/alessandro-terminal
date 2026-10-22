@@ -311,6 +311,11 @@ const t07Api = (u, method, body, st) => {
 // ---------- provider formats answered in Node: the real Worker code builds /api/cnbc, /api/nasdaq, /api/reddit, /api/alerts ----------
 // (CNBC quote service and bars, Nasdaq calendar / screener / movers, ApeWisdom, Telegram Bot API — fixtures in their formats)
 const PV = { kv: new Map(), tg: [], cnbcAsked: [] };
+// the ECB list of eligible assets as the cron leaves it in KV (its table format; test inputs only). IT0005518128 is left
+// off on purpose: YAS reads it from OpenFIGI
+PV.kv.set("bond/ecb", ["#ECB\t261021\t4\t2026-10-22T00:40:00.000Z", "DE0001102614\t2.3\t2023-01-11\t2033-02-15\tEUR\tDE\tIG2\tF\tAT01\tBundesrepublik Deutschland",
+  "IT0005408999\t3.5\t2020-05-01\t2040-03-01\tEUR\tIT\tIG2\tF\tAT01\tRepubblica Italiana", "IT0005436693\t0.6\t2021-05-01\t2031-08-01\tEUR\tIT\tIG2\tF\tAT01\tRepubblica Italiana",
+  "IT0005611303\t0\t2026-08-14\t2027-02-12\tEUR\tIT\tIG2\tZ\tAT03\tRepubblica Italiana"].join("\n"));
 const TG_TOKEN = "123456789:AAH" + "e".repeat(32);
 const cnTime = (ms) => new Date(ms).toISOString().replace("Z", "+0000");
 const CN_PX = { ".SPX": 6700.5, ".NDX": 24800, ".DJI": 46500, ".RUT": 2450, ".N225": 49000, "@SP.1": 6731.25, "@ND.1": 24890, "@DJ.1": 46600, "@TFS.1": 2460, "@NK.1": 49150, "@CL.1": 88.42, "@GC.1": 4130.5, "EUR=": 1.1235, "NVDA": 190.5, ".FTMIB": 44000 };
@@ -325,7 +330,8 @@ const cnBars = (s, five) => { const out = [], end = Date.now(); if (five) { for 
 const NQ_TODAY = new Date().toISOString().slice(0, 10);
 // daily bars back to a date (weekdays), for the 10-year factor window only
 const cnBarsLong = (s, from) => { const out = [], d0 = new Date(); d0.setUTCHours(4, 0, 0, 0); const n = Math.ceil((d0.getTime() - from) / 864e5);
-  for (let i = n; i >= 1; i--) { const t = d0.getTime() - i * 864e5, wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue; const v = cnPx(s) * Math.exp(-i * 0.0002 + Math.sin(i / 23) * 0.04 + Math.sin(i / 7) * 0.01); out.push({ close: v.toFixed(4), tradeTime: new Date(t).toISOString().slice(0, 10).replace(/-/g, "") + "000000", tradeTimeinMills: t }); } return out; };
+  const ym = /^(?:US|[A-Z]{2})(\d+)([MY])(?:-[A-Z]{2})?$/.exec(s), mo = ym ? +ym[1] * (ym[2] === "Y" ? 12 : 1) : 0; // a government bond's yield, in %
+  for (let i = n; i >= 1; i--) { const t = d0.getTime() - i * 864e5, wd = new Date(t).getUTCDay(); if (wd === 0 || wd === 6) continue; const v = ym ? 2 + Math.min(mo, 360) / 180 + Math.sin(i / 90) * 0.5 : cnPx(s) * Math.exp(-i * 0.0002 + Math.sin(i / 23) * 0.04 + Math.sin(i / 7) * 0.01); out.push({ close: v.toFixed(4), tradeTime: new Date(t).toISOString().slice(0, 10).replace(/-/g, "") + "000000", tradeTimeinMills: t }); } return out; };
 // the Kenneth R. French Data Library's files (ZIP of one CSV, its layout): 130 months to two months ago
 const FF_MON = (() => { const out = [], d = new Date(); let k = d.getUTCFullYear() * 12 + d.getUTCMonth() - 2; for (let i = 129; i >= 0; i--) { const m = k - i; out.push(`${Math.floor(m / 12)}${String((m % 12) + 1).padStart(2, "0")}`); } return out; })();
 const ffv = (i, a, b) => (Math.sin(i * a + b) * 3 + Math.cos(i * (a + 0.7)) * 1.5).toFixed(2);
@@ -423,7 +429,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/bond/list" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -1549,6 +1555,22 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.click('.win .w-tag:text("PLAB")').catch(() => null); await cmd(page, "PLAB"); await page.waitForTimeout(500);
   await page.click(".pl-del"); await page.click(".pl-del"); await page.waitForTimeout(900);
   ok("[Q] PLAB delete: asked twice, removed from the server", JSON.parse(PV.kv.get("ud/plab")).length === 1);
+  // a BTP picked from the ECB list: its terms, today's price typed, priced on the Italian curve (an estimate, said)
+  await page.click(".pl-bl-open"); await plWait(/GOVERNMENT BONDS[\s\S]*IT0005436693/); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] PLAB bonds: Italy's government bonds from the ECB list (ISIN, issuer, coupon, maturity, issue), terms not prices", w && /IT0005611303\s+Repubblica Italiana\s+zero\s+12 Feb 2027/.test(w.text) && /IT0005436693\s+Repubblica Italiana\s+0\.6%\s+01 Aug 2031\s+01 May 2021\s+EUR/.test(w.text) && /3 of 3 bonds · ECB list of eligible marketable assets of 21 Oct 2026/.test(w.text), w && w.text.slice(0, 1500));
+  await page.fill(".pl-blq", "2031"); await page.waitForTimeout(700); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …a filter on year / coupon / name", w && /1 of 3 bonds/.test(w.text) && !/IT0005611303/.test(w.text));
+  await page.click('.pl-bla[data-isin="IT0005436693"]'); await plWait(/ESTIMATE: IT government curve/); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …added: its terms (ECB), the Italian curve's maturities that bracket its life, spread 0 until a price is typed", w && /Repubblica Italiana 0\.6% 2031-08-01\s+IT0005436693 · BOND · 0\.6% semi-annual · maturity 01 Aug 2031 · issued 01 May 2021 · EUR/.test(w.text) && /ESTIMATE: IT government curve \(CNBC (\d+[MY] )+\d+[MY]\) \+ 0 bp \(no price typed: spread 0\)/.test(w.text) && /an estimate priced on the curve, not a market price/.test(w.text), w && w.text.slice(0, 1600));
+  await page.fill(".pl-px", "90"); await page.press(".pl-px", "Tab"); await plWait(/set by your price/); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …today's price typed: the spread set by it, the model's price today = the price", w && /[+−] \d+ bp \(set by your price\) · model price today 90\.00 · yield \d+\.\d\d%/.test(w.text), w && w.text.slice(0, 1600));
+  await page.fill(".pl-w", "40"); await page.press(".pl-w", "Tab"); await page.waitForTimeout(300); await plAdd("SWDA", "60");
+  await page.click('[data-plt="test"]'); await plWait(/Final value/); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-bond.png" });
+  ok("[Q] …backtest with the bond: from its issue date, the estimate said above the figures", w && /Bonds \(Repubblica Italiana 0\.6% 2031-08-01\): no daily market price here — ESTIMATED each day/.test(w.text) && /Final value\s+€ [\d,]+/.test(w.text) && /2021/.test(w.text), w && w.text.slice(0, 1500));
+  await page.click('[data-plt="build"]'); await page.waitForTimeout(400);
+  await page.fill(".pl-name", "BTP and world"); await page.press(".pl-name", "Tab"); await page.click(".pl-save"); await page.waitForTimeout(900);
+  ok("[Q] …saved with the bond's price", (JSON.parse(PV.kv.get("ud/plab")).find((p) => p.name === "BTP and world") || { holdings: [] }).holdings.some((h) => h.id === "IT0005436693" && h.px === 90));
   // WHAT IF: NVDA once in March 2020, SWDA every month from 2019 with a €1 fee
   await cmd(page, "WIF"); await page.waitForTimeout(700);
   const wfAdd = async (id, kind, from, amt, fee) => { await page.fill(".wf-nid", id); await page.selectOption(".wf-nkind", kind); await page.fill(".wf-nfrom", from); await page.fill(".wf-namt", amt); if (fee) await page.fill(".wf-nfee", fee); await page.click(".wf-add"); await page.waitForTimeout(500); };

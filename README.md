@@ -147,9 +147,26 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   `/api/plab/series`). Per row: buys, money put in, value today, gain, money-weighted return, units, average price; total,
   IRR, the same money on the same dates in a benchmark, time-weighted max drawdown and volatility, where the gain came from,
   chart. Saved on the server (`/api/user/wif`, ≤ 20).
-- `YAS IT0005…` — bond yield calculator (menu RATES & MACRO): coupon and maturity parsed from OpenFIGI's Bloomberg-style
+- `YAS IT0005…` — bond yield calculator (menu RATES & MACRO): the terms from the ECB list of eligible marketable assets
+  (coupon, issue and maturity dates, currency, issuer) or, for a bond not on it, parsed from OpenFIGI's Bloomberg-style
   ticker (`/api/bond/ref`, "BTPS 4.4 05/01/33"; floating-rate → not applicable) or typed; frequency by issuer country
-  (IT / US half-yearly, euro area annual); the clean price typed (no bond price source connected). Yield to maturity
+  (IT / US half-yearly, euro area annual; another currency's bond: USD / GBP half-yearly, EUR annual); the clean price
+  typed (no bond price source connected).
+- Bonds in PLAB and WIF, 22 Oct 2026 ("price rebuilt from the curve"): a bond ISIN has no daily price here, so it is an
+  ESTIMATE, always said: each day the government curve's yield at the bond's remaining maturity (CNBC daily yields of the
+  maturities that bracket its life, `/api/plab/curve?cc=IT&tenor=10Y`, linear in between, flat beyond, a quote older than
+  a week not used; European bars moved to their session's weekday) plus a constant spread set by today's clean price as
+  typed in BUILD (0 without one), priced at the coupon frequency, coupons reinvested; from the issue date (15 years at
+  most); a bond in USD / GBP / CHF converted at CNBC's FX (`/api/plab/fx`). The curve: the issuer's country for a bond in
+  its own currency, else the currency's benchmark (EUR → Germany). Fixed and zero-coupon only (floating / index-linked →
+  N/A). BUILD → "+ GOVERNMENT BONDS (ECB LIST)": a country's central-government bonds to pick from (`/api/bond/list?cc=IT`).
+- ECB list of eligible marketable assets (approved 22 Oct 2026, `src/ecbassets.mjs`): the ECB's daily TSV (several MB,
+  Monday to Friday ~18:15 CET) read by the 10-minute trigger 768 KB a run (Range request; the stream read up to the slice
+  if the server ignores Range) into KV `bond/ecb` (fixed and zero-coupon bonds: ISIN, coupon, issue, maturity, currency,
+  issuer residence and group, issuer) — about a dozen runs once a new file is out, the other slots stay with the ETF
+  screener. Bundesbank / FedInvest prices (approved, researched 22 Oct 2026): not connected — the Bundesbank publishes the
+  federal securities' prices as a monthly XLSX behind a changing link (columns not yet checked), FedInvest only as XML
+  behind a session form (and part of the site disallowed to robots); the price stays typed. Yield to maturity
   (compounded at the coupon frequency) and effective, net of 12.5 % / 26 % tax (coupons and a gain at maturity — a
   simplification), current yield, accrued ACT/ACT (ICMA) or 30E/360, dirty price, Macaulay / modified duration, convexity,
   DV01, cash flows on the nominal (gross, net, present value), price if yields move ±50 / 100 / 200 bp.
@@ -380,6 +397,7 @@ node test/isin.test.mjs         # ISIN: check digit, exchange codes, OpenFIGI li
 node test/etfperf.test.mjs      # screener returns / risk: 1Y–5Y, volatility, drawdown, the cron's batch, routes
 node test/whatif.test.mjs       # WIF purchases, YAS bond math and OpenFIGI terms, projection with assumptions, saved what-ifs
 node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, CHF, CNBC's U.S. fallback), backtest / IRR / stats / risk / stress / projection
+node test/bondlab.test.mjs      # ECB list read in slices, bond terms (ECB / OpenFIGI), the estimate's plan, curve / FX endpoints, bondHistory
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron

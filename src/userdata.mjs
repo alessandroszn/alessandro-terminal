@@ -67,7 +67,9 @@ export function validatePlab(b) {
     const id = clean(h && h.id, 24).toUpperCase(); if (!PLAB_ID_RE.test(id)) return `bad instrument: ${id || "(empty)"}`;
     if (seen.has(id)) return `${id} is there twice`; seen.add(id);
     const w = Number(h.w); if (!(w > 0 && w <= 100)) return `weight of ${id}: above 0 and at most 100`;
-    out.push({ id, w: Math.round(w * 100) / 100 });
+    // a bond's clean price today as the owner typed it (it sets the spread of the estimate): optional
+    const px = h.px == null || h.px === "" ? null : Number(h.px); if (px != null && !(px > 0 && px <= 1000)) return `price of ${id}: above 0 and at most 1000`;
+    out.push(px != null ? { id, w: Math.round(w * 100) / 100, px: Math.round(px * 10000) / 10000 } : { id, w: Math.round(w * 100) / 100 });
   }
   const sum = out.reduce((a, x) => a + x.w, 0); if (Math.abs(sum - 100) > 0.5) return `the weights add up to ${sum.toFixed(2)} %, not 100 %`;
   const st = b.settings && typeof b.settings === "object" && !Array.isArray(b.settings) ? b.settings : {}, js = JSON.stringify(st);
@@ -211,6 +213,7 @@ export function sourcesStatus(env) {
     { id: "openfigi", name: "OpenFIGI", use: "ISIN → listings in symbol search (SRCH)", configured: true, note: env.OPENFIGI_KEY ? "free key set: higher limit" : "no key needed (25 searches a minute; OPENFIGI_KEY optional)" },
     { id: "justetf", name: "justETF", use: "ETF reference data: TER, size, distribution, replication, provider, focus, top holdings, countries, sectors (UCITS, EFS, EFP, EXPO) — never prices", configured: !!env.BRIEFS, note: "no key; one profile page every 5 minutes by the cron (your funds first, weekly; the whole Xetra list ≈ every 10 days); a profile opened is read then" },
     { id: "french", name: "Kenneth R. French Data Library", use: "Fama/French factors — market, size, value, profitability, investment, momentum — for Developed, Europe and the U.S. (FACT)", configured: !!env.BRIEFS, note: "public ZIP files, no key; monthly, about two months behind; downloaded at most once a day on use" },
+    { id: "ecb-assets", name: "ECB list of eligible marketable assets", use: "a bond's terms — coupon, issue and maturity dates, currency, issuer — and the government bonds of a country to pick from (YAS, PLAB); never prices", configured: !!env.BRIEFS, note: "public file, no key; read a slice every 10 minutes once a new file is out (Monday to Friday, evening)" },
     { id: "xetra", name: "Deutsche Börse (Xetra)", use: "the list of every ETF / ETC / ETN tradable on Xetra (EFS)", configured: !!env.BRIEFS, note: "public file, no key; rebuilt when older than 6 days" },
     { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
     { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },

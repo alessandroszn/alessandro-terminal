@@ -385,6 +385,34 @@
   // the price for a yield (to go back the other way)
   function bondPrice({ coupon, freq = 1, maturity, settle, ytm, redemption = 100, basis = "ACT" }) { if (!(maturity > settle)) return null; const S = bondSchedule(maturity, freq, settle), c = coupon / freq, frac = basis === "30E" ? d30e(S.prev, settle) / (360 / freq) : (dayN(settle) - dayN(S.prev)) / (dayN(S.next) - dayN(S.prev)), w = 1 - frac;
     const dirty = S.dates.reduce((a, d, i) => a + (c + (i === S.dates.length - 1 ? redemption : 0)) / Math.pow(1 + ytm / freq, w + i), 0); return { dirty, accrued: c * frac, clean: dirty - c * frac }; }
+  // ---------- a bond without a daily price: its estimate from a government curve. Each day the curve's yield at the
+  //            bond's remaining maturity (linear between the two nearest maturities quoted that day — a quote older than
+  //            `maxGap` days does not count — flat beyond the shortest and the longest), plus a constant spread, priced
+  //            with bondPrice; coupons reinvested in the bond on their payment day. The spread: today's price (clean, as
+  //            typed) against the curve on the last day, or 0. curves: [{ months, d: [...], v: [yield %] }] ----------
+  function curveYield(pts, months) { if (!pts.length) return NaN; if (months <= pts[0][0]) return pts[0][1]; const n = pts.length; if (months >= pts[n - 1][0]) return pts[n - 1][1];
+    for (let i = 1; i < n; i++) if (months <= pts[i][0]) { const [m0, y0] = pts[i - 1], [m1, y1] = pts[i]; return y0 + ((y1 - y0) * (months - m0)) / (m1 - m0); } return NaN; }
+  function bondHistory({ coupon, freq = 1, maturity, start, curves, price = null, maxGap = 7, redemption = 100 }) {
+    const cs = (curves || []).filter((c) => c && c.d && c.d.length && fin(c.months)).slice().sort((a, b) => a.months - b.months);
+    if (!cs.length || !maturity || !(freq > 0)) return null;
+    const days = [...new Set(cs.flatMap((c) => c.d))].filter((d) => d >= (start || "") && d < maturity).sort();
+    const ptr = cs.map(() => -1), mat = dayN(maturity), MONTH_DAYS = 365.25 / 12;
+    const at = (day) => { const pts = []; cs.forEach((c, k) => { while (ptr[k] + 1 < c.d.length && c.d[ptr[k] + 1] <= day) ptr[k]++; const j = ptr[k]; if (j >= 0 && dayN(day) - dayN(c.d[j]) <= maxGap && fin(c.v[j])) pts.push([c.months, c.v[j]]); }); return pts; };
+    // pass 1: the curve's yield at the remaining maturity, each day
+    const D = [], YC = [];
+    for (const day of days) { const pts = at(day); if (!pts.length) continue; D.push(day); YC.push(curveYield(pts, (mat - dayN(day)) / MONTH_DAYS) / 100); }
+    if (D.length < 2) return null;
+    const last = D[D.length - 1]; let spread = 0, calib = null;
+    if (fin(price) && price > 0) { const c = bondCalc({ coupon, freq, maturity, settle: last, clean: price, redemption }); if (c && fin(c.ytm)) { spread = c.ytm - YC[YC.length - 1]; calib = { date: last, price, ytm: c.ytm, curve: YC[YC.length - 1] }; } }
+    // pass 2: prices and the total-return index
+    const d = [], v = [], y = [], clean = []; let idx = null, prevDirty = null, prevDay = null;
+    for (let i = 0; i < D.length; i++) { const day = D[i], yy = YC[i] + spread, p = bondPrice({ coupon, freq, maturity, settle: day, ytm: yy, redemption }); if (!p || !fin(p.dirty) || !(p.dirty > 0)) continue;
+      let cpn = 0; if (prevDay && coupon) { const S = bondSchedule(maturity, freq, prevDay); for (const cd of S.dates) { if (cd > day) break; cpn += coupon / freq; } }
+      idx = idx == null ? p.dirty : (idx * (p.dirty + cpn)) / prevDirty; prevDirty = p.dirty; prevDay = day;
+      d.push(day); v.push(idx); y.push(yy); clean.push(p.clean); }
+    if (d.length < 2) return null;
+    return { d, v, y, clean, spread, calib, first: d[0], last: d[d.length - 1], curveLast: YC[YC.length - 1] };
+  }
   // ---------- projection with the owner's assumptions: expected return (compound, a year) and volatility per holding,
   //            correlations from the past; monthly log-normal draws, rebalanced to the weights each month ----------
   function cholesky(A) { const n = A.length, L = A.map(() => new Array(n).fill(0)); for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) { let s = A[i][j]; for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k]; if (i === j) { if (!(s > 0)) return null; L[i][i] = Math.sqrt(s); } else L[i][j] = s / L[j][j]; } return L; }
@@ -410,7 +438,7 @@
 
   const QUANT = { mean, variance, stdev, skewness, exKurtosis, quantileSorted, logReturns, simpleReturns, normCdf, normInv, normPdf, chi2Sf, gammaQ,
     distStats, acf, ljungBox, histogram, ewmaSigma, riskMeasures, varBacktest, cornishFisherZ, rangeVol, yangZhang, rollingVol, volCone, nelderMead, garch11,
-    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, planDates, whatIf, bondSchedule, bondCalc, bondPrice, cholesky, projectAssumed, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
+    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, planDates, whatIf, bondSchedule, bondCalc, bondPrice, curveYield, bondHistory, cholesky, projectAssumed, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
   root.QUANT = QUANT;
   if (typeof module !== "undefined" && module.exports) module.exports = QUANT;
 })(typeof window !== "undefined" ? window : globalThis);

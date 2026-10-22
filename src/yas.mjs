@@ -1,10 +1,14 @@
 // YAS — a fixed-coupon bond's analytics (yield to maturity, durations, cash flows) are computed in the page (qmath.js) from
-// the terms and a price. This module gives the terms of an ISIN as OpenFIGI (approved) names them: the Bloomberg-style
-// ticker carries the coupon and the maturity ("BTPS 3.85 09/01/49", "T 4 1/4 11/15/34", "DBR 0 08/15/31", "CCTS F …" =
-// floating). Parsed from the ticker — to be checked against the prospectus; a floating or unrecognised ticker → no terms.
+// the terms and a price. This module gives the terms of an ISIN: first the ECB's list of eligible marketable assets
+// (ecbassets.mjs: coupon, issue and maturity dates, currency, issuer — fixed and zero-coupon bonds), then OpenFIGI
+// (approved), whose Bloomberg-style ticker carries the coupon and the maturity ("BTPS 3.85 09/01/49", "T 4 1/4 11/15/34",
+// "DBR 0 08/15/31", "CCTS F …" = floating) — parsed from the ticker, to be checked against the prospectus. Neither list
+// gives the coupon frequency: it is the usual one of the issuer's country (said).
 //   GET /api/bond/ref?isin=
+//   GET /api/bond/list?cc=IT[&group=IG2][&q=]   the ECB list's bonds of one issuer country (central government by default)
 import { isinValid, openFigiRows } from "./isin.mjs";
 import { cachedSource } from "./lib.mjs";
+import { eaTable, eaHead, eaLookup, eaList, ECB_EA_PAGE, ISSUER_GROUPS, EA_STATE } from "./ecbassets.mjs";
 
 // "3.85" → 3.85, "4 1/4" → 4.25, "1/2" → 0.5, "0" → 0
 export function couponOf(s) {
@@ -22,6 +26,34 @@ export function parseBondTicker(t) {
 }
 // the usual coupon frequency by the issuer's country: Italy / U.S. semi-annual; Germany, France, most of the euro area annual
 export const FREQ_BY_COUNTRY = { IT: 2, US: 2, GB: 2, DE: 1, FR: 1, NL: 1, AT: 1, BE: 1, ES: 1, PT: 1, FI: 1, IE: 1, XS: 1, EU: 1 };
+// the frequency for a country, else for a currency (U.S. dollar and pound bonds pay twice a year as a rule), else once
+// (the country's rule only for a bond in its own currency: a British bank's dollar bond follows the dollar's)
+export function freqOf(cc, ccy) {
+  const home = homeCcy(cc);
+  if (FREQ_BY_COUNTRY[cc] && cc !== "XS" && cc !== "EU" && (!ccy || !home || home === ccy)) return { freq: FREQ_BY_COUNTRY[cc], freqFrom: "issuer's country" };
+  if (ccy === "USD" || ccy === "GBP") return { freq: 2, freqFrom: "currency" };
+  if (ccy === "EUR") return { freq: 1, freqFrom: "currency" };
+  return { freq: 1, freqFrom: "default" };
+}
+// the currency of a government's own bonds, for a terms source that does not give it (OpenFIGI)
+const EURO = new Set(["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PT", "IE", "GR", "FI", "SI", "SK", "LT", "LV", "EE", "LU", "MT", "CY", "HR", "EU"]);
+export const homeCcy = (cc) => (EURO.has(cc) ? "EUR" : { US: "USD", GB: "GBP", CH: "CHF" }[cc] || null);
+// the ECB list's line → the terms
+export function bondRefFromEcb(isin, b, head) {
+  const f = freqOf(b.residence || isin.slice(0, 2), b.ccy);
+  const name = [b.issuer, b.zero ? "zero" : b.coupon + "%", b.maturity].filter(Boolean).join(" ");
+  return { isin, name, ticker: null, securityType: b.typeName || b.type, marketSector: b.groupName || b.group, coupon: b.coupon, maturity: b.maturity, issue: b.issue, floating: false, zero: b.zero,
+    ccy: b.ccy, residence: b.residence, group: b.group, issuer: b.issuer, ...f, parsed: true, source: "ECB list of eligible marketable assets" + (head && head.date ? ` (${head.date})` : ""), sourceUrl: ECB_EA_PAGE };
+}
+// the terms of an ISIN: the ECB list, then OpenFIGI → { ref, status } | { err }
+export async function bondTerms(url, env, ctx, isin, deps = {}) {
+  const table = deps.table != null ? deps.table : await eaTable(env), e = eaLookup(table, isin);
+  if (e) return { ref: bondRefFromEcb(isin, e, eaHead(table)), status: "LIVE" };
+  const r = await cachedSource({ origin: url.origin, key: `bond/ref/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 30 * 86400_000, ctx, load: () => (deps.rows || openFigiRows)(isin, env) });
+  if (!r.data) return { err: r.err || "provider_error" };
+  const ref = bondRefFrom(isin, r.data); if (!ref) return { err: "not_a_bond" };
+  return { ref: { ...ref, issue: null, zero: ref.coupon === 0, ccy: homeCcy(isin.slice(0, 2)), residence: null, source: "OpenFIGI (ticker parsed: check against the prospectus)" }, status: r.cache === "STALE" ? "STALE" : "LIVE" };
+}
 export function bondRefFrom(isin, rows) {
   const bond = (rows || []).filter((r) => r && (/govt|corp|muni|mtge/i.test(r.marketSector || "") || /bond|note|bill|govt/i.test(r.securityType || "") || /bond|note/i.test(r.securityType2 || "")));
   const pick = bond.find((r) => parseBondTicker(r.ticker)) || bond[0] || null; if (!pick) return null;
@@ -31,11 +63,23 @@ export function bondRefFrom(isin, rows) {
 }
 export async function handleBondRef(url, env, ctx, H, json, deps = {}) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
+  if (url.pathname === "/api/bond/list") {
+    const cc = String(url.searchParams.get("cc") || "").toUpperCase(), group = String(url.searchParams.get("group") || "IG2").toUpperCase(), q = String(url.searchParams.get("q") || "").trim().slice(0, 30);
+    if (!/^[A-Z]{2}$/.test(cc) || !(group === "ALL" || ISSUER_GROUPS[group])) return send({ error: "bad_request", message: "cc: a two-letter country; group: IG1…IG8 or ALL" }, 400);
+    const table = deps.table != null ? deps.table : await eaTable(env), head = eaHead(table);
+    if (!head) {
+      // where the read is (no values: the file's date, how far, how many bonds so far, the last error)
+      let r = null; try { r = env.BRIEFS ? JSON.parse((await env.BRIEFS.get(EA_STATE)) || "null") : null; } catch { r = null; }
+      const read = r ? { file: r.reading || r.done || null, offset: r.offset || 0, rows: r.rows || 0, error: r.error || null } : null;
+      return send({ cc, error: "not_loaded", status: "N/A", read, note: "the ECB list has not been read yet (a slice every 10 minutes once a new file is out)" }, 503);
+    }
+    const today = new Date(deps.now || Date.now()).toISOString().slice(0, 10), r = eaList(table, { cc, group: group === "ALL" ? "" : group, from: today, q });
+    return send({ cc, group, ...r, asOf: head.date, source: "ECB list of eligible marketable assets", sourceUrl: ECB_EA_PAGE, note: "fixed and zero-coupon bonds only; the terms, not prices", status: "LIVE" });
+  }
   const isin = String(url.searchParams.get("isin") || "").trim().toUpperCase();
   if (!isinValid(isin)) return send({ error: "bad_request", message: "a valid ISIN" }, 400);
-  const r = await cachedSource({ origin: url.origin, key: `bond/ref/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 30 * 86400_000, ctx, load: () => (deps.rows || openFigiRows)(isin, env) });
-  if (!r.data) return send({ isin, error: r.err || "provider_error", status: "N/A" }, 502);
-  const ref = bondRefFrom(isin, r.data);
-  if (!ref) return send({ isin, error: "not_a_bond", status: "N/A", note: "OpenFIGI names no bond for this ISIN" }, 404);
-  return send({ ...ref, source: "OpenFIGI (ticker parsed: check against the prospectus)", status: r.cache === "STALE" ? "STALE" : "LIVE" });
+  const t = await bondTerms(url, env, ctx, isin, deps);
+  if (t.err === "not_a_bond") return send({ isin, error: "not_a_bond", status: "N/A", note: "neither the ECB list nor OpenFIGI names a bond for this ISIN" }, 404);
+  if (t.err) return send({ isin, error: t.err, status: "N/A" }, 502);
+  return send({ ...t.ref, status: t.status });
 }

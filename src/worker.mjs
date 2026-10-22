@@ -7,8 +7,10 @@
 //   GET /api/etf/ucits[/returns?part=N]     UCITS ETFs by asset class: CNBC prices, justETF reference data (src/ucits.mjs)
 //   GET /api/etf/perf?ids= | /api/etf/perftable   screener returns and risk (src/etfperf.mjs; cron PERF_CRON)
 //   GET /api/etf/universe|profile|compare|exposure|resolve   the ETF section: every ETF (Xetra list, U.S. list), justETF, CNBC (src/etf.mjs)
-//   GET /api/bond/ref?isin=   a bond's coupon and maturity from OpenFIGI's ticker (src/yas.mjs, YAS)
-//   GET /api/plab/series?id=   one instrument's daily closes in EUR for the portfolio lab (src/plab.mjs)
+//   GET /api/bond/ref?isin=   a bond's terms: the ECB list of eligible assets, else OpenFIGI's ticker (src/yas.mjs, YAS)
+//   GET /api/bond/list?cc=IT  the ECB list's government bonds of a country (src/yas.mjs; the list: src/ecbassets.mjs)
+//   GET /api/plab/series?id=   one instrument's daily closes in EUR for the portfolio lab (src/plab.mjs); a bond: its
+//                              terms and the plan of its estimate; /api/plab/curve, /api/plab/fx: the curve and FX for it
 //   GET /api/factors?ids=&region=&years=   Fama/French factors (Kenneth R. French Data Library) + monthly USD returns (src/factors.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
@@ -55,6 +57,7 @@ import { handleEtf, refreshEtfRef, buildEtfUniverse } from "./etf.mjs";
 import { handleFactors } from "./factors.mjs";
 import { handlePlab } from "./plab.mjs";
 import { handleBondRef } from "./yas.mjs";
+import { stepEcbList } from "./ecbassets.mjs";
 import { handleEtfPerf, refreshEtfPerf, PERF_CRON } from "./etfperf.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -651,7 +654,7 @@ export const app = {
     if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
     if (url.pathname === "/api/factors") return handleFactors(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/plab/")) return handlePlab(url, env, ctx, H, json);
-    if (url.pathname === "/api/bond/ref") return handleBondRef(url, env, ctx, H, json);
+    if (url.pathname === "/api/bond/ref" || url.pathname === "/api/bond/list") return handleBondRef(url, env, ctx, H, json);
     return json({ error: "not found" }, H, 404);
   },
 };
@@ -675,7 +678,12 @@ export default {
   async scheduled(event, env, ctx) {
     if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshEtfRef(env).catch(() => null)); return; }
     // the screener's returns and risk: 8 funds a run in their own trigger (never in the alerts' run)
-    if (event && event.cron === PERF_CRON) { ctx.waitUntil(refreshEtfPerf(env, event.scheduledTime || Date.now(), { ctx }).catch(() => null)); return; }
+    // the 10-minute trigger: a slice of the ECB list while a new file is being read, otherwise the ETF screener's figures
+    if (event && event.cron === PERF_CRON) {
+      const t = event.scheduledTime || Date.now();
+      ctx.waitUntil((async () => { const e = await stepEcbList(env, t).catch(() => null); if (e && e.ran) return; await refreshEtfPerf(env, t, { ctx }); })().catch(() => null));
+      return;
+    }
     // the ETF universe (Xetra instruments file ~5 MB, Twelve Data's U.S. list): built in its own run, 07:52 / 07:56 UTC
     // (outside every briefing slot of this trigger), one source a run, only when the kept copy is older than 6 days
     const t = new Date(event && event.scheduledTime || Date.now());

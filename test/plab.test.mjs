@@ -39,7 +39,7 @@ const BARS = { "XMIL-IT": D.map((d, i) => [d, 50 + i]), "EUNL-DE": D.map((d, i) 
 const QS = { "XMIL-IT": "EUR", "NOVN-CH": "CHF", NVDA: "USD", "SSAC-NL": "USD", "ZZZ-DE": "EUR" };
 const deps = { now: Date.parse("2026-10-20T10:00:00Z"), loadQuotes: async (codes) => ({ data: Object.fromEntries(codes.map((c) => [c, { symbol: c, code: 0, currencyCode: QS[c], name: c === "NVDA" ? "NVIDIA Corp" : c, countryCode: c === "SSAC-NL" || c === "NVDA" ? "US" : "CH" }])) }),
   fundLines: async (url, env, ctx, isin) => (isin === "IE00BL25JP72" ? { lines: [{ cnbc: "XMIL-IT", ccy: "EUR", pence: false, venue: "Borsa Italiana", ticker: "XMIL", name: "A fund listed in Milan" }] } : { lines: [] }),
-  daily: async (c) => (BARS[c] ? { data: BARS[c], cache: "HIT", fetchedAt: deps.now } : { err: "no_data" }) };
+  daily: async (c) => (BARS[c] ? { data: BARS[c], cache: "HIT", fetchedAt: deps.now } : { err: "no_data" }), rows: async () => ({ data: [] }), table: "" };
 const series = async (id) => { const [i, q] = id.split("&"); const res = await handlePlab(new URL("https://x.test/api/plab/series?id=" + encodeURIComponent(i) + (q ? "&" + q : "")), env, {}, {}, json, deps); return { st: res.status, b: await res.json() }; };
 kv.set("ref/je/table", ["IE00BK5BQT80\t0.19\t55100\tEUR\tA\tP\tSampling\tIreland\tUSD\t0\tVanguard\tEquity, World\tETF\t23 July 2019\tVanguard FTSE All-World\t2026-10-20", "IE00B4L5Y983\t0.2\t131754\tEUR\tA\tP\tOptimized sampling\tIreland\tUSD\t0\tiShares\tEquity, World\tETF\t25 September 2009\tiShares Core MSCI World UCITS ETF USD (Acc)\t2026-10-20"].join("\n"));
 r = await series("C:EUNL-DE");
