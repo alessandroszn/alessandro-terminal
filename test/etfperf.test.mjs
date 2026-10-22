@@ -31,7 +31,7 @@ const env = { BRIEFS: { get: async (k) => kv.get(k) ?? null, put: async (k, v, o
 const asked = []; const deps = { daily: async (code) => { asked.push(code); return code === "M3-DE" ? { err: "no_data" } : { data: rows }; } };
 let r = await refreshEtfPerf(env, 0, deps);
 ok("cron: 8 funds (Xetra first, by their EUR line), one KV write, errors listed", r.ids.length === PERF_BATCH && asked[0] === "M0-DE" && r.computed === 7 && writes.length === 1 && writes[0][0] === PERF_KEY && kv.get(PERF_KEY).split("\n").length === 7 && r.errors[0] === "XX3:no_data", JSON.stringify(r));
-asked.length = 0; r = await refreshEtfPerf(env, 600_000, deps);
+asked.length = 0; r = await refreshEtfPerf(env, 1_200_000, deps); // the next 20-minute slot
 ok("…the next run: the next 8, wrapping to the U.S. list and back", r.ids.join() === "XX8,XX9,SPY,QQQ,XX0,XX1,XX2,XX3" && asked.includes("SPY") && kv.get(PERF_KEY).split("\n").length === 11, r.ids.join());
 ok("its own trigger in wrangler.toml, never the alerts' run", readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8").includes(`"${PERF_CRON}"`) && PERF_CRON !== "*/5 * * * *");
 // the routes
@@ -48,7 +48,28 @@ const { cnbcDaily } = await import("../src/cnbc.mjs");
 const store = new Map(); globalThis.caches = { default: { match: async (q) => { const k = typeof q === "string" ? q : q.url; return store.has(k) ? new Response(store.get(k)) : undefined; }, put: async (q, r) => { store.set(typeof q === "string" ? q : q.url, await r.text()); } } };
 let calls = 0; const realFetch = globalThis.fetch; globalThis.fetch = async (u) => { calls++; return new Response("Forbidden", { status: 403 }); };
 const a1 = await cnbcDaily("https://x.test", { waitUntil() {} }, "AAA-DE", 1900, Date.now()), a2 = await cnbcDaily("https://x.test", { waitUntil() {} }, "BBB-DE", 1900, Date.now());
-ok("CNBC refuses (403): the error said, then a 10-minute pause — the next symbol is not asked", a1.err === "provider_forbidden" && a2.err === "provider_forbidden" && calls === 1, `calls ${calls}`);
+ok("CNBC refuses (403): the error said, then a pause — the next symbol is not asked", a1.err === "provider_forbidden" && a2.err === "provider_forbidden" && calls === 1, `calls ${calls}`);
 globalThis.fetch = realFetch;
+
+// KV writes (1,000 a day on the free plan): the justETF reader every 15 minutes, the screener at minutes 2, 22, 42 only,
+// consecutive screener runs on consecutive batches
+{
+  const { default: W } = await import("../src/worker.mjs");
+  const { ALERT_CRON } = await import("../src/alerts.mjs");
+  const { PERF_SLOT, PERF_BATCH: B } = await import("../src/etfperf.mjs");
+  const { EA_STATE_V } = await import("../src/ecbassets.mjs");
+  // the ECB list read and up to date (its slices would take the run otherwise)
+  const ecbIdle = JSON.stringify({ v: EA_STATE_V, done: "261021", next: Date.parse("2026-10-23T00:00:00Z") });
+  const run = async (cron, iso) => { const read = [], waits = [];
+    const env = { BRIEFS: { get: async (k) => { read.push(k); return k === "bond/ecb-state" ? ecbIdle : null; }, put: async () => {} }, ALLOWED_ORIGIN: "https://x.test" };
+    await W.scheduled({ cron, scheduledTime: Date.parse(iso) }, env, { waitUntil: (p) => waits.push(p) }); await Promise.allSettled(waits); return read; };
+  const at = (m) => `2026-10-22T10:${String(m).padStart(2, "0")}:00Z`;
+  const je = async (m) => (await run(ALERT_CRON, at(m))).includes("ref/je/prio2");
+  ok("justETF reader: in the runs at :00, :15, :30, :45 only (96 a day, was 288)", (await je(0)) && !(await je(5)) && !(await je(10)) && (await je(15)) && (await je(45)) && !(await je(50)));
+  const perf = async (m) => (await run(PERF_CRON, at(m))).some((k) => k.startsWith("etf/"));
+  ok("screener: the runs at minutes 2, 22, 42 only (72 a day, was 144)", (await perf(2)) && !(await perf(12)) && (await perf(22)) && !(await perf(32)) && (await perf(42)) && !(await perf(52)));
+  const slot = (m) => Math.floor(Date.parse(at(m)) / PERF_SLOT);
+  ok("…consecutive runs take consecutive batches of " + B + " (none skipped)", slot(22) - slot(2) === 1 && slot(42) - slot(22) === 1);
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

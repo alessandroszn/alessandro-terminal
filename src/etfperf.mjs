@@ -16,7 +16,9 @@ export const PERF_CRON = "2-59/10 * * * *";
 export const PERF_KEY = "etf/perf";
 export const PERF_COLS = ["id", "asOf", "r1", "r3", "r5", "vol", "mdd", "first", "ccy"];
 export const PERF_DAYS = 1900, PERF_BATCH = 8;
-const DAY = 86400_000, KEEP = 60 * 86400, SLOT10 = 600_000;
+// one batch per 20-minute slot (the runs at minutes 2, 22, 42): consecutive runs take consecutive batches, none skipped
+export const PERF_SLOT = 1_200_000;
+const DAY = 86400_000, KEEP = 60 * 86400;
 const getJ = async (env, k) => { try { const t = await env.BRIEFS.get(k); return t ? JSON.parse(t) : null; } catch { return null; } };
 const r4 = (v) => (Number.isFinite(v) ? Math.round(v * 1e6) / 1e6 : "");
 
@@ -71,7 +73,7 @@ async function compute(ids, L, load) {
 export async function refreshEtfPerf(env, now = Date.now(), deps = {}) {
   if (!env.BRIEFS) return { skipped: "no_kv" };
   const L = await lists(env); if (!L.order.length) return { skipped: "no_lists" };
-  const k = Math.floor(now / SLOT10) * PERF_BATCH % L.order.length, ids = [];
+  const k = Math.floor(now / PERF_SLOT) * PERF_BATCH % L.order.length, ids = [];
   for (let j = 0; j < PERF_BATCH && j < L.order.length; j++) ids.push(L.order[(k + j) % L.order.length]);
   const res = await compute(ids, L, deps.daily || daily(env.ALLOWED_ORIGIN || "https://alessandrozanichelli.com", deps.ctx || {}, now));
   let table = (await env.BRIEFS.get(PERF_KEY)) || "", n = 0;
