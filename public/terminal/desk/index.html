@@ -56,6 +56,7 @@
   /* command bar */
   #cmdbar{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;padding:5px 10px;background:linear-gradient(180deg,var(--bar-1),var(--bar-2));border-bottom:1px solid var(--line-2)}
   .brand{display:flex;align-items:baseline;gap:6px;white-space:nowrap;letter-spacing:.14em;font-weight:700;font-size:13px}
+  .brand .az{color:var(--amber)} /* AZ in the theme's accent, TERMINAL in the text colour */
   
   .cmd-wrap{position:relative;flex:0 0 240px;min-width:0}
   .cmd-wrap::before{content:">";position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--amber);font-weight:700}
@@ -581,7 +582,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 <div id="topband" aria-hidden="true"></div>
 <div id="app">
   <div id="cmdbar">
-    <div class="brand" title="Alessandro Terminal">AZ TERMINAL</div>
+    <div class="brand" title="Alessandro Terminal"><span class="az">AZ</span> TERMINAL</div>
     <div class="cmd-wrap">
       <input id="cmd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Command line"
              placeholder="Ticker, company, ISIN or function" title="Ticker, company name, ISIN or function — e.g. NVDA, Novartis, NESN, IT0000072618, WL, HELP">
