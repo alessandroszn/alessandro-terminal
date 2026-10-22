@@ -291,6 +291,14 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## Corners and windows that fit (desktop, 23 Oct 2026)
+- A window dropped with the pointer in a corner of the desk takes that quarter (four windows a screen); at the top edge it
+  is maximised, at the left / right edge it takes that half (as before).
+- A window's content follows its own width (CSS container queries on `.win-body`, desktop only — the phone layout keeps
+  its own rules): ≤ 820 px denser tables and two-column layouts stacked; ≤ 620 px denser still. A table still wider than
+  its window is drawn smaller to fit (CSS zoom, down to 72 %, on every repaint and size change — ResizeObserver); below
+  that it scrolls. Every column stays.
+
 ## Split screen (desktop)
 - ◫ in the taskbar, ◫ in a window's title, Alt+← / Alt+→, `SPLIT` in the command line or the menu (LAYOUT): the window
   in front and the previous one side by side, each full height; again: swap. A divider between them: drag to resize

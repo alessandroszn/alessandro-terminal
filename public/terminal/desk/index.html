@@ -583,6 +583,20 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
 .note-item .txt{white-space:pre-wrap;font-size:12px}
 .pf-form label{font-size:10.5px}
 .al-tg,.al-eng{margin:8px 0;padding:6px 8px;border:1px solid var(--line-2);font-size:11.5px;line-height:1.7}.al-steps{margin:4px 0 0 18px;padding:0}.al-steps li{margin:2px 0}.al-chat{display:inline-block;margin:2px 8px 2px 0}.al-h{margin:8px 0 2px;font-size:10.5px;letter-spacing:.08em;color:var(--muted)}
+  /* a window's content follows the window's own width (desktop; the phone layout keeps its own rules) */
+  body:not(.phone) .win-body{container-type:inline-size}
+  @container (max-width:820px){
+    .pl-cols{grid-template-columns:minmax(0,1fr)}
+    .win-body .pf{font-size:11px}
+    .win-body .pf td,.win-body .pf th{padding:4px 6px}
+  }
+  @container (max-width:620px){
+    .win-body .pf td,.win-body .pf th{padding:3px 4px}
+    .win-body .pf th{font-size:9px;letter-spacing:.04em}
+    .tfbar .tf{padding-left:6px;padding-right:6px}
+    .pf-kpis{grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+    .ef-kv{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  }
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -3876,7 +3890,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const TOUR=()=>[['#cmd',tl('COMMAND LINE','RIGA DI COMANDO'),tl('Type a ticker (NVDA), a function code (CAL, MAP, CB) or both (DES AAPL, WS MSFT). Anything else searches the symbol master. Press / to jump here.','Scrivi un ticker (NVDA), il codice di una funzione (CAL, MAP, CB) o entrambi (DES AAPL, WS MSFT). Qualsiasi altro testo cerca nell\'anagrafica. Premi / per tornare qui.')],
     ['#fnMenuBtn',tl('FUNCTIONS MENU','MENU DELLE FUNZIONI'),tl('Every function by category with its code: markets, rates & macro, analysis, your own lists, layout. Type to filter, Enter to open.','Tutte le funzioni per categoria con il loro codice: mercati, tassi e macro, analisi, le tue liste, layout. Scrivi per filtrare, Invio per aprire.')],
     ['#tabs',tl('TASKBAR','BARRA DELLE FINESTRE'),tl('Open windows. TILE arranges them, CLOSE closes all, UNDO brings them back.','Finestre aperte. AFFIANCA le dispone, CHIUDI le chiude tutte, ANNULLA le riapre.')],
-    ['#desk',tl('WINDOWS','FINESTRE'),tl('Drag a window by its title, resize from the corner, double-click the title to maximise. Drag to an edge to snap.','Trascina una finestra dal titolo, ridimensionala dall\'angolo, doppio clic sul titolo per ingrandirla. Trascinala su un bordo per agganciarla.')],
+    ['#desk',tl('WINDOWS','FINESTRE'),tl('Drag a window by its title, resize from the corner, double-click the title to maximise. Drag to an edge to snap it to a half, into a corner for a quarter: four windows a screen, their content fitted to the size.','Trascina una finestra dal titolo, ridimensionala dall\'angolo, doppio clic sul titolo per ingrandirla. Trascinala su un bordo per metà schermo, in un angolo per un quarto: quattro finestre per schermo, con il contenuto adattato alla dimensione.')],
     ['.win .w-pv',tl('DATA LABELS','ETICHETTE DEI DATI'),tl('Each window says what its data is: LIVE, STALE (real but old), PARTIAL, DERIVED (computed here from real data) or N/A (no real source — nothing is invented). Hover for details.','Ogni finestra dice com\'è il suo dato: LIVE, STALE (reale ma vecchio), PARTIAL, DERIVED (calcolato qui da dati reali) o N/A (nessuna fonte reale — nulla è inventato). Passa sopra per i dettagli.')],
     ['#topStatus',tl('STATUS','STATO'),tl('The state of the data on screen, the exchanges open now and the next high-impact event. Click each for details (system status, world exchanges, calendar).','Lo stato dei dati sullo schermo, le borse aperte ora e il prossimo evento ad alto impatto. Clic su ognuno per i dettagli (stato del sistema, borse mondiali, calendario).')],
     ['#dock',tl('DOCK','BARRA IN BASSO'),tl('A few functions one click away — every other one is in ☰ FUNCTIONS or the command line. On the right, the count of live, stale and N/A data on screen (hover for the U.S. session, watchlist breadth and the last pull).','Alcune funzioni a un clic — tutte le altre sono in ☰ FUNZIONI o nella riga di comando. A destra, il conteggio dei dati live, vecchi e N/A sullo schermo (passa sopra per seduta USA, ampiezza della watchlist e ultimo aggiornamento).')],
@@ -4338,7 +4352,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- window manager ---------- */
   function isMobile(){return window.innerWidth<=880;}
   function paintWin(w){const def=WINTYPES[w.type],a=document.activeElement,fk=a&&w.bodyEl.contains(a)?(a.getAttribute('data-k')||a.getAttribute('name')):null;let caret=null;try{caret=a&&a.selectionStart;}catch(e){}
-    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();def.render(w.bodyEl,w);lwSweep(w);w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);updateGlobal();
+    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();def.render(w.bodyEl,w);lwSweep(w);if(!phoneOn())requestAnimationFrame(()=>fitTables(w));w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);updateGlobal();
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
@@ -4392,7 +4406,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
     el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
-    deskEl.appendChild(el);w.el=el;w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
+    deskEl.appendChild(el);w.el=el;if('ResizeObserver' in window){let fr=0;w._ro=new ResizeObserver(()=>{if(fr)return;fr=requestAnimationFrame(()=>{fr=0;fitTables(w);});});w._ro.observe(el);}w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
     el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
     el.querySelector('.w-split').onclick=e=>{e.stopPropagation();splitFrom(w);};
@@ -4410,13 +4424,23 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{ex:'ALL',sector:'ALL',cap:'ALL',dir:'ALL',country:'ALL',sort:'cap',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow(type,state||defaultState(type));}
-  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
+  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);if(w._ro){w._ro.disconnect();w._ro=null;}const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
   function closeAll(){splitEnd();splitPendingOff();if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
   function undoClose(){const item=closedStack.pop();if(!item)return;const arr=Array.isArray(item)?item:[item];arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);});renderTaskbar();}
   function toggleMin(w){if(!SPLIT.busy&&(SPLIT.l===w.id||SPLIT.r===w.id))splitEnd();w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
   function toggleMax(w){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
   // interactive charts (Lightweight Charts) size themselves; canvas drawings are redrawn
-  function reflowWin(w){if(!w.bodyEl||w.min)return;
+  /* ---------- windows that adapt to their size (desktop, 23 Oct 2026) ----------
+     A window in a quarter of the desk, or made small, keeps its content whole and readable: denser tables and two-column
+     layouts stacked (container queries on .win-body, in the styles), and a table still wider than the window drawn smaller
+     to fit (CSS zoom, down to 72 %; below that it scrolls). Every column stays; nothing is hidden. */
+  const FIT_MIN=0.72;
+  function fitTables(w){if(!w||!w.bodyEl||w.min||phoneOn())return;const ts=[...w.bodyEl.querySelectorAll('table.pf')];if(!ts.length)return;
+    ts.forEach(t=>{if(t.style.zoom)t.style.zoom='';});
+    const z=ts.map(t=>{const h=t.parentElement;if(!h)return'';const cs=getComputedStyle(h),avail=h.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0),need=t.scrollWidth;
+      return need>avail+2&&avail>0?String(Math.max(FIT_MIN,Math.floor(avail/need*100)/100)):'';});
+    ts.forEach((t,i)=>{if(z[i])t.style.zoom=z[i];});}
+  function reflowWin(w){if(!w.bodyEl||w.min)return;fitTables(w);
     if(w.type==='MAP')drawSpx(w);
     else if(w._draw)w._draw();}
   function tileAll(){splitEnd();splitPendingOff();const live=wins.filter(w=>!w.min);if(!live.length||isMobile())return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;const cols=Math.ceil(Math.sqrt(live.length)),rows=Math.ceil(live.length/cols);const cw=Math.floor(dw/cols),ch=Math.floor(dh/rows);
@@ -4426,9 +4450,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function startDrag(w,e,head){if(isMobile()||w.max)return;if(e.target.closest('.w-ctl'))return;e.preventDefault();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
     drag={w,sx:e.clientX,sy:e.clientY,ox:w.x,oy:w.y};head.setPointerCapture&&head.setPointerCapture(e.pointerId);
     const move=ev=>{if(!drag)return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;w.x=Math.max(0,Math.min(drag.ox+(ev.clientX-drag.sx),dw-60));w.y=Math.max(0,Math.min(drag.oy+(ev.clientY-drag.sy),dh-28));applyRect(w);};
-    const up=ev=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);snap(w);drag=null;};
+    const up=ev=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);snap(w,ev);drag=null;};
     window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);}
-  function snap(w){const dw=deskEl.clientWidth,dh=deskEl.clientHeight,T=26;
+  // dropped with the pointer in a corner of the desk: that quarter (four windows a screen); at the top edge: maximised;
+  // at the left / right edge: that half
+  function snap(w,ev){const dw=deskEl.clientWidth,dh=deskEl.clientHeight,T=26;
+    if(ev&&fin(ev.clientX)){const r=deskEl.getBoundingClientRect(),px=ev.clientX-r.left,py=ev.clientY-r.top,C=48,G=6;
+      const L=px<=C,R=px>=dw-C,Tp=py<=C,B=py>=dh-C;
+      if((L||R)&&(Tp||B)){const qw=Math.floor((dw-G)/2),qh=Math.floor((dh-G)/2);w.max=false;w.el.classList.remove('ismax');w.w=qw;w.h=qh;w.x=L?0:dw-qw;w.y=Tp?0:dh-qh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));return;}}
     if(w.y<=T){w.max=true;w.el.classList.add('ismax');requestAnimationFrame(()=>reflowWin(w));return;}
     if(w.x<=T){w.x=0;w.y=0;w.w=Math.floor(dw/2);w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
     else if(w.x+w.w>=dw-T){w.w=Math.floor(dw/2);w.x=dw-w.w;w.y=0;w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}}

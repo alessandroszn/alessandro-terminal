@@ -1386,6 +1386,31 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.click("#desk", { position: { x: 5, y: 5 } }).catch(() => null); await page.evaluate(() => document.activeElement && document.activeElement.blur());
   await page.keyboard.press("Alt+ArrowRight"); await page.waitForTimeout(400); g = await geo();
   ok("[M] Alt+→: the window in front on the right half, the previous one on the left", pick(g, /^ECONOMIC|^CALENDAR/) && pick(g, /^ECONOMIC|^CALENDAR/).x > g.dw / 2 - 5 && pick(g, /^NEWS/).x === 0, JSON.stringify(g.ws));
+  // corners: a window dropped with the pointer in a corner takes that quarter; its content adapts (denser, tables fitted)
+  await cmd(page, "CLOSE"); await page.waitForTimeout(300); await cmd(page, "CB"); await page.waitForTimeout(1200);
+  const dragTo = async (title, cx, cy) => { const hd2 = await page.evaluate((t) => { const w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith(t)); const r = w.querySelector(".w-title").getBoundingClientRect(); return { x: r.left + 10, y: r.top + r.height / 2 }; }, title);
+    await page.mouse.move(hd2.x, hd2.y); await page.mouse.down(); await page.mouse.move(cx, cy, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(700); };
+  const dbox = await page.$eval("#desk", (d) => { const r = d.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+  await dragTo("CENTRAL BANKS", dbox.x + 4, dbox.y + 4);
+  const fitOf = (t) => page.evaluate((t) => { const d = document.querySelector("#desk").getBoundingClientRect(), w = [...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith(t)), r = w.getBoundingClientRect(), b = w.querySelector(".win-body");
+    const tb = [...b.querySelectorAll("table.pf")].map((x) => ({ z: x.style.zoom || "", w: Math.round(x.getBoundingClientRect().width), host: Math.round(x.parentElement.getBoundingClientRect().width) }));
+    return { x: Math.round(r.left - d.left), y: Math.round(r.top - d.top), w: Math.round(r.width), h: Math.round(r.height), dw: Math.round(d.width), dh: Math.round(d.height), tb, pad: getComputedStyle(b.querySelector(".pf td") || b).paddingLeft }; }, t);
+  let q = await fitOf("CENTRAL BANKS");
+  ok("[M] a window dropped in the top-left corner: the top-left quarter", q.x === 0 && q.y === 0 && Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && Math.abs(q.h - Math.floor((q.dh - 6) / 2)) <= 1, JSON.stringify(q));
+  ok("[M] …its content adapts: denser rows, every table within the quarter (every column kept)", q.pad === "6px" && q.tb.length && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q.tb) + " pad " + q.pad);
+  await cmd(page, "IDX"); await page.waitForTimeout(2500);
+  await dragTo("WORLD INDICES", dbox.x + dbox.w - 4, dbox.y + dbox.h - 4);
+  q = await fitOf("WORLD INDICES");
+  ok("[M] …bottom-right corner: the bottom-right quarter; its wide table drawn smaller to fit", q.x === q.dw - q.w && q.y === q.dh - q.h && Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && q.tb.some((t) => t.z && +t.z < 1) && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q));
+  // four windows, one a corner
+  await cmd(page, "COT"); await page.waitForTimeout(1200); await dragTo("FUTURES POSITIONING", dbox.x + dbox.w - 4, dbox.y + 4);
+  await cmd(page, "YLD"); await page.waitForTimeout(1500); await dragTo("GOVERNMENT YIELDS", dbox.x + 4, dbox.y + dbox.h - 4);
+  const four = await Promise.all(["CENTRAL BANKS", "FUTURES POSITIONING", "GOVERNMENT YIELDS", "WORLD INDICES"].map(fitOf));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/quarters.png" });
+  ok("[M] four windows in the four corners: one a quarter each, none overlapping, every table within its window", four.every((q) => Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && Math.abs(q.h - Math.floor((q.dh - 6) / 2)) <= 1 && q.tb.every((x) => x.w <= x.host + 2 || x.z === "0.72")) && new Set(four.map((q) => q.x + "," + q.y)).size === 4, JSON.stringify(four.map((q) => [q.x, q.y, q.w, q.h, q.tb.map((x) => x.z + ":" + x.w + "/" + x.host).join(" ")])));
+  await page.click(".tb-tile").catch(() => null); await cmd(page, "TILE"); await page.waitForTimeout(800);
+  q = await fitOf("WORLD INDICES");
+  ok("[M] …TILE: the four tiled 2 × 2, the tables still within their windows (at the smallest size they scroll)", Math.abs(q.h - (Math.floor(q.dh / 2) - 6)) <= 2 && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[M] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "SPLIT NVDA MKT"); await page.waitForTimeout(1500); await page.screenshot({ path: SHOTS + "/split.png" }); }
