@@ -14,17 +14,18 @@ def bg(w, h):
     return im
 
 def mark(im, cx, cy, size):
-    """The terminal's prompt: an amber '>' and an amber block cursor on one line (no initials, no degree sign)."""
+    """The terminal's prompt with the initials, on one line: an amber '>', 'AZ' in the terminal's mono, an amber block cursor."""
     d = ImageDraw.Draw(im)
-    g = ImageFont.truetype(BOLD, int(size * 0.5))
-    gb = d.textbbox((0, 0), ">", font=g)
-    gw, gh = gb[2] - gb[0], gb[3] - gb[1]
-    cw, gap = size * 0.16, size * 0.07
-    total = gw + gap + cw
-    x, top = cx - total / 2, cy - gh / 2
-    d.text((x - gb[0], top - gb[1]), ">", font=g, fill=AMBER)
-    bx = x + gw + gap
-    d.rectangle([bx, top - gh * 0.12, bx + cw, top + gh * 1.12], fill=AMBER)
+    f = ImageFont.truetype(BOLD, int(size * 0.36))
+    b1, b2 = d.textbbox((0, 0), ">", font=f), d.textbbox((0, 0), "AZ", font=f)
+    w1, w2, th = b1[2] - b1[0], b2[2] - b2[0], b2[3] - b2[1]
+    cw, gap = size * 0.11, size * 0.04
+    x, top = cx - (w1 + gap + w2 + gap + cw) / 2, cy - th / 2
+    d.text((x - b1[0], top - b2[1]), ">", font=f, fill=AMBER)
+    x += w1 + gap
+    d.text((x - b2[0], top - b2[1]), "AZ", font=f, fill=FG)
+    x += w2 + gap
+    d.rectangle([x, top + th * 0.08, x + cw, top + th], fill=AMBER)
 
 def icon(px, scale=1.0, name=None):
     im = bg(px, px)

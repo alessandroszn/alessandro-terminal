@@ -267,7 +267,7 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - When `/api` stops answering, a bar says why: SESSION EXPIRED (sign in again) or NO NETWORK — checked with
   `/api/health`, also when the app comes back from the background after 5 minutes.
 - Icons and launch images: `public/terminal/app/`, drawn by `tools/mkicons.py` — since 22 Oct 2026 the terminal's prompt
-  (an amber `>` and block cursor, no initials, no degree sign); the top bar reads AZ TERMINAL. An installed iPhone app
+  on one line: an amber `>`, AZ, an amber block cursor (no degree sign); the top bar reads AZ TERMINAL. An installed iPhone app
   shows the new icon once removed from the Home Screen and added again.
 
 ## Languages (EN / IT)
