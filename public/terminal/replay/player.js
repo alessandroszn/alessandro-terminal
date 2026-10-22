@@ -29,6 +29,9 @@
     get length() { return Object.keys(mem).length; }
   };
   try { Object.defineProperty(window, "localStorage", { configurable: true, get: function () { return store; } }); } catch (e) { /* the real storage stays */ }
+  // the interface language chosen on /terminal/ (EN / IT), read by the terminal's i18n.js at its start
+  var askedLang = new URLSearchParams(location.search).get("lang");
+  if (askedLang === "en" || askedLang === "it") mem["at-lang"] = askedLang;
 
   // ---------- the clock of the recording ----------
   var t0 = META && META.t0 ? Date.parse(META.t0) : NaN;
@@ -119,7 +122,7 @@
       var s = STEPS[i]; state.i = i;
       if (s.desk && phone) continue;
       await whilePaused();
-      if (s.say) caption(L(s.say[0], s.say[1]));
+      if (s.say) { state.said = i; caption(L(s.say[0], s.say[1])); }
       if (s.cmd) await typeCmd(s.cmd);
       if (s.click) { var b = document.querySelector(s.click); if (b) b.click(); }
       post({ step: i, of: STEPS.length });
@@ -180,6 +183,15 @@
   window.addEventListener("message", function (e) {
     if (e.origin !== location.origin || !e.data || e.data.az !== "control") return;
     if (e.data.cmd === "pause") setPaused(true); else if (e.data.cmd === "play") setPaused(false); else if (e.data.cmd === "toggle") setPaused(!state.paused); else if (e.data.cmd === "again") location.reload();
+    else if (e.data.cmd === "lang" && (e.data.lang === "en" || e.data.lang === "it")) {
+      // the terminal's own EN / IT buttons: they repaint every window; then the banner and the caption in that language
+      var b = document.querySelector('#cmdbar [data-lang="' + e.data.lang + '"]');
+      if (b && window.I18N && window.I18N.lang() !== e.data.lang) b.click();
+      if (state.done) capText = L("End of the recording — ↺ plays it again. Type a function in the command line to look around.", "Fine della registrazione — ↺ la riproduce di nuovo. Scrivi una funzione nella riga di comando per esplorare.");
+      else if (state.said != null) capText = L(STEPS[state.said].say[0], STEPS[state.said].say[1]);
+      else if (false) capText = L("End of the recording — ↺ plays it again. Type a function in the command line to look around.", "Fine della registrazione — ↺ la riproduce di nuovo. Scrivi una funzione nella riga di comando per esplorare.");
+      if (!REC) paintBar();
+    }
   });
 
   // the terminal calls this at the end of its start (boot): no quotes polled, no alerts, no service worker

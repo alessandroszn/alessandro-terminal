@@ -37,6 +37,10 @@
   .ctl{display:flex;gap:6px}
   .ctl button{font:inherit;font-size:12px;min-width:34px;height:28px;color:var(--amber);background:transparent;border:1px solid var(--line-2);border-radius:4px;cursor:pointer}
   .ctl button:hover,.ctl button:focus-visible{border-color:var(--amber);outline:none}
+  .lang{display:inline-flex;border:1px solid var(--line-2);border-radius:4px;overflow:hidden}
+  .lang button{font:inherit;font-size:11px;letter-spacing:.06em;color:var(--muted);background:transparent;border:0;padding:0 8px;height:26px;cursor:pointer}
+  .lang button[aria-pressed="true"]{color:#0a0b0e;background:var(--amber)}
+  .lang button:focus-visible{outline:1px solid var(--amber);outline-offset:-1px}
   .login{font-weight:600;font-size:12px;letter-spacing:.06em;text-decoration:none;color:#0a0b0e;background:var(--amber);border-radius:4px;padding:5px 12px;white-space:nowrap}
   .login:hover,.login:focus-visible{filter:brightness(1.1);outline:none}
   /* a computer: the terminal fills the window */
@@ -49,6 +53,13 @@
   .loader span{color:var(--muted);font-size:12px}
   .loader.off{opacity:0;pointer-events:none}
   /* a phone or a narrow window: words first, then the terminal in its phone layout */
+  @media (max-width:480px){
+    .top{gap:8px}
+    .brand{letter-spacing:.08em;font-size:12px}
+    .ctl{gap:4px}.ctl button{min-width:28px}
+    .lang button{padding:0 6px}
+    .login{padding:5px 9px}
+  }
   @media (max-width:900px){
     .top h1{display:none}
     .hero{display:block;padding:22px max(16px, env(safe-area-inset-left)) 6px}
@@ -70,6 +81,7 @@
       <button type="button" id="pp" data-tl="pause" title="Pausa" aria-label="Pausa">❚❚</button>
       <button type="button" id="again" data-tl="again" title="Ricomincia" aria-label="Ricomincia">↺</button>
     </div>
+    <span class="lang" role="group" aria-label="Language / Lingua"><button type="button" data-lang="en" aria-pressed="false">EN</button><button type="button" data-lang="it" aria-pressed="true">IT</button></span>
     <a class="login" href="/terminal/desk/" data-t="login">Accedi →</a>
   </header>
 
@@ -82,7 +94,7 @@
 
   <main class="stage">
     <div class="loader" id="loader" role="status"><b>AZ TERMINAL</b><span data-t="loading">caricamento della registrazione…</span></div>
-    <iframe id="rp" src="/terminal/replay/" title="AZ TERMINAL — registrazione" loading="eager" referrerpolicy="same-origin"></iframe>
+    <iframe id="rp" title="AZ TERMINAL — registrazione" loading="eager" referrerpolicy="same-origin"></iframe>
   </main>
 
   <div class="foot"><a class="login" href="/terminal/desk/" data-t="login">Accedi →</a></div>
@@ -90,7 +102,9 @@
 <script>
 (function () {
   "use strict";
-  var it = /^it\b/i.test(navigator.language || "");
+  // the language: the one chosen here before (this page's own key), else the browser's
+  var saved = null; try { saved = localStorage.getItem("az-public-lang"); } catch (e) {}
+  var it = saved === "it" || saved === "en" ? saved === "it" : /^it\b/i.test(navigator.language || "");
   var T = {
     title: ["A market terminal in the browser — playing itself on a recording of official sources", "Un terminale di mercato nel browser — si muove da solo su una registrazione di fonti ufficiali"],
     login: ["Sign in →", "Accedi →"],
@@ -104,16 +118,28 @@
     pause: ["Pause", "Pausa"], play: ["Play", "Riprendi"], again: ["Play again", "Ricomincia"], frame: ["AZ TERMINAL — recording", "AZ TERMINAL — registrazione"]
   };
   var t = function (k) { return T[k][it ? 1 : 0]; };
-  document.documentElement.lang = it ? "it" : "en";
-  Array.prototype.forEach.call(document.querySelectorAll("[data-t]"), function (el) { el.textContent = t(el.getAttribute("data-t")); });
   var f = document.getElementById("rp"), pp = document.getElementById("pp"), again = document.getElementById("again"), loader = document.getElementById("loader");
-  f.title = t("frame");
   var paused = false;
   var paint = function () { pp.textContent = paused ? "▶" : "❚❚"; pp.title = t(paused ? "play" : "pause"); pp.setAttribute("aria-label", pp.title); again.title = t("again"); again.setAttribute("aria-label", again.title); };
-  paint();
-  var send = function (cmd) { try { f.contentWindow.postMessage({ az: "control", cmd: cmd }, location.origin); } catch (e) {} };
+  var words = function () {
+    document.documentElement.lang = it ? "it" : "en";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-t]"), function (el) { el.textContent = t(el.getAttribute("data-t")); });
+    Array.prototype.forEach.call(document.querySelectorAll(".lang [data-lang]"), function (b) { b.setAttribute("aria-pressed", String((b.getAttribute("data-lang") === "it") === it)); });
+    f.title = t("frame"); paint();
+  };
+  words();
+  var src = function () { return "/terminal/replay/?lang=" + (it ? "it" : "en"); };
+  f.src = src();
+  Array.prototype.forEach.call(document.querySelectorAll(".lang [data-lang]"), function (b) {
+    b.onclick = function () {
+      var l = b.getAttribute("data-lang"); if ((l === "it") === it) return;
+      it = l === "it"; try { localStorage.setItem("az-public-lang", l); } catch (e) {}
+      words(); send("lang", l);
+    };
+  });
+  function send(cmd, lang) { try { f.contentWindow.postMessage({ az: "control", cmd: cmd, lang: lang }, location.origin); } catch (e) {} }
   pp.onclick = function () { paused = !paused; paint(); send(paused ? "pause" : "play"); };
-  again.onclick = function () { paused = false; paint(); loader.classList.remove("off"); f.src = "/terminal/replay/"; };
+  again.onclick = function () { paused = false; paint(); loader.classList.remove("off"); f.src = src(); };
   var hide = function () { loader.classList.add("off"); };
   f.addEventListener("load", function () { setTimeout(hide, 2500); });
   setTimeout(hide, 10000);

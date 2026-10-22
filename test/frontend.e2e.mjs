@@ -1758,7 +1758,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const top = await p2.evaluate(() => ({ h1: document.querySelector("h1").textContent, login: document.querySelector(".login").getAttribute("href"), robots: document.querySelector('meta[name="robots"]').content, ctl: document.querySelectorAll(".ctl button").length, hero: getComputedStyle(document.querySelector(".hero")).display }));
   ok("[R] /terminal/ on a computer: brand bar with ❚❚ / ↺ and the sign-in to /terminal/desk/, not indexed, the terminal filling the window", /market terminal in the browser/.test(top.h1) && top.login === "/terminal/desk/" && top.robots === "noindex,nofollow" && top.ctl === 2 && top.hero === "none", JSON.stringify(top));
   await p2.waitForFunction(() => document.querySelector("#loader").classList.contains("off"), null, { timeout: 20000 }).catch(() => null);
-  const fr = p2.frames().find((f) => /\/terminal\/replay\/$/.test(f.url()));
+  const fr = p2.frames().find((f) => /\/terminal\/replay\/(\?|$)/.test(f.url()));
   const bar = fr ? await fr.evaluate(() => document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText) : "";
   ok("[R] the replay says what it is: a RECORDING of its date and time, official sources only, not real time", /RECORDING\s+of \d{1,2} \w{3} \d{4}, \d{2}:\d{2} Rome time · official sources only · not real time/.test(bar), bar);
   const clock = fr ? await fr.evaluate(() => Date.now()) : 0;
@@ -1781,6 +1781,13 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await p2.click("#pp"); await p2.waitForTimeout(300);
   const paused = await fr.evaluate(() => window.AZ_REPLAY.state.paused), ppTxt = await p2.textContent("#pp");
   await p2.click("#pp"); await p2.waitForTimeout(300);
+  // EN / IT on /terminal/: the page's words and the replay's interface switch together, remembered on this page only
+  await p2.click('.lang [data-lang="it"]'); await p2.waitForTimeout(800);
+  const itNow = { h1: await p2.textContent("h1"), login: await p2.textContent(".top .login"), app: await fr.evaluate(() => window.I18N.lang()), bar: await fr.evaluate(() => document.querySelector("#rpbar").innerText), key: await p2.evaluate(() => localStorage.getItem("az-public-lang")), src: await p2.evaluate(() => document.querySelector("#rp").getAttribute("src")) };
+  await p2.click('.lang [data-lang="en"]'); await p2.waitForTimeout(800);
+  const enNow = { h1: await p2.textContent("h1"), app: await fr.evaluate(() => window.I18N.lang()), bar: await fr.evaluate(() => document.querySelector("#rpbar").innerText) };
+  ok("[R] EN / IT at the top of /terminal/: the presentation and the replay (windows, banner, caption) switch language", /mercato nel browser/.test(itNow.h1) && /Accedi/.test(itNow.login) && itNow.app === "it" && /REGISTRAZIONE/.test(itNow.bar) && itNow.key === "it" && /market terminal in the browser/.test(enNow.h1) && enNow.app === "en" && /RECORDING/.test(enNow.bar) && /lang=en/.test(itNow.src), JSON.stringify({ itNow, enNow }));
+  await p2.evaluate(() => localStorage.removeItem("az-public-lang"));
   ok("[R] ❚❚ pauses the replay and becomes ▶; again resumes", paused === true && ppTxt === "▶" && (await fr.evaluate(() => window.AZ_REPLAY.state.paused)) === false && (await p2.textContent("#pp")) === "❚❚");
   const allTxt = (await p2.evaluate(() => document.body.innerText)) + (await fr.evaluate(() => document.body.innerText));
   ok("[R] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(allTxt) && !/\bNaN\b|undefined/.test(allTxt) && errs2.length === 0, errs2.join(" | ") + (allTxt.match(/.{40}(NaN|undefined).{40}/) || [""])[0]);
@@ -1794,7 +1801,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await p3.route("**/*", async (route) => { const u = new URL(route.request().url()); if (await pre(route, u)) return; if (await statics(route, u)) return; return route.abort(); });
   await p3.goto(ORIGIN + "/terminal/");
   await p3.waitForTimeout(6000);
-  const f3 = p3.frames().find((f) => /\/terminal\/replay\/$/.test(f.url()));
+  const f3 = p3.frames().find((f) => /\/terminal\/replay\/(\?|$)/.test(f.url()));
   const ph = await p3.evaluate(() => ({ h2: document.querySelector(".hero h2").textContent, hero: getComputedStyle(document.querySelector(".hero")).display, ifr: document.querySelector("#rp").getBoundingClientRect().height, lang: document.documentElement.lang }));
   const inner = f3 ? await f3.evaluate(() => ({ phone: document.body.classList.contains("phone"), wins: document.querySelectorAll(".win").length, bar: document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText })) : {};
   ok("[R] /terminal/ on a phone (Italian): the words first, then the terminal in its phone layout playing the recording", ph.hero === "block" && /Un terminale di mercato nel browser/.test(ph.h2) && ph.lang === "it" && ph.ifr > 400 && inner.phone && inner.wins >= 1 && /REGISTRAZIONE\s+del .* solo fonti ufficiali · non in tempo reale/.test(inner.bar || ""), JSON.stringify({ ph, inner }));
