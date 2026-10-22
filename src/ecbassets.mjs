@@ -1,7 +1,8 @@
 // ECB LIST — the Eurosystem's list of eligible marketable assets (approved 22 Oct 2026): the bonds the ECB accepts as
 // collateral, each with its ISIN, coupon, issue and maturity dates, currency and issuer — the terms of a bond (reference
-// data), never a price. Published Monday to Friday around 18:15 CET as one tab-separated file of several MB
-// (ea_csv_YYMMDD.csv). The free plan's CPU budget (10 ms a run) does not parse it in one go, so the PERF_CRON trigger
+// data), never a price. Published Monday to Friday around 18:15 CET as one tab-separated file (ea_csv_YYMMDD.csv; checked
+// 22 Oct 2026: UTF-16 little-endian with a byte-order mark, 8.9 MB, 31,345 assets — 21,280 fixed, 6,230 zero coupon, 3,835
+// variable; the issuer's residence written "IRIT"; the server ignores Range requests). The free plan's CPU budget (10 ms a run) does not parse it in one go, so the PERF_CRON trigger
 // reads it a slice at a time (a Range request; or the stream read up to the slice when the server sends the whole file)
 // and keeps the fixed-coupon and zero-coupon bonds in a compact table (KV bond/ecb: one line a bond), about a dozen runs
 // once a new file is out; the rest of the slots go to the ETF screener.
@@ -15,11 +16,15 @@ export const ECB_EA_PAGE = "https://www.ecb.europa.eu/paym/coll/assets/html/list
 export const EA_KEY = "bond/ecb", EA_STATE = "bond/ecb-state", EA_NEXT = "bond/ecb-next";
 export const EA_SLICE = 786432; // 768 KB a run
 export const EA_COLS = ["isin", "coupon", "issue", "maturity", "ccy", "residence", "group", "kind", "type", "issuer"];
+export const EA_STATE_V = 2; // a state written by an older reader is started again
 const HOUR = 3600_000, DAY = 86400_000;
 const HEAD = { isin: "ISIN_CODE", type: "TYPE", ccy: "DENOMINATION", issue: "ISSUANCE_DATE", maturity: "MATURITY_DATE", coupon: "COUPON_RATE (%)", issuer: "ISSUER_NAME", residence: "ISSUER_RESIDENCE", group: "ISSUER_GROUP", cd: "COUPON_DEFINITION" };
-// the coupon definitions kept: CD1 zero coupon, CD4 fixed (CD2 variable and the others need an index: not priced here)
+// the coupon definitions kept: CD1 zero coupon, CD4 fixed (CD2 variable: needs an index, not priced here). The list also
+// files inflation-linked bonds (BTP€i, BTP Italia, OATi, iBund) and step-ups (BTP Valore) as CD4 — told apart by
+// OpenFIGI's ticker in yas.mjs
 const KEEP_CD = { CD1: "Z", CD4: "F" };
-export const ISSUER_GROUPS = { IG1: "Central bank", IG2: "Central government", IG3: "Corporate", IG4: "Credit institution", IG5: "Regional / local government", IG6: "Supranational", IG7: "Agency", IG8: "Multilateral development bank" };
+// the issuer groups named in the ECB's dictionary; the others (IG5, IG7, IG8, IG9, IG11 …) are shown as their code
+export const ISSUER_GROUPS = { IG2: "Central government", IG3: "Corporate", IG4: "Credit institution", IG6: "Supranational" };
 export const ASSET_TYPES = { AT01: "Bond", AT02: "Medium-term note", AT03: "Commercial paper / bill" };
 
 const yymmdd = (t) => new Date(t).toISOString().slice(2, 10).replace(/-/g, "");
@@ -46,7 +51,21 @@ export function eaRow(line, c) {
   const maturity = dmy(unq(f[c.maturity])); if (!maturity) return null;
   const cp = kind === "Z" ? 0 : Number(unq(f[c.coupon]).replace(",", ".")); if (!Number.isFinite(cp) || cp < -5 || cp > 50) return null;
   const clean = (s, n) => unq(s).replace(/[\t\n]/g, " ").slice(0, n);
-  return [isin, String(Math.round(cp * 1e6) / 1e6), dmy(unq(f[c.issue])) || "", maturity, clean(f[c.ccy], 3).toUpperCase(), clean(f[c.residence], 2).toUpperCase(), clean(f[c.group], 4), kind, clean(f[c.type], 4), clean(f[c.issuer], 48)].join("\t");
+  return [isin, String(Math.round(cp * 1e6) / 1e6), dmy(unq(f[c.issue])) || "", maturity, clean(f[c.ccy], 3).toUpperCase(), clean(f[c.residence], 4).toUpperCase().replace(/^IR(?=[A-Z]{2}$)/, ""), clean(f[c.group], 4), kind, clean(f[c.type], 4), clean(f[c.issuer], 48)].join("\t");
+}
+// the file's encoding from its first bytes: UTF-16 little-endian with a byte-order mark (the ECB's file), else UTF-8
+export const eaEncoding = (buf) => (buf.length > 1 && buf[0] === 0xff && buf[1] === 0xfe ? "utf-16le" : "utf-8");
+// where the last whole line of a slice ends: after its "\n" (in UTF-16LE the bytes 0A 00 at an even offset)
+export function lastLineEnd(buf, enc) {
+  if (enc === "utf-16le") { for (let i = (buf.length & ~1) - 2; i >= 0; i -= 2) if (buf[i] === 10 && buf[i + 1] === 0) return i + 2; return 0; }
+  return buf.lastIndexOf(10) + 1;
+}
+export function eaDecode(buf, enc) {
+  if (enc !== "utf-16le") return new TextDecoder("utf-8").decode(buf);
+  try { return new TextDecoder("utf-16le").decode(buf); } catch { /* a runtime without it: by hand */ }
+  const n = buf.length >> 1, u = new Uint16Array(n); for (let i = 0; i < n; i++) u[i] = buf[2 * i] | (buf[2 * i + 1] << 8);
+  let out = ""; for (let i = 0; i < n; i += 8192) out += String.fromCharCode.apply(null, u.subarray(i, i + 8192));
+  return out.replace(/^\uFEFF/, "");
 }
 // a slice of bytes: the response to a Range request (206), or the whole file (200) read up to the slice and then stopped
 export async function readSlice(res, off, len) {
@@ -80,7 +99,7 @@ async function fetchSlice(url, off, len, fetchImpl) {
 export async function stepEcbList(env, now = Date.now(), deps = {}) {
   if (!env.BRIEFS) return { ran: false, skipped: "no_kv" };
   const fetchImpl = deps.fetch || fetch;
-  let st = (await getJ(env, EA_STATE)) || {};
+  let st = (await getJ(env, EA_STATE)) || {}; if (st.v !== EA_STATE_V) st = {};
   if (!st.reading) {
     if (st.next && now < st.next) return { ran: false };
     // the newest file out; nothing new when it is the one already in the table
@@ -89,31 +108,32 @@ export async function stepEcbList(env, now = Date.now(), deps = {}) {
       if (f === st.done) break;
       const s = await fetchSlice(eaFileUrl(f), 0, EA_SLICE, fetchImpl);
       if (s.err === "no_file") continue;
-      if (s.err) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ ...st, next: now + HOUR, error: s.err })); return { ran: true, error: s.err }; }
+      if (s.err) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ ...st, v: EA_STATE_V, next: now + HOUR, error: s.err })); return { ran: true, error: s.err }; }
       file = f; first = s; break;
     }
-    if (!file) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ ...st, next: now + 3 * HOUR, error: null })); return { ran: false, upToDate: st.done || null }; }
-    st = { done: st.done || null, reading: file, offset: 0, rows: 0, started: now };
+    if (!file) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ ...st, v: EA_STATE_V, next: now + 3 * HOUR, error: null })); return { ran: false, upToDate: st.done || null }; }
+    st = { v: EA_STATE_V, done: st.done || null, reading: file, offset: 0, rows: 0, started: now };
     return ingest(env, st, first, now, true);
   }
   const s = await fetchSlice(eaFileUrl(st.reading), st.offset, EA_SLICE, fetchImpl);
-  if (s.err === "no_file") { await env.BRIEFS.put(EA_STATE, JSON.stringify({ done: st.done || null, next: 0 })); return { ran: true, error: "file_gone" }; }
+  if (s.err === "no_file") { await env.BRIEFS.put(EA_STATE, JSON.stringify({ v: EA_STATE_V, done: st.done || null, next: 0 })); return { ran: true, error: "file_gone" }; }
   if (s.err) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ ...st, error: s.err, failures: (st.failures || 0) + 1, ...(st.failures >= 5 ? { reading: null, next: now + 6 * HOUR } : {}) })); return { ran: true, error: s.err }; }
   return ingest(env, st, s, now, false);
 }
 async function ingest(env, st, s, now, fresh) {
   const buf = s.buf, last = st.offset + buf.length >= (s.total == null ? Infinity : s.total) || buf.length < EA_SLICE;
-  let cut = buf.length; if (!last) { cut = buf.lastIndexOf(10) + 1; if (cut <= 0) return { ran: true, error: "line_too_long" }; }
-  const lines = new TextDecoder("utf-8").decode(buf.subarray(0, cut)).split("\n");
+  if (st.offset === 0) st.enc = eaEncoding(buf);
+  let cut = st.enc === "utf-16le" ? buf.length & ~1 : buf.length; if (!last) { cut = lastLineEnd(buf, st.enc); if (cut <= 0) return { ran: true, error: "line_too_long" }; }
+  const lines = eaDecode(buf.subarray(0, cut), st.enc).split("\n");
   let i = 0;
-  if (st.offset === 0) { const c = eaColumns(lines[0]); if (!c) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ done: st.done || null, next: now + 6 * HOUR, error: "unknown_columns" })); return { ran: true, error: "unknown_columns" }; } st.cols = c; i = 1; }
+  if (st.offset === 0) { const c = eaColumns(lines[0]); if (!c) { await env.BRIEFS.put(EA_STATE, JSON.stringify({ v: EA_STATE_V, done: st.done || null, next: now + 6 * HOUR, error: "unknown_columns" })); return { ran: true, error: "unknown_columns" }; } st.cols = c; i = 1; }
   const out = []; for (; i < lines.length; i++) { if (!lines[i]) continue; const r = eaRow(lines[i], st.cols); if (r) out.push(r); }
   const prev = fresh ? "" : (await env.BRIEFS.get(EA_NEXT)) || "", text = out.length ? (prev ? prev + "\n" : "") + out.join("\n") : prev;
   st.rows += out.length; st.offset += cut; st.failures = 0; st.error = null;
   if (last) {
     const head = ["#ECB", st.reading, st.rows, new Date(now).toISOString()].join("\t");
     await env.BRIEFS.put(EA_KEY, head + (text ? "\n" + text : ""));
-    await env.BRIEFS.put(EA_STATE, JSON.stringify({ done: st.reading, rows: st.rows, at: now, next: now + 6 * HOUR }));
+    await env.BRIEFS.put(EA_STATE, JSON.stringify({ v: EA_STATE_V, done: st.reading, rows: st.rows, at: now, next: now + 6 * HOUR }));
     MEMO.t = 0;
     return { ran: true, done: st.reading, rows: st.rows };
   }

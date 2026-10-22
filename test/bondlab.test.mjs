@@ -4,8 +4,8 @@
 // Fixtures in the providers' formats (test inputs only).
 //   node test/bondlab.test.mjs
 import { createRequire } from "node:module";
-import { eaCandidates, dmy, eaColumns, eaRow, readSlice, stepEcbList, eaTable, eaHead, eaLookup, eaList, eaResetMemo, EA_KEY, EA_STATE, EA_SLICE, eaFileUrl } from "../src/ecbassets.mjs";
-import { bondTerms, handleBondRef, freqOf } from "../src/yas.mjs";
+import { eaCandidates, dmy, eaColumns, eaRow, readSlice, stepEcbList, eaTable, eaHead, eaLookup, eaList, eaResetMemo, EA_KEY, EA_STATE, EA_SLICE, eaFileUrl, eaEncoding, lastLineEnd, eaDecode } from "../src/ecbassets.mjs";
+import { bondTerms, handleBondRef, freqOf, bondKind } from "../src/yas.mjs";
 import { handlePlab, bondPlan, bondTenors, curveCountry, sessionDated } from "../src/plab.mjs";
 import { validatePlab } from "../src/userdata.mjs";
 const require = createRequire(import.meta.url);
@@ -29,22 +29,30 @@ ok("dates: DD/MM/YYYY 00:00:00 → ISO", dmy("01/05/2033 00:00:00") === "2033-05
 // ---------- the file (the ECB's header and codes) ----------
 const HEADER = ["ISIN_CODE", "OTHER_REG_NUMBER", "HAIRCUT_CATEGORY", "TYPE", "REFERENCE_MARKET", "DENOMINATION", "ISSUANCE_DATE", "MATURITY_DATE", "ISSUER_CSD", "COUPON_RATE (%)", "ISSUER_NAME", "ISSUER_RESIDENCE", "ISSUER_GROUP", "GUARANTOR_NAME", "GUARANTOR_RESIDENCE", "GUARANTOR_GROUP", "COUPON_DEFINITION", "HAIRCUT", "HAIRCUT_OWN_USE", "POTENTIALLY_OWN_USABLE_COVERED_BOND", "CLIMATE_FACTOR"];
 const line = (isin, type, ccy, iss, mat, cpn, name, res, grp, cd) => [isin, "", "I", type, "M01", ccy, iss + " 00:00:00", mat + " 00:00:00", "IT01", cpn, name, res, grp, "", "", "", cd, "0.5", "", "N", ""].join("\t");
-const BTP = line("IT0005518128", "AT01", "EUR", "01/11/2022", "01/05/2033", "4.4", "Repubblica Italiana", "IT", "IG2", "CD4");
-const BOT = line("IT0005611303", "AT03", "EUR", "14/08/2026", "12/02/2027", "", "Repubblica Italiana", "IT", "IG2", "CD1");
-const CCT = line("IT0005584856", "AT01", "EUR", "15/04/2024", "15/10/2032", "3.9", "Repubblica Italiana", "IT", "IG2", "CD2");
-const BUND = line("DE0001102614", "AT01", "EUR", "11/01/2023", "15/02/2033", "2.3", "Bundesrepublik Deutschland", "DE", "IG2", "CD4");
-const CORP = line("XS2010030836", "AT02", "USD", "20/06/2019", "20/06/2029", "2.75", "Some Bank plc", "GB", "IG4", "CD4");
+// lines as the ECB writes them (checked 22 Oct 2026): residence "IRIT", issuer "Central government: Italian Republic"
+const GOV_IT = "Central government: Italian Republic";
+const BTP = line("IT0005518128", "AT01", "EUR", "01/11/2022", "01/05/2033", "4.4", GOV_IT, "IRIT", "IG2", "CD4");
+const BOT = line("IT0005611303", "AT03", "EUR", "14/08/2026", "12/02/2027", "", GOV_IT, "IRIT", "IG2", "CD1");
+const CCT = line("IT0005584856", "AT01", "EUR", "15/04/2024", "15/10/2032", "3.9", GOV_IT, "IRIT", "IG2", "CD2");
+const BUND = line("DE0001102614", "AT01", "EUR", "15/08/2022", "15/08/2053", "1.8", "Central government: Federal Republic of Germany", "IRDE", "IG2", "CD4");
+const CORP = line("XS2010030836", "AT02", "USD", "20/06/2019", "20/06/2029", "2.75", "Some Bank plc", "IRGB", "IG4", "CD4");
 const cols = eaColumns(HEADER.join("\t") + "\r");
 ok("columns found by name (a trailing \\r ignored)", cols && cols.isin === 0 && cols.cd === 16 && cols.coupon === 9 && cols.residence === 11);
 ok("…a header without the needed columns → null", eaColumns("A\tB\tC") === null);
-ok("fixed coupon kept: ISIN, coupon, issue, maturity, currency, residence, group, F, type, issuer", eaRow(BTP, cols) === "IT0005518128\t4.4\t2022-11-01\t2033-05-01\tEUR\tIT\tIG2\tF\tAT01\tRepubblica Italiana", eaRow(BTP, cols));
-ok("zero coupon kept with coupon 0 (Z)", eaRow(BOT, cols) === "IT0005611303\t0\t2026-08-14\t2027-02-12\tEUR\tIT\tIG2\tZ\tAT03\tRepubblica Italiana");
+ok("fixed coupon kept: ISIN, coupon, issue, maturity, currency, residence (IRIT → IT), group, F, type, issuer", eaRow(BTP, cols) === "IT0005518128\t4.4\t2022-11-01\t2033-05-01\tEUR\tIT\tIG2\tF\tAT01\t" + GOV_IT, eaRow(BTP, cols));
+ok("zero coupon kept with coupon 0 (Z)", eaRow(BOT, cols) === "IT0005611303\t0\t2026-08-14\t2027-02-12\tEUR\tIT\tIG2\tZ\tAT03\t" + GOV_IT);
 ok("variable coupon (CD2) left out: not priced from a curve", eaRow(CCT, cols) === null);
 ok("…a malformed ISIN or no maturity left out", eaRow(line("IT00055181", "AT01", "EUR", "01/11/2022", "01/05/2033", "4.4", "x", "IT", "IG2", "CD4"), cols) === null && eaRow(line("IT0005518128", "AT01", "EUR", "01/11/2022", "", "4.4", "x", "IT", "IG2", "CD4"), cols) === null);
 
 // a whole file: these five, then enough corporate lines to need three slices
-const filler = []; for (let i = 0; filler.join("\n").length < 2 * EA_SLICE; i++) filler.push(line(`XS${String(100000000 + i)}${i % 10}`, "AT02", "EUR", "01/01/2020", "01/01/2030", "1.25", "Filler Corp " + i + " é", "FR", "IG3", "CD4"));
-const FILE = new TextEncoder().encode([HEADER.join("\t"), BTP, BOT, CCT, BUND, CORP, ...filler].join("\r\n") + "\r\n");
+const filler = []; for (let i = 0; filler.join("\n").length < 2 * EA_SLICE; i++) filler.push(line(`XS${String(100000000 + i)}${i % 10}`, "AT02", "EUR", "01/01/2020", "01/01/2030", "1.25", "Filler Corp " + i + " é", "IRFR", "IG3", "CD4"));
+// the file as the ECB serves it: UTF-16 little-endian with a byte-order mark, CRLF lines
+const TEXT = [HEADER.join("\t"), BTP, BOT, CCT, BUND, CORP, ...filler].join("\r\n") + "\r\n";
+const FILE = new Uint8Array(Buffer.from("\uFEFF" + TEXT, "utf16le"));
+ok("encoding: FF FE → UTF-16LE; otherwise UTF-8", eaEncoding(FILE) === "utf-16le" && eaEncoding(new TextEncoder().encode("ISIN_CODE")) === "utf-8");
+const cutAt = lastLineEnd(FILE.subarray(0, 1001), "utf-16le");
+ok("…a slice cut after its last whole line: an even offset, just after 0A 00", cutAt % 2 === 0 && FILE[cutAt - 2] === 10 && FILE[cutAt - 1] === 0 && eaDecode(FILE.subarray(0, cutAt), "utf-16le").endsWith("\r\n"));
+ok("…decoded without the byte-order mark; UTF-8 by its last \\n", eaDecode(FILE.subarray(0, cutAt), "utf-16le").startsWith("ISIN_CODE") && lastLineEnd(new TextEncoder().encode("a\nb\nc"), "utf-8") === 4);
 const kv = new Map(), writes = [];
 const env = { BRIEFS: { get: async (k) => kv.get(k) ?? null, put: async (k, v) => { writes.push(k); kv.set(k, v); } } };
 let ranges = 0, mode = "range";
@@ -59,9 +67,10 @@ let r, n = 0;
 do { r = await stepEcbList(env, NOW + n * 600_000, { fetch: fakeFetch }); n++; } while (r.ran && !r.done && n < 20);
 const table = kv.get(EA_KEY);
 ok("read in slices (Range requests): one slice a run, then the table written", r.done === "261021" && n === Math.ceil(FILE.length / EA_SLICE) && ranges === n, JSON.stringify(r) + " runs " + n + " ranges " + ranges);
+ok("…state written by this reader (version 2)", JSON.parse(kv.get(EA_STATE)).v === 2);
 ok("…every fixed / zero bond kept, the variable one left out", r.rows === 4 + filler.length && table.split("\n").length === r.rows + 1 && !table.includes("IT0005584856"));
 ok("…no line cut at a slice's edge (each line has its 10 fields)", table.split("\n").slice(1).every((l) => l.split("\t").length === 10));
-ok("…a name with an accent read as UTF-8", table.includes("Filler Corp 7 é"));
+ok("…a name with an accent read right (UTF-16)", table.includes("Filler Corp 7 é"));
 const head = eaHead(table);
 ok("table head: the file's date, the number of bonds, when it was read", head.file === "261021" && head.date === "2026-10-21" && head.rows === r.rows && /^2026-10-22T/.test(head.readAt));
 const st = JSON.parse(kv.get(EA_STATE));
@@ -72,7 +81,11 @@ ok("the newest file already read: nothing fetched, the slot goes to the ETF scre
 r = await stepEcbList(env, NOW + 8 * 3600_000, { fetch: async () => { throw new Error("must not fetch"); } });
 ok("…and nothing looked at again until 3 hours later", r.ran === false && writes.length === w0 + 1);
 
-// the same file from a server that ignores Range (the whole file streamed, read up to the slice)
+// a state left by the first reader (no version, an error and a next look 6 hours away) is started again at once
+const kv5 = new Map([[EA_STATE, JSON.stringify({ done: null, next: NOW + 6 * 3600_000, error: "unknown_columns" })]]), env5 = { BRIEFS: { get: async (k) => kv5.get(k) ?? null, put: async (k, v) => { kv5.set(k, v); } } };
+r = await stepEcbList(env5, NOW, { fetch: fakeFetch });
+ok("an older reader's state (no version) → read again now", r.ran && r.file === "261021" && r.offset > 0);
+// the same file from a server that ignores Range (the whole file streamed, read up to the slice) — the ECB's, 22 Oct 2026
 const kv2 = new Map(), env2 = { BRIEFS: { get: async (k) => kv2.get(k) ?? null, put: async (k, v) => { kv2.set(k, v); } } };
 mode = "whole"; n = 0;
 do { r = await stepEcbList(env2, NOW + n * 600_000, { fetch: fakeFetch }); n++; } while (r.ran && !r.done && n < 20);
@@ -103,15 +116,21 @@ kv.set(EA_KEY, table); eaResetMemo();
 
 // ---------- terms ----------
 const url = new URL("https://x.test/api/bond/ref?isin=IT0005518128");
-let t = await bondTerms(url, env, {}, "IT0005518128", { table, rows: async () => { throw new Error("must not ask OpenFIGI"); } });
-ok("terms: the ECB list first (OpenFIGI not asked); Italy pays twice a year", t.ref.coupon === 4.4 && t.ref.issue === "2022-11-01" && t.ref.freq === 2 && t.ref.freqFrom === "issuer's country" && /^ECB list of eligible marketable assets \(2026-10-21\)$/.test(t.ref.source) && t.ref.name === "Repubblica Italiana 4.4% 2033-05-01");
+const figiOf = (ticker, name = "BUONI POLIENNALI DEL TES") => async () => ({ data: [{ ticker, name, marketSector: "Govt", securityType: "EURO-ZONE", securityType2: "Govt" }] });
+let t = await bondTerms(url, env, {}, "IT0005518128", { table, rows: figiOf("BTPS 4.4 05/01/33 10Y") });
+ok("terms: the ECB list first (issue date); Italy pays twice a year; OpenFIGI's ticker read: a plain fixed coupon", t.ref.coupon === 4.4 && t.ref.issue === "2022-11-01" && t.ref.freq === 2 && t.ref.freqFrom === "issuer's country" && /^ECB list of eligible marketable assets \(2026-10-21\)$/.test(t.ref.source) && t.ref.name === "Italian Republic 4.4% 2033-05-01" && t.ref.kind === "fixed" && t.ref.checked && t.ref.ticker === "BTPS 4.4 05/01/33 10Y", JSON.stringify(t.ref));
+t = await bondTerms(url, env, {}, "IT0005518128", { table, rows: figiOf("BTPS 4.4 05/01/33 CPI") });
+ok("…a ticker ending in CPI: inflation-linked though the ECB list says fixed", t.ref.kind === "linker");
+t = await bondTerms(url, env, {}, "IT0005518128", { table, rows: async () => ({ err: "provider_error" }) });
+ok("…OpenFIGI not answering: the ECB terms, not checked (said in the page)", t.ref.coupon === 4.4 && t.ref.checked === false && t.ref.kind === "fixed");
+ok("bondKind: CPI / ICPI / I/L / OATe / UKTI / SPGBEI / an I/L name → linker; VALR → step-up; otherwise fixed", ["BTPS 1.25 09/15/32 CPI", "BTPS 2 03/14/28 ICPI", "DBRI 0.1 04/15/33 I/L", "FRTR 1.85 07/25/27 OATe", "UKTI 0.75 11/22/33 3MO", "SPGBEI 0.65 11/30/27"].every((x) => bondKind(x) === "linker") && bondKind("XX 1 01/01/30", "SPAIN I/L BOND") === "linker" && bondKind("BTPS 4.1 10/10/28 VALR") === "stepup" && bondKind("BTPS 4.4 05/01/33 10Y") === "fixed" && bondKind("T 4 1/4 11/15/34") === "fixed");
 t = await bondTerms(url, env, {}, "XS2010030836", { table });
 ok("…a dollar bond of a bank: twice a year by its currency", t.ref.freq === 2 && t.ref.freqFrom === "currency" && t.ref.ccy === "USD");
 ok("freqOf: Germany once a year; Luxembourg in euro once (the currency's rule); a yen bond once (default)", freqOf("DE", "EUR").freq === 1 && freqOf("LU", "EUR").freqFrom === "currency" && freqOf("JP", "JPY").freqFrom === "default" && freqOf("IT", "USD").freqFrom === "currency");
 const FIGI = { data: [{ ticker: "T 4 1/4 11/15/34", name: "US TREASURY N/B", marketSector: "Govt", securityType: "US GOVERNMENT", securityType2: "Note" }] };
 t = await bondTerms(new URL("https://x.test/"), env, {}, "US91282CLW90", { table, rows: async () => FIGI });
-ok("…not on the ECB list → OpenFIGI's ticker (no issue date; the home currency of a U.S. ISIN)", t.ref.coupon === 4.25 && t.ref.maturity === "2034-11-15" && t.ref.issue === null && t.ref.ccy === "USD" && /OpenFIGI/.test(t.ref.source));
-let res = await handleBondRef(new URL("https://x.test/api/bond/ref?isin=IT0005518128"), env, {}, {}, json, { table });
+ok("…not on the ECB list → OpenFIGI's ticker (no issue date; the home currency of a U.S. ISIN)", t.ref.coupon === 4.25 && t.ref.maturity === "2034-11-15" && t.ref.issue === null && t.ref.ccy === "USD" && /OpenFIGI/.test(t.ref.source) && t.ref.kind === "fixed");
+let res = await handleBondRef(new URL("https://x.test/api/bond/ref?isin=IT0005518128"), env, {}, {}, json, { table, rows: figiOf("BTPS 4.4 05/01/33 10Y") });
 let j = await res.json();
 ok("/api/bond/ref answers the ECB terms", res.status === 200 && j.issue === "2022-11-01" && j.status === "LIVE" && j.sourceUrl.includes("ecb.europa.eu"));
 res = await handleBondRef(new URL("https://x.test/api/bond/list?cc=IT"), env, {}, {}, json, { table, now: Date.parse("2026-10-22T10:00:00Z") });
@@ -133,6 +152,7 @@ let pl = bondPlan({ isin: "IT0005518128", residence: "IT", ccy: "EUR", coupon: 4
 ok("plan: from the issue date", pl.cc === "IT" && pl.start === "2022-11-01" && pl.tenors.length === 4);
 pl = bondPlan({ isin: "DE0001135275", residence: "DE", ccy: "EUR", coupon: 4, maturity: "2037-01-04", issue: "2005-01-04" }, now);
 ok("…issued more than 15 years ago: 15 years back", pl.start === new Date(now - 5480 * 86400_000).toISOString().slice(0, 10));
+ok("…inflation-linked → said (never priced on the nominal curve)", bondPlan({ isin: "IT0005138828", residence: "IT", ccy: "EUR", coupon: 1.25, maturity: "2032-09-15", issue: "2015-09-15", kind: "linker" }, now).error === "inflation_linked");
 ok("…floating, matured, unknown currency, a currency without FX → said", bondPlan({ floating: true, coupon: null }, now).error === "floating_bond" && bondPlan({ coupon: 1, maturity: "2026-11-01", ccy: "EUR" }, now).error === "bond_matured" && bondPlan({ coupon: 1, maturity: "2030-01-01", ccy: null }, now).error === "no_currency" && bondPlan({ coupon: 1, maturity: "2030-01-01", ccy: "JPY" }, now).error === "fx_unavailable");
 const sd = sessionDated("IT", [["2026-10-19", 3.4], ["2026-10-20", 3.5], ["2026-10-21", 3.6]]);
 ok("European bars moved to the session (Monday's bar → Friday)", sd.map((x) => x[0]).join() === "2026-10-16,2026-10-19,2026-10-20" && sd[2][1] === 3.6);
@@ -144,7 +164,9 @@ const BARS = { "IT5Y-IT": B(1050, () => 3), "IT7Y-IT": B(1050, () => 3.2), "IT10
 const deps = { now, table, daily: async (s2) => (BARS[s2] ? { data: BARS[s2], cache: "HIT", fetchedAt: now } : { err: "no_data" }), fundLines: async () => ({ lines: [] }), rows: async () => ({ data: [] }) };
 const get = async (p) => { const r2 = await handlePlab(new URL("https://x.test" + p), env, {}, {}, json, deps); return { st: r2.status, b: await r2.json() }; };
 let g = await get("/api/plab/series?id=IT0005518128");
-ok("/api/plab/series for a bond on the ECB list: its terms and the plan, no price made up", g.st === 200 && g.b.kind === "bond" && !g.b.d && g.b.bond.coupon === 4.4 && g.b.bond.freq === 2 && g.b.plan.cc === "IT" && g.b.plan.tenors.join() === "5Y,7Y,10Y,15Y" && /ESTIMATE/.test(g.b.basis), JSON.stringify(g.b).slice(0, 300));
+ok("/api/plab/series for a bond on the ECB list: its terms and the plan, no price made up", g.st === 200 && g.b.kind === "bond" && !g.b.d && g.b.bond.coupon === 4.4 && g.b.bond.freq === 2 && g.b.plan.cc === "IT" && g.b.plan.tenors.join() === "5Y,7Y,10Y,15Y" && /ESTIMATE/.test(g.b.basis) && g.b.bond.checked === false, JSON.stringify(g.b).slice(0, 300));
+deps.rows = figiOf("BTPS 4.4 05/01/33 ICPI"); g = await get("/api/plab/series?id=IT0005518128"); deps.rows = async () => ({ data: [] });
+ok("…an inflation-linked one: its terms, no plan, error inflation_linked", g.st === 200 && g.b.kind === "bond" && g.b.plan === null && g.b.error === "inflation_linked" && g.b.bond.kind === "linker");
 g = await get("/api/plab/series?id=IT0005584856");
 ok("…an ISIN nowhere (OpenFIGI names no bond) → not listed", g.st === 404 && g.b.error === "not_listed");
 g = await get("/api/plab/curve?cc=IT&tenor=10Y");

@@ -159,10 +159,15 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   typed in BUILD (0 without one), priced at the coupon frequency, coupons reinvested; from the issue date (15 years at
   most); a bond in USD / GBP / CHF converted at CNBC's FX (`/api/plab/fx`). The curve: the issuer's country for a bond in
   its own currency, else the currency's benchmark (EUR → Germany). Fixed and zero-coupon only (floating / index-linked →
-  N/A). BUILD → "+ GOVERNMENT BONDS (ECB LIST)": a country's central-government bonds to pick from (`/api/bond/list?cc=IT`).
-- ECB list of eligible marketable assets (approved 22 Oct 2026, `src/ecbassets.mjs`): the ECB's daily TSV (several MB,
-  Monday to Friday ~18:15 CET) read by the 10-minute trigger 768 KB a run (Range request; the stream read up to the slice
-  if the server ignores Range) into KV `bond/ecb` (fixed and zero-coupon bonds: ISIN, coupon, issue, maturity, currency,
+  N/A). The ECB list files inflation-linked bonds (BTP€i, BTP Italia, OATi, iBund) and step-ups (BTP Valore) as fixed
+  coupon, so OpenFIGI's ticker is read too (cached 7 days): CPI / ICPI / I/L / OATe, UKTI, SPGBEI → inflation-linked, N/A
+  in PLAB, a REAL yield in YAS; VALR → step-up, priced at today's coupon, said. A bond not on the ECB list has no issue
+  date: typed in BUILD, else N/A. BUILD → "+ GOVERNMENT BONDS (ECB LIST)": a country's central-government bonds to pick
+  from (`/api/bond/list?cc=IT`).
+- ECB list of eligible marketable assets (approved 22 Oct 2026, `src/ecbassets.mjs`): the ECB's daily TSV (checked
+  22 Oct 2026: UTF-16LE with a byte-order mark, 8.9 MB, 31,345 assets; residence written "IRIT"; Range ignored; Monday to
+  Friday ~18:15 CET) read by the 10-minute trigger 768 KB a run (the stream read up to the slice; a Range request where a
+  server honours it) into KV `bond/ecb` (fixed and zero-coupon bonds: ISIN, coupon, issue, maturity, currency,
   issuer residence and group, issuer) — about a dozen runs once a new file is out, the other slots stay with the ETF
   screener. Bundesbank / FedInvest prices (approved, researched 22 Oct 2026): not connected — the Bundesbank publishes the
   federal securities' prices as a monthly XLSX behind a changing link (columns not yet checked), FedInvest only as XML

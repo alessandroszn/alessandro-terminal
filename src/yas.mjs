@@ -38,21 +38,38 @@ export function freqOf(cc, ccy) {
 // the currency of a government's own bonds, for a terms source that does not give it (OpenFIGI)
 const EURO = new Set(["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PT", "IE", "GR", "FI", "SI", "SK", "LT", "LV", "EE", "LU", "MT", "CY", "HR", "EU"]);
 export const homeCcy = (cc) => (EURO.has(cc) ? "EUR" : { US: "USD", GB: "GBP", CH: "CHF" }[cc] || null);
+// what OpenFIGI's ticker and name say about the coupon (checked 22 Oct 2026): indexed to inflation — "BTPS 1.25 09/15/32
+// CPI" (BTP€i), "BTPS 2 03/14/28 ICPI" (BTP Italia), "DBRI 0.1 04/15/33 I/L", "FRTR 1.85 07/25/27 OATe", "UKTI 0.75 11/22/33",
+// "SPGBEI 0.65 11/30/27", names "… I/L BOND"; a step-up coupon — "BTPS 4.1 10/10/28 VALR" (BTP Valore). The ECB list files
+// all of them as fixed coupon
+const LINKER_TAGS = new Set(["CPI", "ICPI", "I/L", "IL", "OATE", "OATI", "HICP", "RPI", "INFL"]), LINKER_ROOTS = new Set(["DBRI", "UKTI", "SPGBEI", "TII", "FRTRI"]), STEPUP_TAGS = new Set(["VALR", "FUT", "PIU"]);
+export function bondKind(ticker, name) {
+  const t = String(ticker || "").toUpperCase().trim().split(/\s+/), tags = t.slice(3);
+  if (LINKER_ROOTS.has(t[0]) || tags.some((x) => LINKER_TAGS.has(x)) || /\bI\/L\b|INFLATION|INDEX[- ]LINKED/i.test(String(name || ""))) return "linker";
+  if (tags.some((x) => STEPUP_TAGS.has(x))) return "stepup";
+  return "fixed";
+}
+const figiBond = (rows) => { const bond = (rows || []).filter((r) => r && (/govt|corp|muni|mtge/i.test(r.marketSector || "") || /bond|note|bill|govt/i.test(r.securityType || "") || /bond|note/i.test(r.securityType2 || ""))); return bond.find((r) => parseBondTicker(r.ticker)) || bond[0] || null; };
 // the ECB list's line → the terms
 export function bondRefFromEcb(isin, b, head) {
   const f = freqOf(b.residence || isin.slice(0, 2), b.ccy);
-  const name = [b.issuer, b.zero ? "zero" : b.coupon + "%", b.maturity].filter(Boolean).join(" ");
+  const name = [String(b.issuer || "").replace(/^Central government:\s*/i, ""), b.zero ? "zero" : b.coupon + "%", b.maturity].filter(Boolean).join(" ");
   return { isin, name, ticker: null, securityType: b.typeName || b.type, marketSector: b.groupName || b.group, coupon: b.coupon, maturity: b.maturity, issue: b.issue, floating: false, zero: b.zero,
     ccy: b.ccy, residence: b.residence, group: b.group, issuer: b.issuer, ...f, parsed: true, source: "ECB list of eligible marketable assets" + (head && head.date ? ` (${head.date})` : ""), sourceUrl: ECB_EA_PAGE };
 }
-// the terms of an ISIN: the ECB list, then OpenFIGI → { ref, status } | { err }
+// the terms of an ISIN: the ECB list (and OpenFIGI's ticker to tell an inflation-linked or step-up bond), then OpenFIGI
+// alone → { ref, status } | { err }. kind: fixed | linker | stepup; checked: OpenFIGI's ticker was read
 export async function bondTerms(url, env, ctx, isin, deps = {}) {
   const table = deps.table != null ? deps.table : await eaTable(env), e = eaLookup(table, isin);
-  if (e) return { ref: bondRefFromEcb(isin, e, eaHead(table)), status: "LIVE" };
-  const r = await cachedSource({ origin: url.origin, key: `bond/ref/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 30 * 86400_000, ctx, load: () => (deps.rows || openFigiRows)(isin, env) });
+  const figi = () => cachedSource({ origin: url.origin, key: `bond/ref/${isin}`, ttlMs: 7 * 86400_000, staleMaxMs: 30 * 86400_000, ctx, load: () => (deps.rows || openFigiRows)(isin, env) });
+  if (e) {
+    const ref = bondRefFromEcb(isin, e, eaHead(table)), r = await figi(), pick = r.data ? figiBond(r.data) : null;
+    return { ref: { ...ref, ticker: pick ? pick.ticker || null : null, kind: pick ? bondKind(pick.ticker, pick.name) : "fixed", checked: !!pick }, status: "LIVE" };
+  }
+  const r = await figi();
   if (!r.data) return { err: r.err || "provider_error" };
   const ref = bondRefFrom(isin, r.data); if (!ref) return { err: "not_a_bond" };
-  return { ref: { ...ref, issue: null, zero: ref.coupon === 0, ccy: homeCcy(isin.slice(0, 2)), residence: null, source: "OpenFIGI (ticker parsed: check against the prospectus)" }, status: r.cache === "STALE" ? "STALE" : "LIVE" };
+  return { ref: { ...ref, issue: null, zero: ref.coupon === 0, ccy: homeCcy(isin.slice(0, 2)), residence: null, kind: bondKind(ref.ticker, ref.name), checked: true, source: "OpenFIGI (ticker parsed: check against the prospectus)" }, status: r.cache === "STALE" ? "STALE" : "LIVE" };
 }
 export function bondRefFrom(isin, rows) {
   const bond = (rows || []).filter((r) => r && (/govt|corp|muni|mtge/i.test(r.marketSector || "") || /bond|note|bill|govt/i.test(r.securityType || "") || /bond|note/i.test(r.securityType2 || "")));

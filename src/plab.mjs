@@ -78,6 +78,7 @@ export function bondTenors(cc, start, maturity, now) {
 }
 export function bondPlan(ref, now) {
   if (ref.floating || ref.coupon == null) return { error: "floating_bond" };
+  if (ref.kind === "linker") return { error: "inflation_linked" };
   if (!ref.maturity || ref.maturity <= new Date(now + 30 * DAYMS).toISOString().slice(0, 10)) return { error: "bond_matured" };
   if (!ref.ccy) return { error: "no_currency" };
   if (!SERIES_CCYS.includes(ref.ccy)) return { error: "fx_unavailable" };
@@ -100,7 +101,7 @@ async function bondAnswer(url, env, ctx, id, isin, now, deps) {
   const t = await bondTerms(url, env, ctx, isin, deps); if (t.err) return null;
   const ref = t.ref, plan = bondPlan(ref, now);
   return { id, isin, kind: "bond", name: ref.name, ccy: ref.ccy, to: "EUR", status: t.status,
-    bond: { coupon: ref.coupon, zero: !!ref.zero, freq: ref.freq, freqFrom: ref.freqFrom, maturity: ref.maturity, issue: ref.issue || null, issuer: ref.issuer || null, residence: ref.residence || null, group: ref.group || null, ticker: ref.ticker || null, source: ref.source },
+    bond: { coupon: ref.coupon, zero: !!ref.zero, freq: ref.freq, freqFrom: ref.freqFrom, maturity: ref.maturity, issue: ref.issue || null, issuer: ref.issuer || null, residence: ref.residence || null, group: ref.group || null, ticker: ref.ticker || null, kind: ref.kind || "fixed", checked: !!ref.checked, source: ref.source },
     plan: plan.error ? null : plan, error: plan.error || undefined,
     basis: "no daily price: an ESTIMATE priced on the government curve (CNBC daily yields at the bond's remaining maturity) plus a constant spread set by today's price; coupons reinvested" };
 }

@@ -313,9 +313,9 @@ const t07Api = (u, method, body, st) => {
 const PV = { kv: new Map(), tg: [], cnbcAsked: [] };
 // the ECB list of eligible assets as the cron leaves it in KV (its table format; test inputs only). IT0005518128 is left
 // off on purpose: YAS reads it from OpenFIGI
-PV.kv.set("bond/ecb", ["#ECB\t261021\t4\t2026-10-22T00:40:00.000Z", "DE0001102614\t2.3\t2023-01-11\t2033-02-15\tEUR\tDE\tIG2\tF\tAT01\tBundesrepublik Deutschland",
-  "IT0005408999\t3.5\t2020-05-01\t2040-03-01\tEUR\tIT\tIG2\tF\tAT01\tRepubblica Italiana", "IT0005436693\t0.6\t2021-05-01\t2031-08-01\tEUR\tIT\tIG2\tF\tAT01\tRepubblica Italiana",
-  "IT0005611303\t0\t2026-08-14\t2027-02-12\tEUR\tIT\tIG2\tZ\tAT03\tRepubblica Italiana"].join("\n"));
+PV.kv.set("bond/ecb", ["#ECB\t261021\t5\t2026-10-22T00:40:00.000Z", "DE0001102614\t1.8\t2022-08-15\t2053-08-15\tEUR\tDE\tIG2\tF\tAT01\tCentral government: Federal Republic of Germany",
+  "IT0005138828\t1.25\t2015-09-15\t2032-09-15\tEUR\tIT\tIG2\tF\tAT01\tCentral government: Italian Republic", "IT0005408999\t3.5\t2020-05-01\t2040-03-01\tEUR\tIT\tIG2\tF\tAT01\tCentral government: Italian Republic",
+  "IT0005436693\t0.6\t2021-02-23\t2031-08-01\tEUR\tIT\tIG2\tF\tAT01\tCentral government: Italian Republic", "IT0005611303\t0\t2026-08-14\t2027-02-12\tEUR\tIT\tIG2\tZ\tAT03\tCentral government: Italian Republic"].join("\n"));
 const TG_TOKEN = "123456789:AAH" + "e".repeat(32);
 const cnTime = (ms) => new Date(ms).toISOString().replace("Z", "+0000");
 const CN_PX = { ".SPX": 6700.5, ".NDX": 24800, ".DJI": 46500, ".RUT": 2450, ".N225": 49000, "@SP.1": 6731.25, "@ND.1": 24890, "@DJ.1": 46600, "@TFS.1": 2460, "@NK.1": 49150, "@CL.1": 88.42, "@GC.1": 4130.5, "EUR=": 1.1235, "NVDA": 190.5, ".FTMIB": 44000 };
@@ -367,6 +367,8 @@ globalThis.fetch = async (u, init = {}) => {
   // OpenFIGI /v3/mapping and Twelve Data /symbol_search (ISIN search)
   if (u === "https://api.openfigi.com/v3/mapping") { const b = JSON.parse(init.body || "[]"); PV.figi = (PV.figi || 0) + 1;
     if (b[0].idValue === "IT0005518128") return new Response(JSON.stringify([{ data: [{ figi: "BBG01FV7X8M1", name: "BUONI POLIENNALI DEL TES", ticker: "BTPS 4.4 05/01/33", exchCode: "IM", securityType: "EURO-ZONE", marketSector: "Govt", securityType2: "Govt" }] }]));
+    if (b[0].idValue === "IT0005436693") return new Response(JSON.stringify([{ data: [{ figi: "BBG00ZZZ0001", name: "BUONI POLIENNALI DEL TES", ticker: "BTPS 0.6 08/01/31", exchCode: "IM", securityType: "EURO-ZONE", marketSector: "Govt", securityType2: "Govt" }] }]));
+    if (b[0].idValue === "IT0005138828") return new Response(JSON.stringify([{ data: [{ figi: "BBG00ZZZ0002", name: "BUONI POLIENNALI DEL TES", ticker: "BTPS 1.25 09/15/32 CPI", exchCode: "IM", securityType: "EURO-ZONE", marketSector: "Govt", securityType2: "Govt" }] }]));
     return new Response(JSON.stringify(b[0].idValue === "IT0000072618" ? [{ data: [{ figi: "BBG000BNSF93", name: "INTESA SANPAOLO", ticker: "ISP", exchCode: "IM", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" },
       { figi: "BBG000BNSF02", name: "INTESA SANPAOLO", ticker: "IES", exchCode: "GY", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }, { figi: "BBG000BNSF39", name: "INTESA SANPAOLO", ticker: "ISNPF", exchCode: "US", securityType: "Common Stock", marketSector: "Equity", securityType2: "Common Stock" }] }] : [{ warning: "No identifier found." }])); }
   if (u.startsWith("https://api.twelvedata.com/symbol_search")) { const q = new URL(u).searchParams.get("symbol"), rw = (symbol, mic, country, currency, plan) => ({ symbol, instrument_name: "Intesa Sanpaolo S.p.A.", exchange: mic, mic_code: mic, exchange_timezone: "Europe/Rome", instrument_type: "Common Stock", country, currency, access: { global: plan, plan } });
@@ -1557,17 +1559,21 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[Q] PLAB delete: asked twice, removed from the server", JSON.parse(PV.kv.get("ud/plab")).length === 1);
   // a BTP picked from the ECB list: its terms, today's price typed, priced on the Italian curve (an estimate, said)
   await page.click(".pl-bl-open"); await plWait(/GOVERNMENT BONDS[\s\S]*IT0005436693/); w = await winOf(page, "PORTFOLIO LAB");
-  ok("[Q] PLAB bonds: Italy's government bonds from the ECB list (ISIN, issuer, coupon, maturity, issue), terms not prices", w && /IT0005611303\s+Repubblica Italiana\s+zero\s+12 Feb 2027/.test(w.text) && /IT0005436693\s+Repubblica Italiana\s+0\.6%\s+01 Aug 2031\s+01 May 2021\s+EUR/.test(w.text) && /3 of 3 bonds · ECB list of eligible marketable assets of 21 Oct 2026/.test(w.text), w && w.text.slice(0, 1500));
+  ok("[Q] PLAB bonds: Italy's government bonds from the ECB list (ISIN, issuer, coupon, maturity, issue), terms not prices", w && /IT0005611303\s+Italian Republic\s+zero\s+12 Feb 2027/.test(w.text) && /IT0005436693\s+Italian Republic\s+0\.6%\s+01 Aug 2031\s+23 Feb 2021\s+EUR/.test(w.text) && /4 of 4 bonds · ECB list of eligible marketable assets of 21 Oct 2026/.test(w.text), w && w.text.slice(0, 1500));
   await page.fill(".pl-blq", "2031"); await page.waitForTimeout(700); w = await winOf(page, "PORTFOLIO LAB");
-  ok("[Q] …a filter on year / coupon / name", w && /1 of 3 bonds/.test(w.text) && !/IT0005611303/.test(w.text));
+  ok("[Q] …a filter on year / coupon / name", w && /1 of 4 bonds/.test(w.text) && !/IT0005611303/.test(w.text));
   await page.click('.pl-bla[data-isin="IT0005436693"]'); await plWait(/ESTIMATE: IT government curve/); w = await winOf(page, "PORTFOLIO LAB");
-  ok("[Q] …added: its terms (ECB), the Italian curve's maturities that bracket its life, spread 0 until a price is typed", w && /Repubblica Italiana 0\.6% 2031-08-01\s+IT0005436693 · BOND · 0\.6% semi-annual · maturity 01 Aug 2031 · issued 01 May 2021 · EUR/.test(w.text) && /ESTIMATE: IT government curve \(CNBC (\d+[MY] )+\d+[MY]\) \+ 0 bp \(no price typed: spread 0\)/.test(w.text) && /an estimate priced on the curve, not a market price/.test(w.text), w && w.text.slice(0, 1600));
+  ok("[Q] …added: its terms (ECB), the Italian curve's maturities that bracket its life, spread 0 until a price is typed", w && /Italian Republic 0\.6% 2031-08-01\s+IT0005436693 · BOND · 0\.6% semi-annual · maturity 01 Aug 2031 · issued 23 Feb 2021 · EUR/.test(w.text) && !/not checked for inflation/.test(w.text) && /ESTIMATE: IT government curve \(CNBC (\d+[MY] )+\d+[MY]\) \+ 0 bp \(no price typed: spread 0\)/.test(w.text) && /an estimate priced on the curve, not a market price/.test(w.text), w && w.text.slice(0, 1600));
   await page.fill(".pl-px", "90"); await page.press(".pl-px", "Tab"); await plWait(/set by your price/); w = await winOf(page, "PORTFOLIO LAB");
   ok("[Q] …today's price typed: the spread set by it, the model's price today = the price", w && /[+−] \d+ bp \(set by your price\) · model price today 90\.00 · yield \d+\.\d\d%/.test(w.text), w && w.text.slice(0, 1600));
+  await page.fill(".pl-blq", ""); await page.waitForTimeout(800);
+  await page.click('.pl-bla[data-isin="IT0005138828"]'); await plWait(/inflation-linked bond/); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …an inflation-linked BTP (OpenFIGI's ticker ends in CPI; the ECB list calls it fixed): N/A, never priced on the nominal curve", w && /IT0005138828 · BOND · 1\.25% semi-annual[\s\S]*an inflation-linked bond \(BTP€i, BTP Italia, OATi, iBund …\): it cannot be priced from the nominal curve/.test(w.text), w && w.text.slice(0, 1800));
+  await page.click('.pl-rm[data-i="1"]'); await page.waitForTimeout(300);
   await page.fill(".pl-w", "40"); await page.press(".pl-w", "Tab"); await page.waitForTimeout(300); await plAdd("SWDA", "60");
   await page.click('[data-plt="test"]'); await plWait(/Final value/); w = await winOf(page, "PORTFOLIO LAB");
   if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-bond.png" });
-  ok("[Q] …backtest with the bond: from its issue date, the estimate said above the figures", w && /Bonds \(Repubblica Italiana 0\.6% 2031-08-01\): no daily market price here — ESTIMATED each day/.test(w.text) && /Final value\s+€ [\d,]+/.test(w.text) && /2021/.test(w.text), w && w.text.slice(0, 1500));
+  ok("[Q] …backtest with the bond: from its issue date, the estimate said above the figures", w && /Bonds \(Italian Republic 0\.6% 2031-08-01\): no daily market price here — ESTIMATED each day/.test(w.text) && /Final value\s+€ [\d,]+/.test(w.text) && /2021/.test(w.text), w && w.text.slice(0, 1500));
   await page.click('[data-plt="build"]'); await page.waitForTimeout(400);
   await page.fill(".pl-name", "BTP and world"); await page.press(".pl-name", "Tab"); await page.click(".pl-save"); await page.waitForTimeout(900);
   ok("[Q] …saved with the bond's price", (JSON.parse(PV.kv.get("ud/plab")).find((p) => p.name === "BTP and world") || { holdings: [] }).holdings.some((h) => h.id === "IT0005436693" && h.px === 90));
