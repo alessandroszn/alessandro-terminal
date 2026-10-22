@@ -150,6 +150,11 @@ const hh = sentHeaders["ts-api.cnbc.com"] || {};
 ok("CNBC's services get a cnbc.com page's headers (a browser's user agent, origin, referer); other providers keep the terminal's own", /Mozilla\/5\.0/.test(hh["user-agent"]) && hh.origin === "https://www.cnbc.com" && hh.referer === "https://www.cnbc.com/" && siteHeaders("https://quote.cnbc.com/x") && !siteHeaders("https://api.stlouisfed.org/x"), JSON.stringify(hh));
 let live = 0, peak = 0;
 const lim = await mapLimit([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, async (x) => { live++; peak = Math.max(peak, live); await new Promise((res) => setTimeout(res, 5)); live--; return x * 2; });
+store = new Map(); down = new Set();
+r = await call("/api/status?test=alphavantage");
+ok("SYS check of Alpha Vantage: one quote and one daily series of VWCE.DEX, what came back — never the key", r.res.status === 200 && r.body.configured && r.body.quote.ok && r.body.daily.ok && r.body.daily.sessions >= 1 && !r.text.includes(AV_KEY) && !/apikey/i.test(r.text), r.text);
+r = await call("/api/status?test=alphavantage", { ...env, ALPHAVANTAGE_KEY: undefined });
+ok("…without the key: not configured, said", r.body.configured === false && r.body.quote.error === "not_configured" && r.body.daily.error === "not_configured");
 ok("bar requests of one page request: 4 at a time, results in order", peak === 4 && lim.join() === "2,4,6,8,10,12,14,16,18,20");
 
 // ---------- sections ----------

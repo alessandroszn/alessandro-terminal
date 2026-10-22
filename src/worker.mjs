@@ -711,6 +711,16 @@ export const app = {
     if (url.pathname === "/api/user/recording" || url.pathname.startsWith("/api/user/recording/")) return handleRecording(url, env, ctx, H, json, req, app.fetch);
     if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
     if (url.pathname === "/api/alerts" || url.pathname.startsWith("/api/alerts/")) return handleAlerts(url, env, ctx, H, json, req);
+    // owner's check that the Alpha Vantage key works from the Worker: one quote and one daily series of VWCE on Xetra
+    // (VWCE.DEX) — 2 of the 25 requests a day; the answer says what came back, never the key or the URL that holds it
+    if (url.pathname === "/api/status" && url.searchParams.get("test") === "alphavantage") {
+      const o = { origin: url.origin, ctx, now: Date.now() }, [q, d] = [await avQuote(env, "VWCE:XETR", o), await avDaily(env, "VWCE:XETR", o)];
+      const body = { configured: !!env.ALPHAVANTAGE_KEY, symbol: "VWCE.DEX",
+        quote: q.rec ? { ok: true, price: q.rec.price, currency: q.rec.currency || null, date: q.rec.dateOnly || q.rec.asOf || null } : { ok: false, error: q.err },
+        daily: d.data ? { ok: true, sessions: d.data.length, first: d.data[0].t, last: d.data[d.data.length - 1].t, lastClose: d.data[d.data.length - 1].c } : { ok: false, error: d.err },
+        note: "Alpha Vantage: 25 requests a day (counted); this check used up to 2" };
+      const r = json(body, H, 200); r.headers.set("cache-control", "no-store"); return r;
+    }
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
     if (url.pathname === "/api/bonds") return handleBonds(url, env, ctx, H, json);
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
