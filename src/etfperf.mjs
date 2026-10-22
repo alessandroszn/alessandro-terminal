@@ -2,9 +2,10 @@
 // returns, annualised with 252) and the maximum drawdown of the last 5 years, of each fund's listing in its own trading
 // currency — the Xetra EUR line (MNEMONIC-DE) for the Xetra list, the U.S. symbol (USD) for the U.S. list — from CNBC's
 // daily bars (about 5 years), DERIVED. Never filled in: a fund younger than a period has no figure for it.
-//   cron     its own trigger (PERF_CRON, minutes 2, 12, 22 …: never in the same run as the alerts) computes 8 funds a run
-//            through both lists in a fixed order (Xetra first), one KV write a run (etf/perf: one line a fund)
-//            → every fund about once a week; the date of each figure is kept and shown
+//   cron     its own trigger (PERF_CRON; since 22 Oct 2026 the runs at minutes 2, 22, 42 only — KV writes are 1,000 a day on
+//            the free plan; never in the same run as the alerts) computes 8 funds a run through both lists in a fixed order
+//            (Xetra first), one KV write a run (etf/perf: one line a fund) → every fund about every two weeks; the date of
+//            each figure is kept and shown
 //   on use   GET /api/etf/perf?ids=ISIN|SYM,… (≤ 8): the rows on screen not computed yet, live (Cache API, not KV)
 //            GET /api/etf/perftable: the KV table
 import { cnbcDaily } from "./cnbc.mjs";

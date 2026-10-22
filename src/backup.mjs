@@ -203,15 +203,17 @@ export async function backupDaily(code, days, now, env = ENV, deps = {}) {
 // The daily closes of a listing the owner looked at (PLAB, WIF, EFC, FACT, charts), kept in KV at most once a day: when
 // CNBC refuses and no backup has the listing, the page shows them STALE with their date instead of N/A. Never written by a
 // scheduled run (KV writes are counted: about one per listing and day).
-export const KEEP_DAYS_FRESH = 7;
+export const KEEP_DAYS_FRESH = 7, KEEP_EVERY_DAYS = 3;
 const keepKey = (kind, id) => `last/${kind}/${id}`;
+// KV writes are 1,000 a day on the free plan: a copy is rewritten only when the one kept is 3 days old (a KV read decides;
+// a day's memo in the Cache API spares even the read)
 export async function keepCopy(origin, ctx, kind, id, data, env = ENV) {
   if (!env || !env.BRIEFS || (ctx && ctx.store) || !Array.isArray(data) || data.length < 2) return;
   const memo = `kept/${kind}/${id}`;
   if (await cacheRead(origin, memo)) return;
-  const at = Date.now();
-  await env.BRIEFS.put(keepKey(kind, id), JSON.stringify({ at, data }));
-  await cacheWrite(origin, memo, { at }, ctx, 86400);
+  const now = Date.now(), old = await keptCopy(kind, id, env);
+  if (!old || now - old.at >= KEEP_EVERY_DAYS * DAY) await env.BRIEFS.put(keepKey(kind, id), JSON.stringify({ at: now, data }));
+  await cacheWrite(origin, memo, { at: now }, ctx, 86400);
 }
 export async function keptCopy(kind, id, env = ENV) {
   if (!env || !env.BRIEFS) return null;
@@ -224,7 +226,7 @@ const keptAnswer = (k, err) => ({ data: k.data, fetchedAt: k.at, cache: "STALE",
 export async function cnbcDailyB(origin, ctx, code, days, now, deps = {}) {
   const env = deps.env || ENV;
   const r = await (deps.daily || cnbcDaily)(origin, ctx, code, days, now);
-  if (r && r.data) { if (r.cache !== "STALE") await keepCopy(origin, ctx, `d${days}`, code, r.data, env); return r; }
+  if (r && r.data) { if (r.cache !== "STALE" && !deps.noKeep) await keepCopy(origin, ctx, `d${days}`, code, r.data, env); return r; }
   const err = (r && r.err) || "no_data", kept = await keptCopy(`d${days}`, code, env);
   if (kept && now - kept.at < KEEP_DAYS_FRESH * DAY) return keptAnswer(kept, err);
   const b = await cachedSource({ origin, key: `bk/d${days}/${code}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * DAY, ctx, now,

@@ -726,7 +726,7 @@ export const app = {
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
-    if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json, { daily: cnbcDailyB });
+    if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json, { daily: (o, c, code, days, now) => cnbcDailyB(o, c, code, days, now, { noKeep: true, avDaily: async () => ({ err: "not_used" }) }) }); // a list of 72 funds: no KV copies, no Alpha Vantage requests
     if (url.pathname === "/api/etf/perf" || url.pathname === "/api/etf/perftable") return handleEtfPerf(url, env, ctx, H, json);
     if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
     if (url.pathname === "/api/factors") return handleFactors(url, env, ctx, H, json);
@@ -757,12 +757,15 @@ export default {
   // their time (cron.mjs)
   async scheduled(event, env, ctx) {
     setBackupEnv(env);
-    if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshEtfRef(env).catch(() => null)); return; }
+    // KV writes are 1,000 a day on the free plan (22 Oct 2026: 756 in 24 h, warned at 50 %): the justETF reader runs every
+    // 15 minutes (one table write a run), no longer every 5
+    if (event && event.cron === ALERT_CRON) { const t = event.scheduledTime || Date.now(); ctx.waitUntil(runAlerts(t, env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); if (new Date(t).getUTCMinutes() % 15 < 5) ctx.waitUntil(refreshEtfRef(env, t).catch(() => null)); return; }
     // the screener's returns and risk: 8 funds a run in their own trigger (never in the alerts' run)
     // the 10-minute trigger: a slice of the ECB list while a new file is being read, otherwise the ETF screener's figures
     if (event && event.cron === PERF_CRON) {
       const t = event.scheduledTime || Date.now();
-      ctx.waitUntil((async () => { const e = await stepEcbList(env, t).catch(() => null); if (e && e.ran) return; await refreshEtfPerf(env, t, { ctx }); })().catch(() => null));
+      // the screener's figures every 20 minutes (minutes 2, 22, 42: one KV write each, 72 a day), the ECB list whenever it is being read
+      ctx.waitUntil((async () => { const e = await stepEcbList(env, t).catch(() => null); if (e && e.ran) return; if (new Date(t).getUTCMinutes() % 20 !== 2) return; await refreshEtfPerf(env, t, { ctx }); })().catch(() => null));
       return;
     }
     // the ETF universe (Xetra instruments file ~5 MB, Twelve Data's U.S. list): built in its own run, 07:52 / 07:56 UTC

@@ -3,7 +3,7 @@
 //              ETF / ETN / ETC tradable on Xetra with ISIN, WKN, mnemonic, trading currency and Xetra's product group;
 //              U.S. ETFs from Twelve Data's ETF list (/etfs, reference data, no key). Built at most once a day, kept in KV.
 //   reference  justETF profile pages (reference data only, never prices): the 5-minute cron reads one fund a run through
-//              the whole universe (≈ 10 days a round); the owner's funds (UCITS list, portfolio, profiles opened) first and
+//              the whole universe (one fund every 15 minutes since 22 Oct 2026, ≈ a month a round); the owner's funds (UCITS list, portfolio, profiles opened) first and
 //              weekly; a profile opened that was never read is read then. Kept in KV: a compact table for the screener
 //              (ref/je/table) and the full record of the owner's funds (ref/je/<ISIN>: + top holdings, countries, sectors).
 //   prices     CNBC quote service: each listing CNBC carries (Xetra MNEMONIC-DE and the other venues OpenFIGI / Twelve Data
@@ -22,7 +22,7 @@ export const TD_ETFS_URL = "https://api.twelvedata.com/etfs?country=United%20Sta
 // the parser's version: records read by an earlier one are read again (prio2: every priority fund re-read once)
 const PARSER_V = 2;
 const K = { uni: "etf/universe", isins: "etf/isins", us: "etf/us", table: "ref/je/table", prio: "ref/je/prio2", detail: (i) => `ref/je/${i}` };
-const DAY = 86400_000, YEAR = 31_557_600_000, SLOT = 300_000, REFRESH = 7 * DAY, BACKOFF = 6 * 3600_000, KEEP = 45 * 86400;
+const DAY = 86400_000, YEAR = 31_557_600_000, SLOT = 900_000, REFRESH = 7 * DAY, BACKOFF = 6 * 3600_000, KEEP = 45 * 86400;
 const put = (env, k, v) => env.BRIEFS.put(k, typeof v === "string" ? v : JSON.stringify(v), { expirationTtl: KEEP });
 const getJ = async (env, k) => { try { const t = await env.BRIEFS.get(k); return t ? JSON.parse(t) : null; } catch { return null; } };
 
@@ -273,7 +273,7 @@ export async function handleEtf(url, env, ctx, H, json) {
     if (u) for (const r of u.rows) if (r[4] && r[4].length > 6) r[4] = r[4].slice(-6); // a list built before the WKN fix
     return send({ xetra: u ? { asOf: u.asOf, fetchedAt: iso(u.fetchedAt), source: u.source, sourceUrl: u.sourceUrl, cols: ["isin", "name", "type", "group", "wkn", "lines"], rows: u.rows } : null,
       us: us ? { fetchedAt: iso(us.fetchedAt), source: us.source, cols: ["symbol", "name", "mic"], rows: us.rows } : null,
-      ref: { source: JUSTETF, cols: TABLE_COLS, table: table || "", note: "reference data read from justETF profile pages, one fund every 5 minutes (≈ 10 days a round); never prices" },
+      ref: { source: JUSTETF, cols: TABLE_COLS, table: table || "", note: "reference data read from justETF profile pages, one fund every 15 minutes (your funds weekly; the whole Xetra list ≈ a month a round); never prices" },
       ucits: UCITS_ETFS.map((e) => [e.isin, ...new Set([e.milan, ...e.tickers].filter(Boolean))]), // Milan / London / SIX tickers of the UCITS list (the Xetra list has Xetra's only)
       status: u ? (now - u.fetchedAt > 9 * DAY ? "STALE" : "LIVE") : "N/A" });
   }
