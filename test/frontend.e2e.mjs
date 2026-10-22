@@ -894,7 +894,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,YEAR,HIDE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1052,7 +1052,7 @@ const OK_API = {
   ok("[H] TOUR: steps highlight the parts of the screen; Escape ends it", t1.h === "1/8 · COMMAND LINE" && t1.hl === "cmd" && t2.h === "2/8 · FUNCTIONS MENU" && t2.hl === "fnMenuBtn" && !(await page.evaluate(() => document.querySelector("#tour")?.classList.contains("on"))), JSON.stringify([t1, t2]));
   // Italian
   await page.click('#cmdbar [data-lang="it"]'); await page.waitForTimeout(500);
-  await page.keyboard.press("m"); await page.waitForTimeout(300);
+  await page.keyboard.press("F2"); await page.waitForTimeout(300);
   const mi = await page.evaluate(() => [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|") + " " + document.querySelector('.fm-i[data-fn="OMON"]')?.innerText);
   await page.keyboard.press("Escape");
   await cmd(page, "CB"); await page.waitForTimeout(400);
@@ -1872,6 +1872,98 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const empty = await p4.evaluate(() => ({ bar: document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText, wins: document.querySelectorAll(".win").length }));
   ok("[R] no recording yet: NO RECORDING YET, no window opened, nothing invented", /NO RECORDING YET/.test(empty.bar || "") && empty.wins === 0, JSON.stringify(empty));
   await p4.close();
+}
+
+// =============== S. as on Nico's terminal: YEAR, privacy mode, keyboard, edges, "close what it opened", notes per security ===============
+{
+  const tx = [{ id: "s1", date: BDJ[5], side: "BUY", sym: "AAPL", qty: 12, price: 100, ccy: "USD", fees: 0, created: 1 }];
+  const { page, errors } = await openTerminal({ ...OK_API, history: histJ, portfolio: pfJ(tx, []), indices: idxJ });
+  await page.waitForTimeout(1200);
+  const blur = () => page.evaluate(() => { document.activeElement && document.activeElement.blur(); });
+  const wcount = () => page.$$eval(".win", (w) => w.length);
+  const front = () => page.evaluate(() => document.querySelector(".tb-win.active")?.textContent || "");
+  // YEAR
+  await cmd(page, "CLOSE"); await cmd(page, "YEAR"); await page.waitForTimeout(400);
+  const yr = await page.evaluate(() => { const w = [...document.querySelectorAll(".win")].find((x) => x.dataset.type === "YEAR"), b = w.querySelector(".win-body");
+    const now = new Date(), y = now.getFullYear(), a = new Date(y, 0, 1), e = new Date(y + 1, 0, 1), n = Math.round((e - a) / 864e5);
+    return { title: w.querySelector(".w-title").textContent, rows: [...b.querySelectorAll(".yr-row")].map((r) => r.dataset.yr + " " + r.querySelector(".yr-pct").textContent), left: b.querySelector('[data-yr="D"] .yr-left').textContent,
+      dots: b.querySelectorAll(".yr-dots i:not(.yr-x)").length, today: b.querySelectorAll(".yr-dots i.yr-t").length, n, yPct: ((now - a) / (e - a) * 100), text: b.innerText }; });
+  await page.waitForTimeout(1300);
+  const left2 = await page.evaluate(() => document.querySelector('.win[data-type="YEAR"] [data-yr="D"] .yr-left').textContent);
+  ok("[S] YEAR: year, quarter, month, week and day gone (device clock), a countdown that runs, a dot per day of the year", yr.title === "YEAR PROGRESS" && yr.rows.length === 5 && /^Y \d+\.\d{2}%$/.test(yr.rows[0]) && Math.abs(parseFloat(yr.rows[0].slice(2)) - yr.yPct) < 0.05 && yr.dots === yr.n && yr.today === 1 && /^left \d{2}:\d{2}:\d{2}$/.test(yr.left) && left2 !== yr.left && /A DOT PER DAY/.test(yr.text), JSON.stringify(yr).slice(0, 400));
+  // typing anywhere starts a command; Ctrl+K; F1 / F2; Esc closes the window in front; Alt+Z reopens it
+  await blur(); await page.keyboard.type("WL"); await page.waitForTimeout(100);
+  const typed = await page.evaluate(() => [document.activeElement?.id, document.querySelector("#cmd").value]);
+  await page.keyboard.press("Enter"); await page.waitForTimeout(700);
+  ok("[S] typing with nothing focused goes to the command line (WL ⏎ opens the watchlist)", typed[0] === "cmd" && typed[1] === "WL" && /WL/.test(await front()), JSON.stringify(typed));
+  await blur(); await page.keyboard.press("Control+k");
+  ok("[S] Ctrl+K: the command line", (await page.evaluate(() => document.activeElement?.id)) === "cmd");
+  await blur(); await page.keyboard.press("F2"); await page.waitForTimeout(200);
+  const menuOn = await page.evaluate(() => !!document.querySelector("#fnmenu.on")); const n0 = await wcount();
+  await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+  await blur(); await page.keyboard.press("F1"); await page.waitForTimeout(200);
+  const help = await page.evaluate(() => document.querySelector("#help.on")?.innerText || "");
+  await page.keyboard.press("Escape"); await page.waitForTimeout(200);
+  ok("[S] F2 the functions, F1 help (with the shortcuts); Esc closes them, not a window", menuOn && /KEYBOARD/.test(help) && /Alt\+Shift\+W/.test(help) && /YEAR/.test(help) && (await wcount()) === n0 && !(await page.$("#help.on")) && !(await page.$("#fnmenu.on")));
+  await blur(); await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+  const afterEsc = await page.$$eval(".win", (w) => w.map((x) => x.dataset.type).join());
+  await page.keyboard.press("Alt+z"); await page.waitForTimeout(500);
+  ok("[S] Esc closes the window in front (the watchlist); Alt+Z reopens it", afterEsc === "YEAR" && (await page.$$eval(".win", (w) => w.map((x) => x.dataset.type).sort().join())) === "WL,YEAR", afterEsc);
+  // Tab / Shift+Tab, Alt+M / Alt+N / Alt+T, Alt+Shift+W
+  await cmd(page, "CB"); await page.waitForTimeout(600); await blur();
+  const f0 = await front(); await page.keyboard.press("Tab"); const f1 = await front(); await page.keyboard.press("Shift+Tab"); const f2 = await front();
+  ok("[S] Tab / Shift+Tab: next / previous window", f0 !== f1 && f2 === f0, [f0, f1, f2].join(" | "));
+  await page.keyboard.press("Alt+m"); await page.waitForTimeout(200); const mx = await page.$$eval(".win.ismax", (w) => w.length);
+  await page.keyboard.press("Alt+m"); await page.keyboard.press("Alt+n"); await page.waitForTimeout(200); const mn = await page.$$eval(".win.ismin", (w) => w.length);
+  await page.keyboard.press("Alt+t"); await page.waitForTimeout(300);
+  ok("[S] Alt+M maximises and restores, Alt+N minimises, Alt+T tiles", mx === 1 && mn === 1 && (await page.$$eval(".win.ismax", (w) => w.length)) === 0);
+  await page.keyboard.press("Alt+Shift+w"); await page.waitForTimeout(300); const closedAll = await wcount();
+  await page.keyboard.press("Alt+z"); await page.waitForTimeout(700);
+  ok("[S] Alt+Shift+W closes them all; Alt+Z brings them all back", closedAll === 0 && (await wcount()) === 3);
+  // resize from the edges; Alt while dropping: no snapping
+  await cmd(page, "CLOSE"); await cmd(page, "MKT"); await page.waitForTimeout(800);
+  const box = () => page.evaluate(() => { const w = document.querySelector('.win[data-type="MKT"]'), d = document.querySelector("#desk").getBoundingClientRect(), r = w.getBoundingClientRect(); return { x: Math.round(r.left - d.left), y: Math.round(r.top - d.top), w: Math.round(r.width), h: Math.round(r.height) }; });
+  const grab = async (sel, dx, dy) => { const r = await page.$eval(`.win[data-type="MKT"] ${sel}`, (e) => { const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+    await page.mouse.move(r.x, r.y); await page.mouse.down(); await page.mouse.move(r.x + dx, r.y + dy, { steps: 5 }); await page.mouse.up(); await page.waitForTimeout(250); };
+  const b0 = await box(); await grab(".w-edge.e", 90, 0); const b1 = await box(); await grab(".w-edge.w", -20, 0); const b2 = await box(); await grab(".w-edge.s", 0, 60); const b3 = await box();
+  ok("[S] a window resizes from its right, left and bottom edges", b1.w === b0.w + 90 && b1.x === b0.x && b2.x === b1.x - 20 && b2.w === b1.w + 20 && b3.h === b2.h + 60 && b3.w === b2.w, JSON.stringify([b0, b1, b2, b3]));
+  const hd = await page.$eval('.win[data-type="MKT"] .w-title', (e) => { const b = e.getBoundingClientRect(); return { x: b.left + 10, y: b.top + b.height / 2 }; });
+  const dk = await page.$eval("#desk", (d) => { const r = d.getBoundingClientRect(); return { x: r.left, y: r.top }; });
+  await page.keyboard.down("Alt"); await page.mouse.move(hd.x, hd.y); await page.mouse.down(); await page.mouse.move(dk.x + 3, dk.y + 3 + 40, { steps: 6 }); await page.mouse.move(dk.x + 3, dk.y + 3, { steps: 3 }); await page.mouse.up(); await page.keyboard.up("Alt"); await page.waitForTimeout(300);
+  const b4 = await box();
+  ok("[S] holding Alt while dropping in a corner: the window stays where it is (no quarter, size kept)", b4.w === b3.w && b4.h === b3.h && !(await page.$('.win[data-type="MKT"].ismax')), JSON.stringify([b3, b4]));
+  // "✕n": a window opened from another one is closed from it, and comes back with UNDO
+  await cmd(page, "CLOSE"); await cmd(page, "WL"); await page.waitForTimeout(800);
+  await page.click('.win[data-type="WL"] .wl-row[data-sym="AAPL"]'); await page.waitForTimeout(700);
+  const kids = await page.evaluate(() => { const b = document.querySelector('.win[data-type="WL"] .w-kids'); return { hidden: b.hidden, t: b.textContent, n: document.querySelectorAll(".win").length }; });
+  await page.click('.win[data-type="WL"] .w-kids'); await page.waitForTimeout(300);
+  const afterKids = await page.$$eval(".win", (w) => w.map((x) => x.dataset.type).join());
+  await cmd(page, "UNDO"); await page.waitForTimeout(600);
+  const back = await page.evaluate(() => ({ types: [...document.querySelectorAll(".win")].map((x) => x.dataset.type).sort().join(), t: document.querySelector('.win[data-type="WL"] .w-kids').textContent, h: document.querySelector('.win[data-type="WL"] .w-kids').hidden }));
+  await cmd(page, "MSFT"); await page.waitForTimeout(600);
+  const own = await page.evaluate(() => document.querySelector('.win[data-type="WL"] .w-kids').textContent);
+  ok("[S] ✕1 in the watchlist's title closes the chart opened from it; UNDO reopens it (still its child); a command opens a window of its own", !kids.hidden && kids.t === "✕1" && kids.n === 2 && afterKids === "WL" && back.types === "GP,WL" && back.t === "✕1" && !back.h && own === "✕1", JSON.stringify([kids, afterKids, back, own]));
+  // AAPL NOTE
+  await cmd(page, "AAPL NOTE"); await page.waitForTimeout(700);
+  const nt = await page.evaluate(() => { const w = document.querySelector('.win[data-type="NOTE"]'); return w ? { t: w.querySelector(".w-title").textContent, sym: w.querySelector('[data-k="nsym"]')?.value, f: w.querySelector('[data-k="nfilter"]')?.value } : null; });
+  await cmd(page, "NOTE"); await page.waitForTimeout(400);
+  const nt2 = await page.evaluate(() => document.querySelector('.win[data-type="NOTE"] .w-title').textContent);
+  ok("[S] AAPL NOTE: the notes on AAPL, its symbol filled in; NOTE alone: every note", nt && nt.t === "NOTES · AAPL" && nt.sym === "AAPL" && nt.f === "AAPL" && nt2 === "NOTES", JSON.stringify([nt, nt2]));
+  // HIDE: amounts and quantities masked in the portfolio, percentages kept; Alt+P / the eye; remembered
+  await cmd(page, "CLOSE"); await cmd(page, "PF"); await page.waitForTimeout(1500);
+  const pfTxt = () => page.evaluate(() => document.querySelector('.win[data-type="PF"] .win-body').innerText);
+  const shown = await pfTxt();
+  await blur(); await page.keyboard.press("Alt+p"); await page.waitForTimeout(500);
+  const hidden = await pfTxt();
+  const eye = await page.evaluate(() => ({ p: document.querySelector("#hideBtn").getAttribute("aria-pressed"), ls: localStorage.getItem("at-hide"), blur: document.body.classList.contains("hide-amt") }));
+  const qtyCell = await page.evaluate(() => { const t = document.querySelector('.win[data-type="PF"] table.pf'); const i = [...t.tHead.rows[0].cells].findIndex((c) => c.textContent.trim() === "QTY"); return t.tBodies[0].rows[0].cells[i].textContent; });
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/hide.png" });
+  await page.click("#hideBtn"); await page.waitForTimeout(500);
+  const again = await pfTxt();
+  ok("[S] HIDE (Alt+P): every amount and quantity in the portfolio masked, percentages kept; the eye shows it, remembered; again shows them", /€\d/.test(shown) && /\b12\b/.test(shown) && !/[€$]\s?\d/.test(hidden) && /•••••/.test(hidden) && qtyCell === "•••••" && /\d+\.\d+%/.test(hidden) && eye.p === "true" && eye.ls === "1" && eye.blur && /€\d/.test(again) && (await page.evaluate(() => localStorage.getItem("at-hide"))) === "0", JSON.stringify({ hidden: hidden.slice(0, 500), qtyCell, eye }));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[S] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
 }
 
 await browser.close();

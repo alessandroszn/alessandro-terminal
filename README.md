@@ -291,6 +291,25 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## As on Nico's terminal: YEAR, privacy, keyboard, edges, "close what it opened" (23 Oct 2026, no new provider)
+- `YEAR`: how much of the year, quarter, month, week (ISO, from Monday) and day has gone, from the device clock in its
+  own time zone (DERIVED), a countdown to each end that runs every second, and a dot per day of the year (today marked).
+- `HIDE` (Alt+P, the eye at the top right, menu LAYOUT): in the owner's windows (PF, PFA, PLAB, WIF, EXPO) money amounts
+  and quantities are masked as they are drawn (a MutationObserver per window: columns by their header — QTY / UNITS /
+  SHARES, VALUE / COST / P&L / NET / FEES / REALISED — and any amount written with its currency); percentages stay; the
+  portfolio charts are blurred. Display only: nothing is changed or sent. Remembered in this browser (`at-hide`).
+- Keyboard: typing a letter or digit with no field focused starts a command; Ctrl+K / ⌘K or `/` the command line; F1 or
+  `?` help; F2 the functions (the old `m` key is gone: letters now go to the command line); Tab / Shift+Tab next /
+  previous window; Esc closes the window in front (Alt+Z reopens it). Alt (Option on a Mac, read by key position) +W
+  close, +Shift+W close all, +Z reopen, +T tile, +M maximise / restore, +N minimise, +↑ full desk, +↓ normal size,
+  +← / +→ split screen, +1…9 saved view, +P hide amounts.
+- Windows resize from the right, bottom and left edges too (and the corner grip); holding Alt while dropping a window
+  leaves it where it is (no corner / half / top snapping).
+- A window opened within a few seconds of a click inside another one is its child: "✕n" in the parent's title closes its
+  children (and theirs); UNDO reopens them, still its children. A command typed in the command line opens a window of
+  its own.
+- `AAPL NOTE` (or `NOTE AAPL`): the notes on that security, its symbol filled in for a new note; `NOTE` alone: all.
+
 ## Corners and windows that fit (desktop, 23 Oct 2026)
 - A window dropped with the pointer in a corner of the desk takes that quarter (four windows a screen); at the top edge it
   is maximised, at the left / right edge it takes that half (as before).

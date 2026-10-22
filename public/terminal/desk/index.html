@@ -597,6 +597,35 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     .pf-kpis{grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
     .ef-kv{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   }
+  /* ---- window edges (resize), "✕n" (close what it opened), privacy mode, YEAR ---- */
+  .w-edge{position:absolute;z-index:2;touch-action:none}
+  .w-edge.e{top:28px;right:0;bottom:16px;width:4px;cursor:ew-resize}
+  .w-edge.w{top:28px;left:0;bottom:12px;width:4px;cursor:ew-resize}
+  .w-edge.s{left:12px;right:16px;bottom:0;height:4px;cursor:ns-resize}
+  .w-edge.sw{left:0;bottom:0;width:12px;height:12px;cursor:nesw-resize}
+  .win.ismin .w-edge,.win.ismax .w-edge,body.phone .w-edge{display:none}
+  .w-kids{color:var(--amber);font-size:10.5px;letter-spacing:.04em;font-weight:700}
+  .hide-btn{background:none;border:0;color:var(--dim);cursor:pointer;padding:2px 4px;display:inline-flex;align-items:center;border-radius:3px}
+  .hide-btn:hover{color:var(--fg);background:#ffffff12}
+  .hide-btn .slash{display:none}
+  body.hide-amt .hide-btn{color:var(--amber)}
+  body.hide-amt .hide-btn .slash{display:inline}
+  body.hide-amt .win[data-type="PF"] .win-body canvas,body.hide-amt .win[data-type="PFA"] .win-body canvas,
+  body.hide-amt .win[data-type="PF"] .win-body svg:not(.spark),body.hide-amt .win[data-type="PFA"] .win-body svg:not(.spark){filter:blur(7px)}
+  .yr-row{margin:0 0 11px}
+  .yr-h{display:flex;align-items:baseline;gap:8px;font-size:11px;letter-spacing:.06em}
+  .yr-h b{color:var(--fg);letter-spacing:.12em;font-size:10.5px}
+  .yr-pct{color:var(--amber);font-variant-numeric:tabular-nums;font-weight:700;font-size:13px}
+  .yr-bar{height:9px;background:var(--panel-2);border:1px solid var(--line);border-radius:2px;margin:4px 0 3px;overflow:hidden}
+  .yr-bar i{display:block;height:100%;width:0;background:var(--amber)}
+  .yr-left{font-size:10.5px;font-variant-numeric:tabular-nums}
+  .yr-cap{margin:14px 0 6px;color:var(--dim);font-size:10px;letter-spacing:.12em}
+  .yr-dots{display:grid;grid-template-rows:repeat(7,7px);grid-auto-flow:column;grid-auto-columns:7px;gap:2px;overflow-x:auto;padding-bottom:4px}
+  .yr-dots i{width:7px;height:7px;border-radius:50%;background:var(--line-2)}
+  .yr-dots i.yr-p{background:var(--amber);opacity:.5}
+  .yr-dots i.yr-t{background:var(--amber);outline:2px solid var(--amber);outline-offset:1px}
+  .yr-dots i.yr-m1{box-shadow:inset 0 0 0 1px var(--fg)}
+  .yr-dots i.yr-x{visibility:hidden}
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -609,6 +638,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     </div>
     <div id="tabs" aria-label="Open windows"></div>
     <div class="status-right">
+      <button type="button" class="hide-btn" id="hideBtn" aria-pressed="false" title="Hide money amounts and quantities (Alt+P)" aria-label="Hide money amounts and quantities (Alt+P)"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/><path class="slash" d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.5"/></svg></button>
       <span class="lang notranslate" role="group" aria-label="Language"><button type="button" data-lang="en">EN</button><button type="button" data-lang="it">IT</button></span>
       <span class="tstat" id="topStatus"><span class="tdot" id="tsDot">●</span><button type="button" class="tlink tlab" id="tsLabel" title="">LOADING</button> <span id="tsTime"></span><span class="tsep">·</span><button type="button" class="tlink" id="mktsOpen" title="">—</button><span class="tsep">·</span><span class="tnext"><span id="tsNext">next</span> <button type="button" class="tlink" id="nextEv" title="">—</button></span></span>
       <time class="tclock" id="clk">--:--:--</time>
@@ -648,11 +678,25 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>‹ back</code><span>The ‹ in the window's title, or a swipe from the left edge: back to the window shown before</span></div>
     <div class="help-row"><code>offline</code><span>The interface opens without a network; data is never stored on the phone, so it shows N/A until the connection is back</span></div>
     <div class="help-grp">WINDOWS</div>
-    <div class="help-row"><code>drag title</code><span>Move a window; drag the corner grip to resize</span></div>
+    <div class="help-row"><code>drag title</code><span>Move a window: dropped in a corner it takes that quarter, at the top it fills the desk, at a side half of it; hold Alt (Option) to drop it where it is</span></div>
+    <div class="help-row"><code>edges</code><span>Drag the right, bottom or left edge, or the corner grip, to resize a window</span></div>
+    <div class="help-row"><code>✕2</code><span>In a window's title: closes the windows opened from it (UNDO reopens them)</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
     <div class="help-row"><code>TILE</code><span>Arrange every open window in a grid</span></div>
     <div class="help-row"><code>◫ SPLIT</code><span>Split screen: the window in front and the previous one side by side (the ◫ in the taskbar or in a window's title, Alt+← / Alt+→); again swaps them; drag the divider to resize, double-click it for half and half. SPLIT NVDA MSFT or SPLIT WL N opens two side by side</span></div>
     <div class="help-row"><code>CLOSE</code><span>Close all windows · <code>UNDO</code> brings them back</span></div>
+    <div class="help-grp">KEYBOARD · on a Mac, Alt is Option</div>
+    <div class="help-row"><code>Ctrl+K · /</code><span>Command line, or just start typing anywhere</span></div>
+    <div class="help-row"><code>Tab · Shift+Tab</code><span>Next / previous window</span></div>
+    <div class="help-row"><code>Esc</code><span>Close the window in front (Alt+Z reopens it)</span></div>
+    <div class="help-row"><code>F1 · ? · F2</code><span>Help · all functions</span></div>
+    <div class="help-row"><code>Alt+W · Alt+Shift+W</code><span>Close the window in front · close all</span></div>
+    <div class="help-row"><code>Alt+Z · Alt+T</code><span>Reopen what was closed · tile the windows</span></div>
+    <div class="help-row"><code>Alt+M · Alt+N</code><span>Maximise or restore · minimise the window in front</span></div>
+    <div class="help-row"><code>Alt+↑ · Alt+↓</code><span>Window in front to the full desk · back to its size</span></div>
+    <div class="help-row"><code>Alt+← · Alt+→</code><span>Split screen</span></div>
+    <div class="help-row"><code>Alt+1…9</code><span>Open saved view 1 to 9 (VIEW)</span></div>
+    <div class="help-row"><code>Alt+P</code><span>Hide money amounts and quantities (HIDE)</span></div>
     <div class="help-grp">COMMAND LINE</div>
     <div class="help-row"><code>NVDA</code><span>Open a security window</span></div>
     <div class="help-row"><code>NVDA GP</code><span>Ticker + function in one line</span></div>
@@ -678,7 +722,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>SCR</code><span>Equity screener: every U.S.-listed stock (Nasdaq, NYSE, NYSE American) by sector, size, move, country, price and volume</span></div>
     <div class="help-row"><code>COMP</code><span>Compare instruments, rebased or % change, in their own currencies or converted to USD, EUR, CHF, GBP or JPY</span></div>
     <div class="help-row"><code>CORR</code><span>Correlation matrix of daily returns</span></div>
-    <div class="help-row"><code>MENU</code><span>All functions by category (also the ☰ FUNCTIONS button, or press m)</span></div>
+    <div class="help-row"><code>MENU</code><span>All functions by category (also the ☰ FUNCTIONS button, or F2)</span></div>
     <div class="help-row"><code>EQ</code><span>Equities: S&amp;P 500, Nasdaq-100 and Dow 30 members with weights and changes</span></div>
     <div class="help-row"><code>FX · CRYPTO</code><span>Currency board with the ICE dollar index (DXY), and crypto board</span></div>
     <div class="help-row"><code>CMDTY · FCRV</code><span>Commodities: 26 front-month futures (CNBC) with returns, EIA spot energy, U.S. weekly inventories (EIA: crude, Cushing, SPR, products, natural gas storage, refinery runs) vs a year ago and the 5-year average, gold; futures curves by contract month for 12 commodities</span></div>
@@ -698,10 +742,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>CROSS A B</code><span>Ratio of two instruments over time, with its percentile and z-score</span></div>
     <div class="help-row"><code>BT</code><span>Backtest on real history: one instrument (buy &amp; hold or moving-average crossover) or a portfolio mix with rebalancing against a benchmark</span></div>
     <div class="help-row"><code>BOARD · ALRT · NOTE</code><span>Your boards, alerts (price, daily move, market open / close, data releases, portfolio off its lab weights — checked on the server, optionally sent to Telegram) and notes</span></div>
+    <div class="help-row"><code>AAPL NOTE</code><span>Your notes on one security, with its symbol filled in for a new note</span></div>
     <div class="help-row"><code>SYS · TOUR</code><span>System status; guided tour</span></div>
+    <div class="help-row"><code>YEAR</code><span>How much of the year, quarter, month, week and day has gone, with a live countdown and a dot per day</span></div>
+    <div class="help-row"><code>HIDE</code><span>Privacy: hides money amounts and quantities in your portfolio windows and blurs their charts; percentages stay (Alt+P or the eye at the top right)</span></div>
     <div class="help-row"><code>SET</code><span>Settings: eight themes (full palettes) and custom colours</span></div>
     <div class="help-row"><code>VIEW</code><span>Saved views: name and save the current layout of windows, reopen it later (stored privately on the server)</span></div>
-    <div class="help-row"><code>HELP</code><span>This screen (or press ?)</span></div>
+    <div class="help-row"><code>HELP</code><span>This screen (or press ? or F1)</span></div>
     <div class="help-grp">DATA LABELS · only real data is shown</div>
     <div class="help-row"><code>LIVE</code><span>Real, from the provider, within its refresh window</span></div>
     <div class="help-row"><code>PART</code><span>Real but partial (volume from a venue subset)</span></div>
@@ -2523,7 +2570,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['YAS',tl('Bond yield calculator — YTM, duration, cash flows','Calcolatore obbligazioni — rendimento, duration, flussi')],['SPRD',tl('Spreads (BTP–Bund, 2s10s, any pair)','Spread (BTP–Bund, 2s10s, qualsiasi coppia)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves','Curve dei futures')]]],
     ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')],['MC',tl('Monte Carlo','Monte Carlo')],['VAR',tl('Value at risk · ES','Valore a rischio · ES')],['VOL',tl('Volatility · GARCH','Volatilità · GARCH')],['DIST',tl('Return distribution','Distribuzione dei rendimenti')],['BETA',tl('Beta · regression','Beta · regressione')],['FACT',tl('Factor exposure · Fama/French','Esposizione ai fattori · Fama/French')],['EF',tl('Portfolio optimiser','Ottimizzatore di portafoglio')],['SEAS',tl('Seasonality','Stagionalità')]]],
     ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['PFA',tl('Portfolio analytics — performance and risk','Analisi del portafoglio — rendimento e rischio')],['PLAB',tl('Portfolio lab — build, backtest, risk, compare, project','Laboratorio portafogli — costruisci, backtest, rischio, confronto, proiezione')],['WIF',tl('What if I had bought… (real history)','E se avessi comprato… (storia reale)')],['ALRT',tl('Alerts — price, move, market open / close, data releases; Telegram','Avvisi — prezzo, variazione, apertura / chiusura, dati macro; Telegram')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
-    ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['VIEW',tl('Saved views (layouts)','Viste salvate (layout)')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['SPLIT',tl('Split screen (two windows)','Schermo diviso (due finestre)')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
+    ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['VIEW',tl('Saved views (layouts)','Viste salvate (layout)')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['SPLIT',tl('Split screen (two windows)','Schermo diviso (due finestre)')],['YEAR',tl('Year progress','Avanzamento dell\'anno')],['HIDE',tl('Hide amounts (privacy)','Nascondi gli importi (privacy)')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
   const MN={q:'',sel:0};
   function menuItems(){const q=MN.q.trim().toUpperCase();const out=[];menuDef().forEach(([id,label,items])=>items.forEach(([code,name,na])=>{if(!q||code.includes(q)||name.toUpperCase().includes(q))out.push({cat:id,label,code,name,na});}));return out;}
   function renderMenu(){const box=$('#fnmenu');if(!box)return;const list=menuItems();MN.sel=Math.min(MN.sel,Math.max(0,list.length-1));
@@ -3809,7 +3856,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     try{const r=await fetch(CONFIG.proxyBase+'/api/user/views',{cache:'no-store'});const j=await r.json();if(j&&Array.isArray(j.views)){VWS.list=j.views;VWS.err=null;}else VWS.err=(j&&j.error)||'http '+r.status;}catch(e){VWS.err='network';}
     finally{VWS.loading=false;VWS.at=Date.now();repaintTypes(['VIEW']);}}
   // open a saved layout: the windows open now are closed (UNDO brings them back); positions scale to this desk
-  function viewOpen(v){const dw=deskEl.clientWidth,dh=deskEl.clientHeight,sx=v.desk&&v.desk.w?dw/v.desk.w:1,sy=v.desk&&v.desk.h?dh/v.desk.h:1;closeAll();
+  function viewOpen(v){OPENER=null;const dw=deskEl.clientWidth,dh=deskEl.clientHeight,sx=v.desk&&v.desk.w?dw/v.desk.w:1,sy=v.desk&&v.desk.h?dh/v.desk.h:1;closeAll();
     v.layout.forEach(s=>{if(!WINTYPES[s.type])return;if(s.type==='GP'&&s.state&&s.state.ticker)inst(s.state.ticker);const w=openWindow(s.type,s.state||{});if(!isMobile()){Object.assign(w,{x:Math.round(s.x*sx),y:Math.round(s.y*sy),w:Math.max(260,Math.round(s.w*sx)),h:Math.max(160,Math.round(s.h*sy))});applyRect(w);}if(s.min)toggleMin(w);requestAnimationFrame(()=>reflowWin(w));});
     renderTaskbar();updateGlobal();}
   function renderViews(body,win){viewsLoad();setProv(win,{'ds:VIEW':VWS.list?S.LIVE:VWS.err?S.NA:S.LOADING});
@@ -4334,7 +4381,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     QNT:{tag:'QNT',w:1000,h:720,title:w=>`QUANT · ${qnLabel(w.state.tool||'mc')} · ${w.state.tool==='ef'?((w.state.ef&&w.state.ef.syms)||[]).join(' '):w.state.tool==='beta'?(w.state.sym||'')+' / '+(w.state.bench||'SPY'):w.state.tool==='fact'?(w.state.fsub==='pf'?tl('MY PORTFOLIO','IL MIO PORTAFOGLIO'):w.state.fsub==='lab'&&w.state.flab?w.state.flab.name:w.state.fid||''):w.state.sym||''}`,render:renderQuant},
     BT:{tag:'BT',w:880,h:680,title:w=>w.state.bm==='mix'?'BACKTEST · PORTFOLIO MIX':`BACKTEST · ${w.state.sym||''}`,render:renderBt},
     ALRT:{tag:'ALRT',w:1040,h:640,title:()=>'ALERTS',render:renderAlrt},
-    NOTE:{tag:'NOTE',w:640,h:580,title:()=>'NOTES',render:renderNote},
+    NOTE:{tag:'NOTE',w:640,h:580,title:()=>{const q=NT.filter.trim().toUpperCase();return tl('NOTES','NOTE')+(q?' · '+q:'');},render:renderNote},
+    YEAR:{tag:'YEAR',w:560,h:540,title:()=>tl('YEAR PROGRESS','AVANZAMENTO DELL\'ANNO'),render:renderYear},
     SYS:{tag:'SYS',w:820,h:640,title:()=>'SYSTEM STATUS',render:renderSys},
     BOND:{tag:'BOND',w:1000,h:660,title:()=>'WORLD GOVERNMENT BONDS',render:renderBond},
     COT:{tag:'COT',w:1080,h:660,title:()=>'FUTURES POSITIONING · CFTC',render:renderCot},
@@ -4405,28 +4453,36 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-grip" title="Resize"></div>`;
+    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-kids notranslate" type="button" hidden></button><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-edge e" data-dir="e"></div><div class="w-edge s" data-dir="s"></div><div class="w-edge w" data-dir="w"></div><div class="w-edge sw" data-dir="sw"></div><div class="w-grip" title="Resize"></div>`;el.dataset.type=w.type;
     deskEl.appendChild(el);w.el=el;if('ResizeObserver' in window){let fr=0;w._ro=new ResizeObserver(()=>{if(fr)return;fr=requestAnimationFrame(()=>{fr=0;fitTables(w);});});w._ro.observe(el);}w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
+    // privacy mode: amounts are masked as they are drawn (HIDE)
+    if(HIDE_TYPES.has(w.type)&&'MutationObserver' in window){w._mo=new MutationObserver(()=>{if(HIDE.on)hideAmounts(w);});w._mo.observe(w.bodyEl,{childList:true,subtree:true,characterData:true});}
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
+    el.querySelector('.w-kids').onclick=e=>{e.stopPropagation();closeKids(w);};
     el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
     el.querySelector('.w-split').onclick=e=>{e.stopPropagation();splitFrom(w);};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
     el.querySelector('.w-max').onclick=e=>{e.stopPropagation();toggleMax(w);};
-    el.addEventListener('pointerdown',()=>bringFront(w),true);
+    el.addEventListener('pointerdown',()=>{OPENER={id:w.id,t:Date.now()};bringFront(w);},true);
     const head=el.querySelector('.win-head');head.addEventListener('pointerdown',e=>startDrag(w,e,head));head.addEventListener('dblclick',()=>toggleMax(w));
-    el.querySelector('.w-grip').addEventListener('pointerdown',e=>startResize(w,e));
+    el.querySelector('.w-grip').addEventListener('pointerdown',e=>startResize(w,e,'se'));
+    $$('.w-edge',el).forEach(g=>g.addEventListener('pointerdown',e=>startResize(w,e,g.dataset.dir)));
     applyRect(w);}
   function openWindow(type,state){const def=WINTYPES[type];const w={id:winSeq++,type,state:Object.assign({},state),min:false,max:false,w:def.w,h:def.h,x:0,y:0,z:++zTop};
     const n=wins.length;const dw=deskEl?deskEl.clientWidth:1000,dh=deskEl?deskEl.clientHeight:600;
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
+    if(OPENER&&Date.now()-OPENER.t<5000&&wins.some(x=>x.id===OPENER.id))w.parent=OPENER.id;
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{ex:'ALL',sector:'ALL',cap:'ALL',dir:'ALL',country:'ALL',sort:'cap',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
   function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow(type,state||defaultState(type));}
-  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);if(w._ro){w._ro.disconnect();w._ro=null;}const snap={type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
+  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);if(w._ro){w._ro.disconnect();w._ro=null;}if(w._mo){w._mo.disconnect();w._mo=null;}const snap={id:w.id,parent:w.parent,type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
   function closeAll(){splitEnd();splitPendingOff();if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
-  function undoClose(){const item=closedStack.pop();if(!item)return;const arr=Array.isArray(item)?item:[item];arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);});renderTaskbar();}
+  // reopened windows keep who opened whom (the ids are new)
+  function undoClose(){const item=closedStack.pop();if(!item)return;OPENER=null;const arr=Array.isArray(item)?item:[item],map={};
+    arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);if(s.id!=null){map[s.id]=w.id;wins.forEach(x=>{if(x.parent===s.id)x.parent=w.id;});}});
+    arr.forEach(s=>{const w=wins.find(x=>x.id===map[s.id]);if(!w||s.parent==null)return;const p=map[s.parent]!=null?map[s.parent]:s.parent;if(wins.some(x=>x.id===p))w.parent=p;});renderTaskbar();}
   function toggleMin(w){if(!SPLIT.busy&&(SPLIT.l===w.id||SPLIT.r===w.id))splitEnd();w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
   function toggleMax(w){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
   // interactive charts (Lightweight Charts) size themselves; canvas drawings are redrawn
@@ -4450,10 +4506,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function startDrag(w,e,head){if(isMobile()||w.max)return;if(e.target.closest('.w-ctl'))return;e.preventDefault();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
     drag={w,sx:e.clientX,sy:e.clientY,ox:w.x,oy:w.y};head.setPointerCapture&&head.setPointerCapture(e.pointerId);
     const move=ev=>{if(!drag)return;const dw=deskEl.clientWidth,dh=deskEl.clientHeight;w.x=Math.max(0,Math.min(drag.ox+(ev.clientX-drag.sx),dw-60));w.y=Math.max(0,Math.min(drag.oy+(ev.clientY-drag.sy),dh-28));applyRect(w);};
-    const up=ev=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);snap(w,ev);drag=null;};
+    const up=ev=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);if(!ev.altKey)snap(w,ev);drag=null;};
     window.addEventListener('pointermove',move);window.addEventListener('pointerup',up);}
   // dropped with the pointer in a corner of the desk: that quarter (four windows a screen); at the top edge: maximised;
-  // at the left / right edge: that half
+  // at the left / right edge: that half. Holding Alt (Option) while dropping leaves it where it is.
   function snap(w,ev){const dw=deskEl.clientWidth,dh=deskEl.clientHeight,T=26;
     if(ev&&fin(ev.clientX)){const r=deskEl.getBoundingClientRect(),px=ev.clientX-r.left,py=ev.clientY-r.top,C=48,G=6;
       const L=px<=C,R=px>=dw-C,Tp=py<=C,B=py>=dh-C;
@@ -4462,9 +4518,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(w.x<=T){w.x=0;w.y=0;w.w=Math.floor(dw/2);w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
     else if(w.x+w.w>=dw-T){w.w=Math.floor(dw/2);w.x=dw-w.w;w.y=0;w.h=dh;applyRect(w);requestAnimationFrame(()=>reflowWin(w));}}
   let rsz=null;
-  function startResize(w,e){if(isMobile()||w.max)return;e.preventDefault();e.stopPropagation();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
-    rsz={w,sx:e.clientX,sy:e.clientY,ow:w.w,oh:w.h};
-    const move=ev=>{if(!rsz)return;w.w=Math.max(260,rsz.ow+(ev.clientX-rsz.sx));w.h=Math.max(170,rsz.oh+(ev.clientY-rsz.sy));applyRect(w);};
+  // dir: the edges dragged — 'se' the corner grip, 'e' right, 's' bottom, 'w' left, 'sw' bottom-left corner
+  function startResize(w,e,dir){if(isMobile()||w.max)return;dir=dir||'se';e.preventDefault();e.stopPropagation();if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();bringFront(w);
+    rsz={w,sx:e.clientX,sy:e.clientY,ow:w.w,oh:w.h,ox:w.x};
+    const move=ev=>{if(!rsz)return;const dx=ev.clientX-rsz.sx,dy=ev.clientY-rsz.sy;
+      if(dir.includes('e'))w.w=Math.max(260,rsz.ow+dx);
+      if(dir.includes('w')){const nw=Math.max(260,Math.min(rsz.ow-dx,rsz.ox+rsz.ow));w.x=rsz.ox+rsz.ow-nw;w.w=nw;}
+      if(dir.includes('s'))w.h=Math.max(170,rsz.oh+dy);applyRect(w);};
     let raf=0;const rmove=ev=>{move(ev);if(!raf)raf=requestAnimationFrame(()=>{raf=0;reflowWin(w);});};
     const up=()=>{window.removeEventListener('pointermove',rmove);window.removeEventListener('pointerup',up);reflowWin(w);rsz=null;};
     window.addEventListener('pointermove',rmove);window.addEventListener('pointerup',up);}
@@ -4514,7 +4574,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function openTok(tok){if(FUNCMAP[tok]&&!['HELP','MENU','TOUR'].includes(tok)){const t=FUNCMAP[tok];return t==='GP'?null:openOrFocus(t,defaultState(t));}if(BY[tok]||SYMBOL_OK.test(tok)||/^C:[A-Z0-9][A-Z0-9.\-]{0,15}$/.test(tok))return openSecurity(tok);return null;}
 
   /* ---------- taskbar + launcher ---------- */
-  function renderTaskbar(){phoneSync();const bar=$('#tabs');bar.innerHTML='';
+  function renderTaskbar(){phoneSync();updateKids();const bar=$('#tabs');bar.innerHTML='';
     // (☰ FUNCTIONS lives in the dock at the bottom; here only the window tools, as icons)
     [['◫','tb-split'+(splitOn()?' on':''),tl('Split screen: the window in front and the previous one side by side (again: swap them) · Alt+← / Alt+→','Schermo diviso: la finestra davanti e la precedente affiancate (di nuovo: le scambia) · Alt+← / Alt+→'),()=>splitScreen()],['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
     if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
@@ -4531,17 +4591,108 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(phoneOn()){PHONE_TABS().forEach(([code,g,label])=>{const b=document.createElement('button');b.type='button';b.className='fn ptab';b.dataset.code=code;b.innerHTML=`<b aria-hidden="true">${g}</b>${esc(label)}${code==='WIN'?'<i class="pt-n" hidden></i>':''}`;b.setAttribute('aria-label',label);
       b.onclick=()=>{if(code==='MENU')toggleMenu(true);else if(code==='WIN')toggleWinSheet(true);else openOrFocus(code,defaultState(code));};fn.appendChild(b);});paintPhoneTabs();return;}
     [['MENU',tl('☰ FUNCTIONS','☰ FUNZIONI')],['IDX','INDICES'],['WL','WATCHLIST'],['YLD','YIELDS'],['CAL','CALENDAR'],['MAP','HEAT MAPS'],['BRF','BRIEFING'],['N','NEWS'],['MKT','MARKETS'],['PF','PORTFOLIO'],['HELP','? HELP']].forEach(([code,label])=>{
-      const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;if(code==='MENU'){b.id='fnMenuBtn';b.title=tl('all functions by category (m)','tutte le funzioni per categoria (m)');}
+      const b=document.createElement('button');b.className='fn'+(code==='MENU'?' fn-menu':'');b.type='button';b.textContent=label;if(code==='MENU'){b.id='fnMenuBtn';b.title=tl('all functions by category (F2)','tutte le funzioni per categoria (F2)');}
       b.onclick=()=>{if(code==='HELP')toggleHelp(true);else if(code==='MENU')toggleMenu(true);else if(code==='DES')openSym('DES');else openOrFocus(code,defaultState(code));};fn.appendChild(b);});}
 
+  /* ---------- YEAR: how much of the year, quarter, month, week and day has gone (23 Oct 2026, as on Nico's terminal) ----------
+     The device's clock and time zone only; weeks from Monday (ISO). A live countdown to each end, a dot per day. */
+  function yearParts(now){const d=new Date(now),y=d.getFullYear(),m=d.getMonth(),q=Math.floor(m/3),wd=(d.getDay()+6)%7,wk0=new Date(y,m,d.getDate()-wd);
+    return[['Y',tl('YEAR','ANNO'),new Date(y,0,1),new Date(y+1,0,1),String(y)],['Q',tl('QUARTER','TRIMESTRE'),new Date(y,q*3,1),new Date(y,q*3+3,1),'Q'+(q+1)],
+      ['M',tl('MONTH','MESE'),new Date(y,m,1),new Date(y,m+1,1),d.toLocaleDateString(I18N.locale(),{month:'long'})],
+      ['W',tl('WEEK','SETTIMANA'),wk0,new Date(wk0.getFullYear(),wk0.getMonth(),wk0.getDate()+7),tl('week','settimana')+' '+isoWeekNo(d)],
+      ['D',tl('DAY','GIORNO'),new Date(y,m,d.getDate()),new Date(y,m,d.getDate()+1),d.toLocaleDateString(I18N.locale(),{weekday:'long',day:'numeric'})]];}
+  function isoWeekNo(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())),n=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-n+3);const f=new Date(Date.UTC(t.getUTCFullYear(),0,4));return 1+Math.round(((t-f)/86400000-3+((f.getUTCDay()+6)%7))/7);}
+  const yLeft=ms=>{const s=Math.max(0,Math.floor(ms/1000)),dd=Math.floor(s/86400),h=Math.floor(s%86400/3600),mi=Math.floor(s%3600/60);return(dd?dd+tl('d','g')+' ':'')+two(h)+':'+two(mi)+':'+two(s%60);};
+  const yDay=now=>{const d=new Date(now),y=d.getFullYear();return Math.round((new Date(y,d.getMonth(),d.getDate())-new Date(y,0,1))/86400000);};
+  function renderYear(body,win){const now=Date.now(),P=yearParts(now),y=new Date(now).getFullYear(),n=Math.round((new Date(y+1,0,1)-new Date(y,0,1))/86400000),doy=yDay(now);win._yd=doy;
+    const cells=[];for(let i=0;i<(new Date(y,0,1).getDay()+6)%7;i++)cells.push('<i class="yr-x"></i>');
+    for(let i=0;i<n;i++){const dt=new Date(y,0,1+i);cells.push(`<i class="${i<doy?'yr-p':i===doy?'yr-t':'yr-f'}${dt.getDate()===1?' yr-m1':''}" title="${esc(dt.toLocaleDateString(I18N.locale(),{weekday:'short',day:'numeric',month:'short'}))}"></i>`);}
+    body.innerHTML=`<div class="yr">${P.map(([k,l,,,name])=>`<div class="yr-row" data-yr="${k}"><div class="yr-h"><b>${l}</b><span class="k">${esc(name)}</span><span class="w-sp"></span><span class="yr-pct"></span></div><div class="yr-bar"><i></i></div><div class="k yr-left"></div></div>`).join('')}
+      <div class="yr-cap">${tl(`${y} · A DOT PER DAY`,`${y} · UN PUNTO PER GIORNO`)} <span class="k">${tl('day','giorno')} ${doy+1} / ${n}</span></div><div class="yr-dots">${cells.join('')}</div>
+      <div class="src-line"><span>${tl('The clock and time zone of this device','L\'orologio e il fuso orario di questo dispositivo')} (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}) · ${tl('weeks from Monday (ISO)','settimane da lunedì (ISO)')}</span></div></div>`;
+    setProv(win,{'ds:clock':S.DERIVED},tl('from the device clock','dall\'orologio del dispositivo'));yearTick(win);}
+  function yearTick(win){if(!win.bodyEl||win.min)return;const now=Date.now();if(win._yd!=null&&win._yd!==yDay(now))return paintWin(win);
+    for(const [k,,a,b] of yearParts(now)){const r=win.bodyEl.querySelector(`[data-yr="${k}"]`);if(!r)continue;const f=Math.min(1,Math.max(0,(now-a)/(b-a)));
+      r.querySelector('.yr-pct').textContent=(f*100).toFixed(k==='Y'||k==='Q'?2:1)+'%';r.querySelector('.yr-bar i').style.width=(f*100).toFixed(2)+'%';r.querySelector('.yr-left').textContent=tl('left','mancano')+' '+yLeft(b-now);}}
+  function yearTickAll(){wins.forEach(w=>{if(w.type==='YEAR')yearTick(w);});}
+
+  /* ---------- HIDE: privacy mode (Alt+P, the eye at the top right, or HIDE) ----------
+     In your own windows (portfolio, analytics, lab, what-if, look-through) money amounts and quantities are masked as they are
+     drawn, and the portfolio charts are blurred; percentages stay. Display only: nothing is changed or sent. Remembered in this
+     browser. */
+  const HIDE={on:(()=>{try{return localStorage.getItem('at-hide')==='1';}catch(e){return false;}})()};
+  const HIDE_TYPES=new Set(['PF','PFA','PLAB','WIF','EXPO']),H_MASK='•••••';
+  const H_N="\\d(?:[\\d.,'\\u00a0\\u202f]*\\d)?",H_LB="(?<![\\d.,'\\u00a0\\u202f])",H_LA="(?![\\d.,'\\u00a0\\u202f])";
+  const H_AMT=new RegExp(`(?:[€$£¥]|CHF)\\s?[-+−]?${H_N}`,'g'),H_DIG=new RegExp(H_N),H_ANY=new RegExp(H_LB+H_N+H_LA,'g'),H_NOPCT=new RegExp(H_LB+H_N+H_LA+'(?!\\s?%)','g');
+  const H_QTY=/^\s*(QTY|QT[ÀA]|Q\.T[ÀA]|QUANTITY|QUANTIT[ÀA]|UNITS|QUOTE|SHARES|AZIONI)\s*$/i;
+  const H_MONEY=/\b(VALUE|VALORE|COST|COSTO|P&L|REALISED|REALIZED|REALIZZATO|NET|NETTO|GROSS|LORDO|FEES?|COMMISSIONI|AMOUNT|IMPORTO|CASH|LIQUIDIT[ÀA]|INVESTED|INVESTITO)\b|[€$£¥]|\bCHF\b/i;
+  function hideMask(root,fn){const tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),ns=[];while(tw.nextNode())ns.push(tw.currentNode);
+    for(const n of ns){const p=n.parentElement;if(!p||p.closest('textarea,input,select,option,script,style'))continue;const v=n.nodeValue,o=fn(v);if(o!==v)n.nodeValue=o;}}
+  function hideAmounts(w){if(!HIDE.on||!w||!w.bodyEl||!HIDE_TYPES.has(w.type))return;
+    // columns by their header: quantities, and money columns (their percentages stay)
+    w.bodyEl.querySelectorAll('table').forEach(t=>{const hr=t.tHead&&t.tHead.rows[0];if(!hr)return;
+      const kind=[...hr.cells].map(c=>{const x=c.textContent.trim();return H_QTY.test(x)?'q':!/%/.test(x)&&H_MONEY.test(x)?'m':'';});if(!kind.some(Boolean))return;
+      [...t.tBodies].concat(t.tFoot?[t.tFoot]:[]).forEach(b=>[...b.rows].forEach(r=>[...r.cells].forEach((c,i)=>{const k=kind[i];if(k)hideMask(c,v=>v.replace(k==='q'?H_ANY:H_NOPCT,H_MASK));})));});
+    // anywhere else: an amount written with its currency
+    hideMask(w.bodyEl,v=>v.replace(H_AMT,m=>m.replace(H_DIG,H_MASK)));}
+  function paintHideBtn(){const b=$('#hideBtn');if(!b)return;b.setAttribute('aria-pressed',String(HIDE.on));b.title=HIDE.on?tl('Amounts hidden: click to show them (Alt+P)','Importi nascosti: clic per mostrarli (Alt+P)'):tl('Hide money amounts and quantities (Alt+P)','Nascondi importi e quantità (Alt+P)');b.setAttribute('aria-label',b.title);}
+  function setHide(on){HIDE.on=!!on;try{localStorage.setItem('at-hide',HIDE.on?'1':'0');}catch(e){}document.body.classList.toggle('hide-amt',HIDE.on);paintHideBtn();
+    wins.forEach(w=>{if(HIDE_TYPES.has(w.type)){const sc=w.bodyEl.scrollTop;paintWin(w);w.bodyEl.scrollTop=sc;}});}
+
+  /* ---------- windows opened from another one: "✕n" in its title closes them (UNDO reopens them), as on Nico's terminal ----------
+     A window opened within a few seconds of a click inside another one is its child; a command typed in the command line opens
+     a window of its own. */
+  let OPENER=null;
+  function kidsOf(w){const out=[],q=[w.id];while(q.length){const id=q.shift();wins.forEach(x=>{if(x.parent===id&&!out.includes(x)){out.push(x);q.push(x.id);}});}return out;}
+  function updateKids(){wins.forEach(w=>{const b=w.el&&w.el.querySelector('.w-kids');if(!b)return;const n=kidsOf(w).length;b.hidden=!n;if(!n)return;b.textContent='✕'+n;
+    b.title=n===1?tl('Close the window opened from this one (UNDO reopens it)','Chiudi la finestra aperta da questa (ANNULLA la riapre)'):tl(`Close the ${n} windows opened from this one (UNDO reopens them)`,`Chiudi le ${n} finestre aperte da questa (ANNULLA le riapre)`);b.setAttribute('aria-label',b.title);});}
+  function closeKids(w){const ks=kidsOf(w);if(!ks.length)return;closedStack.push(ks.map(x=>closeWin(x,true)));renderTaskbar();}
+
+  /* ---------- keyboard (as on Nico's terminal; on a Mac, Alt is Option: the keys are read by their position) ----------
+     Ctrl+K / ⌘K or / command line · typing a letter or a digit anywhere starts a command · F1 or ? help · F2 functions ·
+     Tab / Shift+Tab next / previous window · Esc closes the window in front (UNDO or Alt+Z reopens it) · Alt+W close ·
+     Alt+Shift+W close all · Alt+Z reopen · Alt+T tile · Alt+M maximise / restore · Alt+N minimise · Alt+↑ full desk ·
+     Alt+↓ normal size · Alt+← / Alt+→ split screen · Alt+1…9 saved view · Alt+P hide amounts */
+  const activeWin=()=>wins.find(w=>w.id===activeId&&!w.min)||wins.filter(w=>!w.min).sort((a,b)=>b.z-a.z)[0]||null;
+  function cycleWin(back){const live=wins.filter(w=>!w.min).sort((a,b)=>a.id-b.id);if(!live.length)return;const i=live.indexOf(activeWin());bringFront(live[(i+(back?-1:1)+live.length)%live.length]);}
+  function altKey(e,c){const w=activeWin();
+    if(c==='KeyW'){if(e.shiftKey)closeAll();else if(w)closeWin(w);}else if(c==='KeyZ')undoClose();else if(c==='KeyT')tileAll();
+    else if(c==='KeyM'){if(w)toggleMax(w);}else if(c==='KeyN'){if(w&&!w.min)toggleMin(w);}else if(c==='ArrowUp'){if(w&&!w.max)toggleMax(w);}else if(c==='ArrowDown'){if(w&&w.max)toggleMax(w);}
+    else if(c==='ArrowLeft'||c==='ArrowRight')splitScreen(c==='ArrowRight');else if(c==='KeyP')setHide(!HIDE.on);
+    else if(/^Digit[1-9]$/.test(c)){const v=VWS.list&&VWS.list[+c.slice(5)-1];if(v)viewOpen(v);else viewsLoad(true);}
+    else return false;return true;}
+  function onKeys(e){const t=e.target,typing=/^(INPUT|TEXTAREA|SELECT)$/.test((t&&t.tagName)||'')||!!(t&&t.isContentEditable),inCmd=!!(t&&t.id==='cmd');
+    const over=!!($('#help.on')||$('#fnmenu.on')||$('#wsheet.on'))||tourI>=0||SPLIT.pending!=null;
+    if(e.key==='Escape'){if(over){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);toggleWinSheet(false);splitPendingOff();if(tourI>=0)endTour();return;}
+      if(inCmd){if(t.value)t.value='';else t.blur();return;}if(typing){focusCmd();return;}
+      const w=activeWin();if(w){e.preventDefault();closeWin(w);}else focusCmd();return;}
+    if(e.key==='F1'){e.preventDefault();toggleHelp(true);return;}
+    if(e.key==='F2'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);return;}
+    if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&(e.code==='KeyK'||e.key==='k')){e.preventDefault();const c=$('#cmd');c.focus();c.select();return;}
+    // Alt shortcuts: not while typing in a field (there Option writes characters), except the letters and digits in the command line
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&!over&&(!typing||(inCmd&&/^(Key|Digit)/.test(e.code)))){if(altKey(e,e.code))e.preventDefault();return;}
+    if(typing||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.key==='?'){toggleHelp(true);return;}
+    if(over)return;
+    if(e.key==='/'){e.preventDefault();$('#cmd').focus();return;}
+    const ae=document.activeElement;
+    if(e.key==='Tab'&&(!ae||ae===document.body||ae===deskEl)&&wins.some(w=>!w.min)){e.preventDefault();cycleWin(e.shiftKey);return;}
+    // a letter or a digit typed with no field focused starts a command
+    if(e.key.length===1&&/[A-Za-z0-9]/.test(e.key)&&!isMobile()){e.preventDefault();const c=$('#cmd');c.focus();c.value+=e.key;c.dispatchEvent(new Event('input',{bubbles:true}));}}
+
+  // notes on one security: AAPL NOTE (or NOTE AAPL) shows its notes and fills the symbol of a new one; NOTE alone shows them all
+  function openNote(sym){NT.filter=sym||'';if(sym&&!NT.form.id&&!String(NT.form.text||'').trim())NT.form.sym=sym;const w=openOrFocus('NOTE',{});paintWin(w);return w;}
+
   /* ---------- command line ---------- */
-  const FUNCMAP={WIF:"WIF",WHATIF:"WIF",YAS:"YAS",YIELD:"YAS",BCALC:"YAS",PLAB:"PLAB",LAB:"PLAB",EFS:"EFS",ETFSCR:"EFS",SCREENETF:"EFS",EFP:"EFP",EFC:"EFC",EXPO:"EXPO",LOOK:"EXPO",BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW"};
-  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["UCITS","QUANT","QNT","MC","VAR","VOL","DIST","BETA","FACT","FACTOR","FACTORS","EF","SEAS","HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS"]));
-  const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP","MC","VAR","VOL","DIST","BETA","FACT","SEAS","QUANT"]);
+  const FUNCMAP={WIF:"WIF",WHATIF:"WIF",YAS:"YAS",YIELD:"YAS",BCALC:"YAS",PLAB:"PLAB",LAB:"PLAB",EFS:"EFS",ETFSCR:"EFS",SCREENETF:"EFS",EFP:"EFP",EFC:"EFC",EXPO:"EXPO",LOOK:"EXPO",BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW",YEAR:"YEAR",YR:"YEAR"};
+  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["UCITS","QUANT","QNT","MC","VAR","VOL","DIST","BETA","FACT","FACTOR","FACTORS","EF","SEAS","HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS","HIDE","PRIVACY"]));
+  const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP","MC","VAR","VOL","DIST","BETA","FACT","SEAS","QUANT","NOTE","NOTES"]);
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
     if(f==="MENU"||f==="FN"||f==="FUNCTIONS"){toggleMenu(true);return;}
     if(f==="TOUR"){startTour();return;}
+    if(f==="HIDE"||f==="PRIVACY"){setHide(!HIDE.on);return;}
+    if(f==="NOTE"||f==="NOTES"){openNote(ticker||null);return;}
     if(f==="FXM"){openMap('FX');return;}
     if(f==="UCITS"){openUcits();return;}
     if(f==="WS"){openWorkspace(ticker||defaultUsSym());return;}
@@ -4588,20 +4739,21 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $('#tape').innerHTML=q?q+q:'<span>waiting for live quotes…</span>';}
   function two(n){return String(n).padStart(2,'0');}
   function tickClock(){const d=new Date(),c=$('#clk');c.textContent=two(d.getHours())+":"+two(d.getMinutes())+":"+two(d.getSeconds());c.title=d.toLocaleDateString(I18N.locale(),{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const n=$('#tsNext');if(n)n.textContent=tl('next','prossimo');}
+    const n=$('#tsNext');if(n)n.textContent=tl('next','prossimo');yearTickAll();}
 
   /* ---------- events ---------- */
-  $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const ok=runCmd(e.target.value);if(ok){e.target.value='';if(isMobile())e.target.blur();}else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
+  $('#cmd').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();OPENER=null;const ok=runCmd(e.target.value);if(ok){e.target.value='';if(isMobile())e.target.blur();}else{e.target.classList.add('err');setTimeout(()=>e.target.classList.remove('err'),320);}}});
   $('#helpClose').addEventListener('click',()=>toggleHelp(false));
   $('#help').addEventListener('click',e=>{if(e.target.id==='help')toggleHelp(false);});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){toggleHelp(false);if($('#fnmenu.on'))toggleMenu(false);toggleWinSheet(false);splitPendingOff();if(tourI>=0)endTour();}const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');if(typing)return;if(e.key==='?')toggleHelp(true);if((e.key==='m'||e.key==='F2')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();toggleMenu(true);}if(e.key==='/'){e.preventDefault();$('#cmd').focus();}
-    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();splitScreen(e.key==='ArrowRight');}});
+  document.addEventListener('keydown',onKeys);
+  // a click outside the windows ends "opened from" (a window opened next is not a child)
+  document.addEventListener('pointerdown',e=>{if(!(e.target&&e.target.closest&&e.target.closest('.win')))OPENER=null;},true);
   let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{setPhone();splitApply();if(SPLIT.pending!=null){const a=wins.find(x=>x.id===SPLIT.pending);if(a)splitAsk(a);}wins.forEach(w=>{if(!w.min)reflowWin(w);});},140);});
   // the taskbar in the top row scrolls sideways (wheel too) and fades at the edge when windows overflow
   {const tb=$('#tabs');tb.addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&tb.scrollWidth>tb.clientWidth){tb.scrollLeft+=e.deltaY;e.preventDefault();}},{passive:false});tb.addEventListener('scroll',tabsOvf,{passive:true});window.addEventListener('resize',tabsOvf);}
 
   /* ---------- boot ---------- */
-  function boot(){deskEl=$('#desk');readColors();loadTheme();readColors();document.body.classList.toggle('phone',isMobile());fitPhone();renderLauncher();
+  function boot(){deskEl=$('#desk');document.body.classList.toggle('hide-amt',HIDE.on);paintHideBtn();$('#hideBtn').onclick=()=>setHide(!HIDE.on);readColors();loadTheme();readColors();document.body.classList.toggle('phone',isMobile());fitPhone();renderLauncher();
     window.addEventListener('orientationchange',()=>setTimeout(fitPhone,250));window.addEventListener('pageshow',fitPhone);
     document.addEventListener('focusout',()=>{if(phoneOn())setTimeout(fitPhone,160);});
     // a phone starts with the watchlist and the markets board in front; a desk with four windows tiled. The public replay
