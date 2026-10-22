@@ -185,6 +185,13 @@ export async function handleUserData(url, env, ctx, H, json, req) {
         if (rec.dateOnly) return send({ error: "bad_request", message: `CNBC gives ${v.sym}'s quotes without a time, so an alert could not tell a live price from an old one` }, 400);
         v.name = rec.name || null;
       }
+      if (v.kind === "drift") {
+        // a saved lab portfolio (its weights are read at each check, so later edits count)
+        let pl = []; try { pl = JSON.parse((await env.BRIEFS.get(UD_KEYS.plab)) || "[]"); } catch { pl = []; }
+        const pf = Array.isArray(pl) ? pl.find((x) => x.id === v.plab) : null;
+        if (!pf) return send({ error: "bad_request", message: "save the lab portfolio first (PLAB → SAVE)" }, 400);
+        v.name = pf.name;
+      }
       const a = { id: crypto.randomUUID(), ...v, created: iso(Date.now()), hit: null };
       await save(env, kind, [...list, a]); return send({ added: a.id, alerts: [...list, a] }, 201);
     }

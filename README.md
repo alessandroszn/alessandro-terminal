@@ -164,6 +164,22 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   in PLAB, a REAL yield in YAS; VALR → step-up, priced at today's coupon, said. A bond not on the ECB list has no issue
   date: typed in BUILD, else N/A. BUILD → "+ GOVERNMENT BONDS (ECB LIST)": a country's central-government bonds to pick
   from (`/api/bond/list?cc=IT`).
+- PLAB → WHAT TO BUY, 22 Oct 2026: the portfolio open in the lab is the target; your open positions (PORTFOLIO) at their
+  live prices in EUR are what you hold, matched to the target by the fund's ISIN (`/api/etf/resolve`: Xetra mnemonics,
+  UCITS tickers and lines) or the symbol (several listings of one fund add up). This month's money is split so that the
+  most underweight holdings come up first — each one bought ends at the same value / weight ratio (water filling,
+  qmath `buyPlan`); nothing is sold unless "also sell" (overweight down to its target, a position outside the target sold
+  entirely; the gain realised from the EUR average cost, tax at 26 %, a loss said as a capital loss). Smallest trade, the
+  cost per trade of the BACKTEST settings, whole units, positions outside the target counted or not, cash already set
+  aside for a CASH weight. Units at your position's live price, else the last CNBC close in EUR of the line used (dated);
+  a bond's nominal at the price typed (or the estimate's price). Largest gap before → after, orders to copy. A plan, not
+  an order. Tests: test/rebalance.test.mjs, e2e [Q] WHAT TO BUY.
+- ALRT → PORTFOLIO OFF TARGET (`kind: drift`, 22 Oct 2026, `src/drift.mjs`): weekdays at 18:40 Rome time (and on CHECK
+  NOW) the server values your open positions (KV `pf/tx`) at CNBC's last prices in EUR (EUR= / GBP= / CHF=; pence ÷ 100;
+  CNBC's U.S. fallback refused), matches them to a saved lab portfolio's weights (cash left out, the rest scaled to
+  100 %; positions outside the target in the total, said, not a gap) and sends a message when a holding is ≥ the points
+  set from its weight — at most once an ISO week. A position without a price or in a currency without FX here → no check,
+  the reason in the engine's log. Tests: test/drift.test.mjs, e2e [Q] ALRT drift.
 - ECB list of eligible marketable assets (approved 22 Oct 2026, `src/ecbassets.mjs`): the ECB's daily TSV (checked
   22 Oct 2026: UTF-16LE with a byte-order mark, 8.9 MB, 31,345 assets; residence written "IRIT"; Range ignored; Monday to
   Friday ~18:15 CET) read by the 10-minute trigger 768 KB a run (the stream read up to the slice; a Range request where a
@@ -403,6 +419,8 @@ node test/etfperf.test.mjs      # screener returns / risk: 1Y–5Y, volatility, 
 node test/whatif.test.mjs       # WIF purchases, YAS bond math and OpenFIGI terms, projection with assumptions, saved what-ifs
 node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, CHF, CNBC's U.S. fallback), backtest / IRR / stats / risk / stress / projection
 node test/bondlab.test.mjs      # ECB list read in slices, bond terms (ECB / OpenFIGI), the estimate's plan, curve / FX endpoints, bondHistory
+node test/rebalance.test.mjs    # WHAT TO BUY: water filling, sales, smallest trade, cost per trade, whole units, outside positions
+node test/drift.test.mjs        # drift alert: matching by ISIN, EUR values, cash left out, weekly key, 18:40 run, message
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron

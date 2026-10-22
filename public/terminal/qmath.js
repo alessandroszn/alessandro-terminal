@@ -385,6 +385,61 @@
   // the price for a yield (to go back the other way)
   function bondPrice({ coupon, freq = 1, maturity, settle, ytm, redemption = 100, basis = "ACT" }) { if (!(maturity > settle)) return null; const S = bondSchedule(maturity, freq, settle), c = coupon / freq, frac = basis === "30E" ? d30e(S.prev, settle) / (360 / freq) : (dayN(settle) - dayN(S.prev)) / (dayN(S.next) - dayN(S.prev)), w = 1 - frac;
     const dirty = S.dates.reduce((a, d, i) => a + (c + (i === S.dates.length - 1 ? redemption : 0)) / Math.pow(1 + ytm / freq, w + i), 0); return { dirty, accrued: c * frac, clean: dirty - c * frac }; }
+  // ---------- what to buy this month: a contribution split among the target holdings so that the most underweight come
+  //            up first — every holding bought ends at the same value / target-weight ratio (water filling), the rest
+  //            untouched; optionally sales first (an overweight holding down to its target, a holding outside the target
+  //            sold), then the money spread the same way. A minimum trade, a cost per trade and whole units respected.
+  //            items: [{ w: target share 0..1 (0 = outside the target), v: value now (EUR), px: EUR a unit or null,
+  //            avg: average cost a unit in EUR or null, buy: may be bought }] ----------
+  function fill(V, W, ok, money) { // λ with Σ max(0, w λ − v) = money over the eligible ones → the buys
+    const idx = V.map((_, i) => i).filter((i) => ok[i] && W[i] > 0).sort((a, b) => V[a] / W[a] - V[b] / W[b]), x = V.map(() => 0);
+    if (!(money > 0) || !idx.length) return x;
+    let sv = 0, sw = 0, lam = 0;
+    for (let k = 0; k < idx.length; k++) { sv += V[idx[k]]; sw += W[idx[k]]; lam = (money + sv) / sw; const nx = idx[k + 1]; if (nx == null || lam <= V[nx] / W[nx]) { for (let j = 0; j <= k; j++) { const b = W[idx[j]] * lam - V[idx[j]]; x[idx[j]] = b > 1e-6 ? b : 0; } break; } }
+    return x;
+  }
+  function buyPlan({ items, cash = 0, sell = false, minTrade = 0, cost = 0, whole = false }) {
+    const n = items.length, W = items.map((x) => Math.max(0, +x.w || 0)), sw = W.reduce((a, b) => a + b, 0) || 1, w = W.map((x) => x / sw);
+    const v0 = items.map((x) => Math.max(0, +x.v || 0)), T = v0.reduce((a, b) => a + b, 0), Tn = T + Math.max(0, cash);
+    const trade = v0.map(() => 0), V = v0.slice();
+    // sales first: down to the target (outside the target: all of it); a sale smaller than the minimum is not made
+    if (sell) for (let i = 0; i < n; i++) { let s2 = V[i] - w[i] * Tn; if (s2 <= 0 || s2 < minTrade) continue; const px = items[i].px; if (whole && px > 0) s2 = Math.min(V[i], Math.floor(s2 / px + 1e-9) * px); if (!(s2 > 0)) continue; trade[i] = -s2; V[i] -= s2; }
+    const sold = -trade.reduce((a, b) => a + (b < 0 ? b : 0), 0), nSell = trade.filter((b) => b < 0).length;
+    // buys: the money left after the sales' costs; each buy costs `cost` too, so the number of buys is settled by repeating
+    const ok = items.map((x, i) => x.buy !== false && w[i] > 0 && !(trade[i] < 0)); let x = V.map(() => 0);
+    for (let it = 0; it < 60; it++) {
+      const k = x.filter((b) => b > 0).length || ok.filter(Boolean).length, money = Math.max(0, cash) + sold - cost * (nSell + (it ? x.filter((b) => b > 0).length : k));
+      x = fill(V, w, ok, money);
+      const small = x.map((b, i) => [b, i]).filter(([b]) => b > 0 && b < minTrade).sort((a, b) => a[0] - b[0]);
+      if (small.length) { ok[small[0][1]] = false; continue; }
+      const k2 = x.filter((b) => b > 0).length, m2 = Math.max(0, cash) + sold - cost * (nSell + k2);
+      if (Math.abs(x.reduce((a, b) => a + b, 0) - Math.max(0, m2)) < 1e-6) break;
+    }
+    // whole units: down to whole units, then one more unit at a time to the most underweight that the money still covers
+    let units = items.map(() => null), spare = 0;
+    if (whole) {
+      x = x.map((b, i) => { const px = items[i].px; return b > 0 && px > 0 ? Math.floor(b / px + 1e-9) * px : b > 0 ? b : 0; });
+      const buys = () => x.filter((b) => b > 0).length;
+      spare = Math.max(0, cash) + sold - cost * (nSell + buys()) - x.reduce((a, b) => a + b, 0);
+      for (let g = 0; g < 10000; g++) {
+        let best = -1, gap = 0;
+        for (let i = 0; i < n; i++) { const px = items[i].px; if (!ok[i] || !(px > 0)) continue; const need = px + (x[i] > 0 ? 0 : cost); if (need > spare + 1e-9) continue; const d = w[i] * Tn - (V[i] + x[i]); if (d > gap) { gap = d; best = i; } }
+        if (best < 0) break; spare -= items[best].px + (x[best] > 0 ? 0 : cost); x[best] += items[best].px;
+      }
+    }
+    for (let i = 0; i < n; i++) { if (x[i] > 0) trade[i] = x[i]; const px = items[i].px; units[i] = px > 0 && trade[i] ? trade[i] / px : null; }
+    const nBuy = trade.filter((b) => b > 0).length, bought = trade.reduce((a, b) => a + (b > 0 ? b : 0), 0), costs = cost * (nBuy + nSell);
+    const after = v0.map((b, i) => b + trade[i]), Ta = after.reduce((a, b) => a + b, 0);
+    const rows = items.map((it, i) => {
+      const gain = trade[i] < 0 && it.px > 0 && it.avg != null ? (-trade[i] / it.px) * (it.px - it.avg) : null;
+      return { w: w[i], v: v0[i], now: T > 0 ? v0[i] / T : NaN, drift: T > 0 ? v0[i] / T - w[i] : NaN, trade: trade[i], units: units[i], value: after[i], after: Ta > 0 ? after[i] / Ta : NaN, driftAfter: Ta > 0 ? after[i] / Ta - w[i] : NaN, gain };
+    });
+    // the largest gap of a holding of the target (one outside it is in the total but has no weight to be away from)
+    const mx = (k) => rows.reduce((a, r, i) => (r.w > 0 && fin(r[k]) && Math.abs(r[k]) > Math.abs(a.d) ? { d: r[k], i } : a), { d: 0, i: -1 });
+    const gains = rows.filter((r) => r.trade < 0), known = gains.every((r) => r.gain != null);
+    return { total: T, cash: Math.max(0, cash), sold, bought, costs, spare: Math.max(0, cash) + sold - bought - costs, nBuy, nSell, totalAfter: Ta, rows, maxBefore: mx("drift"), maxAfter: mx("driftAfter"),
+      gainSold: known ? gains.reduce((a, r) => a + r.gain, 0) : null, gainsKnown: known };
+  }
   // ---------- a bond without a daily price: its estimate from a government curve. Each day the curve's yield at the
   //            bond's remaining maturity (linear between the two nearest maturities quoted that day — a quote older than
   //            `maxGap` days does not count — flat beyond the shortest and the longest), plus a constant spread, priced
@@ -438,7 +493,7 @@
 
   const QUANT = { mean, variance, stdev, skewness, exKurtosis, quantileSorted, logReturns, simpleReturns, normCdf, normInv, normPdf, chi2Sf, gammaQ,
     distStats, acf, ljungBox, histogram, ewmaSigma, riskMeasures, varBacktest, cornishFisherZ, rangeVol, yangZhang, rollingVol, volCone, nelderMead, garch11,
-    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, planDates, whatIf, bondSchedule, bondCalc, bondPrice, curveYield, bondHistory, cholesky, projectAssumed, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
+    ols, regression, olsMulti, invert, tP2, betaI, FACTOR_MODELS, factorFit, rollingFactorFit, alignDV, valueAt, backtest, xirr, btFlows, perfStats, portfolioRisk, stressWindow, projectGoal, planDates, whatIf, bondSchedule, bondCalc, bondPrice, curveYield, bondHistory, buyPlan, cholesky, projectAssumed, moments, projSimplex, meanVar, frontier, maxSharpe, riskParity, riskContrib, optimize, mulberry32, monteCarlo, monthlySeason, weekdaySeason, align };
   root.QUANT = QUANT;
   if (typeof module !== "undefined" && module.exports) module.exports = QUANT;
 })(typeof window !== "undefined" ? window : globalThis);

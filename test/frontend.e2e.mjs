@@ -1577,6 +1577,26 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await page.click('[data-plt="build"]'); await page.waitForTimeout(400);
   await page.fill(".pl-name", "BTP and world"); await page.press(".pl-name", "Tab"); await page.click(".pl-save"); await page.waitForTimeout(900);
   ok("[Q] …saved with the bond's price", (JSON.parse(PV.kv.get("ud/plab")).find((p) => p.name === "BTP and world") || { holdings: [] }).holdings.some((h) => h.id === "IT0005436693" && h.px === 90));
+  // WHAT TO BUY: the lab portfolio (BTP 40 % · SWDA 60 %) against your positions (C:EUNL-DE = SWDA's fund) and €1,000
+  await page.click('[data-plt="buy"]'); await plWait(/LARGEST GAP FROM THE TARGET/);
+  await page.fill('.pl-rb input[name="amt"]', "1000"); await page.click('.pl-rb button[type="submit"]'); await plWait(/ORDERS/); w = await winOf(page, "PORTFOLIO LAB");
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/plab-buy.png" });
+  const pfV = await page.evaluate(() => { const m = /YOUR POSITIONS NOW \(LIVE, EUR\)\s+€ ([\d,.]+)/.exec([...document.querySelectorAll(".win")].find((x) => x.querySelector(".w-title").textContent.startsWith("PORTFOLIO LAB")).querySelector(".win-body").innerText); return m ? +m[1].replace(/,/g, "") : NaN; });
+  ok("[Q] WHAT TO BUY: your positions valued live in EUR, matched to the target by the fund's ISIN (C:EUNL-DE → SWDA), the BTP not held; €1,000 split — the most underweight first; orders to copy", w && pfV > 0 && /Italian Republic 0\.6% 2031-08-01 not held\s+40\.00%\s+€ 0\.00\s+0\.00%\s+−40\.00\s+BUY € [\d,.]+\s+nominal € [\d,.]+/.test(w.text) && /C:EUNL-DE\s+60\.00%\s+€ [\d,.]+\s+100\.00%\s+\+40\.00/.test(w.text) && /ORDERS\s+COPY\s+BUY\s+IT0005436693\s+€ [\d,.]+\s+nominal/.test(w.text) && /LARGEST GAP FROM THE TARGET\s+Italian Republic 0\.6% 2031-08-01 −40\.00 pts → /.test(w.text), w && w.text.slice(0, 2200));
+  await page.fill('.pl-rb input[name="amt"]', "0"); await page.check('.pl-rb input[name="sell"]'); await plWait(/SELL €/); w = await winOf(page, "PORTFOLIO LAB");
+  ok("[Q] …also sell: the overweight fund sold down to 60 %, the money to the BTP — weights exact; the gain realised and the 26 % tax, or the loss, said", w && /C:EUNL-DE\s+60\.00%[\s\S]*SELL € [\d,.]+[\s\S]*60\.00%\s+\+0\.00/.test(w.text) && /GAIN REALISED BY THE SALES\s+(€ [\d,.]+ · tax ≈ € [\d,.]+ \(26 %\)|−?€ [\d,.-]+ · a loss)/.test(w.text), w && w.text.slice(0, 2200));
+  await page.uncheck('.pl-rb input[name="sell"]'); await page.waitForTimeout(400); await page.click('[data-plt="build"]'); await page.waitForTimeout(400);
+  // ALRT · PORTFOLIO OFF TARGET: the same positions on the server (KV pf/tx) against "BTP and world", checked now
+  const alBefore = PV.kv.get("ud/alerts"), logBefore = PV.kv.get("ud/alertlog"); PV.kv.set("ud/alerts", "[]"); PV.kv.set("pf/tx", JSON.stringify(pfQ.tx));
+  await cmd(page, "ALRT"); await page.waitForTimeout(900); await page.click('[data-ak="drift"]'); await page.waitForTimeout(400);
+  const btpId = JSON.parse(PV.kv.get("ud/plab")).find((p) => p.name === "BTP and world").id;
+  await page.selectOption('.al-f select[name="plab"]', btpId); await page.fill('.al-f input[name="pp"]', "5"); await page.click('.al-f button[type="submit"]'); await page.waitForTimeout(900);
+  let alq = await winOf(page, "ALERTS");
+  ok("[Q] ALRT drift: an alert on a saved lab portfolio (≥ 5 pts from a weight), checked weekdays at 18:40, at most once a week", JSON.parse(PV.kv.get("ud/alerts")).some((a) => a.kind === "drift" && a.plab === btpId && a.pp === 5 && a.name === "BTP and world") && /positions vs “BTP and world” ≥ 5 pts from a weight/.test(alq.text) && /weekdays 18:40, at most once a week/.test(alq.text), alq && alq.text.slice(0, 900));
+  await page.click(".al-run"); await page.waitForTimeout(1800); alq = await winOf(page, "ALERTS");
+  ok("[Q] …CHECK NOW: positions valued on the server (CNBC, EUR), the BTP 40 pts under its weight → the message, recorded once for the week", /“BTP and world”: IT0005436693 −40\.0 pts from its weight/.test(alq.text) && /IT0005436693: 0\.0% · target 40\.0% \(−40\.0 pts\)/.test(alq.text) && /largest gap 40\.0 pts/.test(alq.text) && (JSON.parse(PV.kv.get("ud/alerts"))[0].fired || { keys: [] }).keys.some((k) => /^wk:\d{4}-W\d\d$/.test(k)), alq && alq.text.slice(0, 1500));
+  PV.kv.set("ud/alerts", alBefore || "[]"); if (logBefore) PV.kv.set("ud/alertlog", logBefore); PV.kv.delete("pf/tx");
+  await page.click('.win .w-tag:text("PLAB")').catch(() => null);
   // WHAT IF: NVDA once in March 2020, SWDA every month from 2019 with a €1 fee
   await cmd(page, "WIF"); await page.waitForTimeout(700);
   const wfAdd = async (id, kind, from, amt, fee) => { await page.fill(".wf-nid", id); await page.selectOption(".wf-nkind", kind); await page.fill(".wf-nfrom", from); await page.fill(".wf-namt", amt); if (fee) await page.fill(".wf-nfee", fee); await page.click(".wf-add"); await page.waitForTimeout(500); };

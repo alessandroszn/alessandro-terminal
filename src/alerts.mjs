@@ -5,6 +5,10 @@
 //   session  {market, event "open"|"close"|"both"}  the market's main index printed after today's open / has closed — once a day
 //   release  {country, match}                       an economic release whose name contains the words is published with its
 //                                                   actual figure (Nasdaq economic calendar)
+//   drift    {plab, pp}                             your positions (PORTFOLIO) sit ≥ pp points from the weights of a lab
+//                                                   portfolio (PLAB) — checked once a day at 18:40 Rome time on weekdays
+//                                                   (after the European close) and on "check now"; at most once a week
+//                                                   (drift.mjs: CNBC last prices in EUR, matched by the fund's ISIN)
 // Market data: CNBC quote service (one request for every symbol), the feed of FUT / IDX. Only a FRESH quote can fire an
 // alert — CNBC's own time of the last trade within the last 30 minutes, i.e. the market is trading — never a stale one.
 // Market open / close use the main index: holidays need no calendar, because on a holiday the index does not print.
@@ -22,6 +26,7 @@ import { loadCnbcQuotes, FUTURES } from "./cnbc.mjs";
 import { INDICES } from "./indices.mjs";
 import { NQ_CAL, NQ_HEADERS, parseNqCalendar } from "./nasdaq.mjs";
 import { cnbcCodeFor } from "./intl.mjs";
+import { computeDrift, loadDriftInputs } from "./drift.mjs";
 
 export const ALERT_CRON = "*/5 * * * *";
 export const ALERTS_KEY = "ud/alerts", LOG_KEY = "ud/alertlog", TG_KEY = "ud/telegram";
@@ -115,12 +120,17 @@ export function validateAlert(b) {
     if (match.length < 2) return "words to match required (e.g. nonfarm payrolls)";
     return { kind, country: b.country, match, note };
   }
-  return "kind must be price, move, session or release";
+  if (kind === "drift") {
+    const plab = String(b.plab || ""); if (!/^[a-z0-9-]{6,40}$/.test(plab)) return "plab: one of your saved lab portfolios";
+    const pp = Number(b.pp); if (!Number.isFinite(pp) || pp < 1 || pp > 50) return "pp: points between 1 and 50";
+    return { kind, plab, pp: Math.round(pp * 10) / 10, note };
+  }
+  return "kind must be price, move, session, release or drift";
 }
 // the CNBC symbol an alert needs a quote of (null: none)
 export function quoteSymOf(a) {
   if (a.kind === "session") return SESSIONS[a.market] ? SESSIONS[a.market].sym : null;
-  if (a.kind === "release") return null;
+  if (a.kind === "release" || a.kind === "drift") return null;
   return alertCnbcSym(a.sym);
 }
 export const kindOf = (a) => a.kind || "price";
@@ -180,12 +190,28 @@ export function evalRelease(a, rows, now) {
   const key = [...groups.keys()].sort()[0];
   return { key, rows: groups.get(key) };
 }
-export function evaluate(a, quotes, rows, now) {
+// the ISO week of a time ("2026-W43"): a drift alert fires at most once in it
+export function isoWeek(t) {
+  const x = new Date(t), d = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate())), day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day); // the Thursday of the week decides its year
+  const y = d.getUTCFullYear(), w = Math.ceil(((d - Date.UTC(y, 0, 1)) / 86400_000 + 1) / 7);
+  return `${y}-W${String(w).padStart(2, "0")}`;
+}
+// the daily drift check: weekdays, the 5-minute run starting 18:40 Rome time (after the European close)
+export const DRIFT_AT = "18:40";
+export function driftDue(now) { const n = localParts(now, "Europe/Rome"); return n.wd !== "Sat" && n.wd !== "Sun" && n.hm >= DRIFT_AT && n.hm < addMin(DRIFT_AT, 5); }
+export function evalDrift(a, d, now) {
+  if (!d || d.error || !(d.max * 100 >= a.pp)) return null;
+  const key = "wk:" + isoWeek(now); if (seen(a, key)) return null;
+  return { key, value: Math.round(d.max * 10000) / 100, d };
+}
+export function evaluate(a, quotes, rows, now, extra) {
   const k = kindOf(a), q = quotes ? quotes[quoteSymOf(a)] : null;
   if (k === "price") return a.hit ? null : evalPrice(a, q, now);
   if (k === "move") return evalMove(a, q, now);
   if (k === "session") return evalSession(a, q, now);
   if (k === "release") return evalRelease(a, rows, now);
+  if (k === "drift") return evalDrift(a, extra && extra.drift ? extra.drift[a.plab] : null, now);
   return null;
 }
 
@@ -202,6 +228,13 @@ const city = (tz) => tz.split("/").pop().replace(/_/g, " ");
 const MSG_TZ = "Europe/Rome";
 export function describe(a, ev, now) {
   const k = kindOf(a), q = ev.q, rome = localParts(q ? q.time : now, MSG_TZ).hm, feed = q && !q.realTime ? [" (delayed)", " (ritardata)"] : ["", ""];
+  if (k === "drift") {
+    const d = ev.d, top = d.top.slice(0, 4), pts = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(1)}`, pc = (x) => `${(x * 100).toFixed(1)}%`;
+    const lines = (L) => top.map((r) => `${r.label}: ${pc(r.share)} · ${L[1]} ${pc(r.w)} (${pts(r.drift)} ${L[2]})`).join("\n") + (d.outside && d.outside.length ? `\n${L[0]}: ${d.outside.map((o) => o.sym).join(", ")} ${pc(d.outsideShare)}` : "");
+    const tail = (L) => `${L[0]} ±${a.pp} ${L[1]} · ${L[2]} € ${Math.round(d.total).toLocaleString("en-US")} · ${L[3]}${d.cashLeftOut ? " · " + L[4] : ""}`;
+    return { en: { title: `“${d.name}”: ${top[0].label} ${pts(top[0].drift)} pts from its weight`, text: lines(["outside the target", "target", "pts"]) + "\n" + tail(["threshold", "pts", "your positions", "CNBC last prices in EUR · PLAB → WHAT TO BUY", "cash in the target left out"]) },
+      it: { title: `“${d.name}”: ${top[0].label} ${pts(top[0].drift)} punti dal suo peso`, text: lines(["fuori obiettivo", "obiettivo", "punti"]) + "\n" + tail(["soglia", "punti", "le tue posizioni", "ultimi prezzi CNBC in EUR · PLAB → COSA COMPRO", "liquidità dell'obiettivo esclusa"]) } };
+  }
   if (k === "price") {
     const t = `${a.sym} ${a.op === ">=" ? "≥" : "≤"} ${fmtNum(a.price)}`;
     return { en: { title: t, text: `last ${fmtNum(q.last)} (${pctS(q.chgPct)} today) at ${rome} Rome time · CNBC${feed[0]}` },
@@ -289,13 +322,24 @@ export async function runAlerts(now, env, deps = {}) {
   if (act.length) {
     const want = [...new Set(act.map(quoteSymOf).filter(Boolean))];
     let quotes = {}, rows = null;
-    const needRel = act.some((a) => kindOf(a) === "release");
-    const [qr, rr] = await Promise.all([want.length ? fetchQuotes(want) : { data: {} }, needRel ? fetchReleases(now) : { data: null }]);
+    const needRel = act.some((a) => kindOf(a) === "release"), drifts = act.filter((a) => kindOf(a) === "drift"), needDrift = drifts.length && (deps.force || driftDue(now));
+    const [qr, rr, dr] = await Promise.all([want.length ? fetchQuotes(want) : { data: {} }, needRel ? fetchReleases(now) : { data: null }, needDrift ? (deps.driftInputs || ((e) => loadDriftInputs(e, alertCnbcSym, deps)))(env).catch(() => ({ error: "provider_error" })) : null]);
     if (qr.data) quotes = qr.data; else run.err = "quotes: " + qr.err;
     if (rr.data) rows = rr.data; else if (needRel) run.err = (run.err ? run.err + "; " : "") + "releases: " + rr.err;
     run.quotes = Object.keys(quotes).length;
+    // the drift of each lab portfolio an alert names (computed once each)
+    const extra = { drift: {} };
+    if (dr) {
+      if (dr.error) run.err = (run.err ? run.err + "; " : "") + "drift: " + dr.error;
+      else for (const id of new Set(drifts.map((a) => a.plab))) {
+        const pf = dr.plab.find((x) => x.id === id), d = pf ? computeDrift({ holdings: pf.holdings, positions: dr.positions, prices: dr.prices, fx: dr.fx, maps: dr.maps }) : { error: "plab_missing" };
+        extra.drift[id] = { ...d, name: pf ? pf.name : null };
+        if (d.error) run.err = (run.err ? run.err + "; " : "") + `drift: ${d.error}${d.missing ? " (" + d.missing.join(", ") + ")" : ""}`;
+      }
+      run.drift = Object.fromEntries(Object.entries(extra.drift).map(([id, d]) => [id, d.error ? { error: d.error } : { max: Math.round(d.max * 10000) / 100, total: Math.round(d.total) }]));
+    }
     const fired = [];
-    for (const a of act) { const ev = evaluate(a, quotes, rows, now); if (ev) fired.push({ a, ev, msg: describe(a, ev, now) }); }
+    for (const a of act) { const ev = evaluate(a, quotes, rows, now, extra); if (ev) fired.push({ a, ev, msg: describe(a, ev, now) }); }
     if (fired.length) {
       // record on the list as it is now (the page may have changed it meanwhile)
       const cur = await kvJson(env, ALERTS_KEY, []), at = iso(now);
@@ -313,7 +357,7 @@ export async function runAlerts(now, env, deps = {}) {
     }
   }
   // persist: when something fired, when asked, or with the first check of each hour (heartbeat)
-  if (run.fired || deps.force || new Date(now).getUTCMinutes() < 5) {
+  if (run.fired || deps.force || run.drift || new Date(now).getUTCMinutes() < 5) {
     const prev = await kvJson(env, LOG_KEY, {});
     await env.BRIEFS.put(LOG_KEY, JSON.stringify({ run, log: [...entries, ...(Array.isArray(prev.log) ? prev.log : [])].slice(0, LIMITS_A.log) }));
   }

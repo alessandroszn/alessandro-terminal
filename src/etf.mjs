@@ -253,6 +253,13 @@ export function exposure(funds) {
 }
 
 // ---------- the page's requests ----------
+// a portfolio symbol → its fund: Xetra mnemonics (SYMBOL:XETR, C:MNEMONIC-DE; mn: mnemonic → ISIN from the Xetra list),
+// the UCITS list's tickers and lines; a U.S. ETF; else null. Also used by the drift check (drift.mjs)
+export function resolveSym(s, mn, usSet) {
+  const [t, mic] = s.startsWith("C:") ? [s.slice(2).replace(/-DE$/, ""), s.endsWith("-DE") ? "XETR" : null] : s.split(":");
+  const uc = UCITS_ETFS.find((e) => e.milan === t || e.tickers.includes(t) || Object.values(e.lines).some((l) => "C:" + l.cnbc === s));
+  return uc ? { isin: uc.isin, name: uc.name } : (mic === "XETR" || s.startsWith("C:")) && mn.has(t) ? { isin: mn.get(t) } : !mic && usSet.has(t) ? { us: true } : null;
+}
 export async function handleEtf(url, env, ctx, H, json) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const p = url.pathname, now = Date.now();
@@ -308,11 +315,7 @@ export async function handleEtf(url, env, ctx, H, json) {
     const [u, us] = await Promise.all([getJ(env, K.uni), getJ(env, K.us)]), mn = new Map(), usSet = new Set((us && us.rows || []).map((r) => r[0]));
     for (const r of (u && u.rows) || []) for (const t of String(r[5] || "").split(" ").filter(Boolean)) mn.set(t.split(":")[0], r[0]);
     const out = {};
-    for (const s of syms) {
-      const [t, mic] = s.startsWith("C:") ? [s.slice(2).replace(/-DE$/, ""), s.endsWith("-DE") ? "XETR" : null] : s.split(":");
-      const uc = UCITS_ETFS.find((e) => e.milan === t || e.tickers.includes(t) || Object.values(e.lines).some((l) => "C:" + l.cnbc === s));
-      out[s] = uc ? { isin: uc.isin, name: uc.name } : (mic === "XETR" || s.startsWith("C:")) && mn.has(t) ? { isin: mn.get(t) } : !mic && usSet.has(t) ? { us: true } : null;
-    }
+    for (const s of syms) out[s] = resolveSym(s, mn, usSet);
     return send({ resolved: out });
   }
   return send({ error: "not found" }, 404);

@@ -144,7 +144,7 @@
     "Workspace: chart, description, options and news together": "Area di lavoro: grafico, scheda, opzioni e news insieme",
     "Ratio of two instruments over time, with its percentile and z-score": "Rapporto tra due strumenti nel tempo, con percentile e z-score",
     "Backtest on real history: one instrument (buy & hold or moving-average crossover) or a portfolio mix with rebalancing against a benchmark": "Backtest su dati storici reali: uno strumento (compra e tieni o incrocio di medie mobili) o un portafoglio con ribilanciamento contro un benchmark",
-    "Your boards, alerts (price, daily move, market open / close, data releases — checked on the server every 5 minutes, optionally sent to Telegram) and notes": "Le tue tabelle, gli avvisi (prezzo, variazione giornaliera, apertura / chiusura dei mercati, dati macro — controllati sul server ogni 5 minuti, anche via Telegram) e le note",
+    "Your boards, alerts (price, daily move, market open / close, data releases, portfolio off its lab weights — checked on the server, optionally sent to Telegram) and notes": "Le tue tabelle, gli avvisi (prezzo, variazione giornaliera, apertura / chiusura dei mercati, dati macro, portafoglio fuori dai pesi del laboratorio — controllati sul server, anche via Telegram) e le note",
     "System status; guided tour": "Stato del sistema; visita guidata",
 
   };
