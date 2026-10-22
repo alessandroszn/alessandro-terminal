@@ -69,7 +69,10 @@ export function validatePlab(b) {
     const w = Number(h.w); if (!(w > 0 && w <= 100)) return `weight of ${id}: above 0 and at most 100`;
     // a bond's clean price today as the owner typed it (it sets the spread of the estimate): optional
     const px = h.px == null || h.px === "" ? null : Number(h.px); if (px != null && !(px > 0 && px <= 1000)) return `price of ${id}: above 0 and at most 1000`;
-    out.push(px != null ? { id, w: Math.round(w * 100) / 100, px: Math.round(px * 10000) / 10000 } : { id, w: Math.round(w * 100) / 100 });
+    // …and its issue date as typed, for a bond the ECB list does not carry (the estimate starts there): optional
+    const iss = h.iss == null || h.iss === "" ? null : String(h.iss); if (iss != null && !(/^\d{4}-\d{2}-\d{2}$/.test(iss) && Number.isFinite(Date.parse(iss)))) return `issue date of ${id}: YYYY-MM-DD`;
+    const o = { id, w: Math.round(w * 100) / 100 }; if (px != null) o.px = Math.round(px * 10000) / 10000; if (iss != null) o.iss = iss;
+    out.push(o);
   }
   const sum = out.reduce((a, x) => a + x.w, 0); if (Math.abs(sum - 100) > 0.5) return `the weights add up to ${sum.toFixed(2)} %, not 100 %`;
   const st = b.settings && typeof b.settings === "object" && !Array.isArray(b.settings) ? b.settings : {}, js = JSON.stringify(st);

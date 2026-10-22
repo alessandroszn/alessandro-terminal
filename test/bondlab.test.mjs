@@ -184,6 +184,7 @@ ok("…no curve → null", Q.bondHistory({ coupon: 3, maturity: "2031-06-15", cu
 // ---------- saved holdings ----------
 let v = validatePlab({ name: "Bonds", holdings: [{ id: "IT0005518128", w: 40, px: 104.5 }, { id: "SWDA", w: 60 }] });
 ok("a saved holding keeps a bond's typed price; others have none", v.holdings[0].px === 104.5 && !("px" in v.holdings[1]));
+ok("…and a typed issue date (a bond not on the ECB list); a malformed one refused", validatePlab({ name: "x", holdings: [{ id: "US91282CLW90", w: 100, iss: "2024-11-15" }] }).holdings[0].iss === "2024-11-15" && typeof validatePlab({ name: "x", holdings: [{ id: "US91282CLW90", w: 100, iss: "15/11/2024" }] }) === "string");
 ok("…a price of 0 or above 1000 refused", typeof validatePlab({ name: "x", holdings: [{ id: "IT0005518128", w: 100, px: 0 }] }) === "string" && typeof validatePlab({ name: "x", holdings: [{ id: "IT0005518128", w: 100, px: 1001 }] }) === "string");
 
 console.log(`\n${pass} passed, ${fail} failed`);

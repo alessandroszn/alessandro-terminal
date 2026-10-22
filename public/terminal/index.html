@@ -3336,10 +3336,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // one maturity a request), the FX for a bond in another currency (/api/plab/fx), priced by qmath bondHistory (the curve
   // at the remaining maturity + a spread set by today's price, coupons reinvested) — memoised
   const PLB=new Map(),plDays=(a,b)=>(Date.parse(a)-Date.parse(b))/86400000;
-  function plSeries(id,types,px){const G=get7('/api/plab/series?id='+encodeURIComponent(id),6*3600000,types);if(!G.data&&!G.err)return{wait:true};
+  function plSeries(id,types,px,iss){const G=get7('/api/plab/series?id='+encodeURIComponent(id),6*3600000,types);if(!G.data&&!G.err)return{wait:true};
     const b=G.data;if(!b||b.kind!=='bond')return b&&!b.error&&b.d?{s:b}:{err:(b&&b.error)||G.err||'no_data'};
     if(!b.plan)return{err:b.error||'no_curve',bond:b};
-    const pl=b.plan,C=pl.tenors.map(t=>get7(`/api/plab/curve?cc=${pl.cc}&tenor=${t}`,6*3600000,types)),F=b.ccy!=='EUR'?get7(`/api/plab/fx?from=${b.ccy}&to=EUR`,6*3600000,types):null;
+    // the estimate starts at the issue date: from the ECB list, else typed (OpenFIGI gives none) — never before it
+    const iss0=b.bond.issue||(/^\d{4}-\d{2}-\d{2}$/.test(iss||'')?iss:null);if(!iss0)return{err:'no_issue_date',bond:b};
+    const pl=Object.assign({},b.plan,{start:iss0>b.plan.start?iss0:b.plan.start}),C=pl.tenors.map(t=>get7(`/api/plab/curve?cc=${pl.cc}&tenor=${t}`,6*3600000,types)),F=b.ccy!=='EUR'?get7(`/api/plab/fx?from=${b.ccy}&to=EUR`,6*3600000,types):null;
     if(C.some(x=>!x.data&&!x.err)||(F&&!F.data&&!F.err))return{wait:true,bond:b};
     const okC=C.map((x,i)=>x.data&&!x.data.error&&x.data.d?x.data:null),ok=okC.filter(Boolean);if(!ok.length)return{err:(C[0].data&&C[0].data.error)||C[0].err||'no_data',bond:b};
     if(F&&!(F.data&&!F.data.error&&F.data.d))return{err:(F.data&&F.data.error)||F.err||'fx_unavailable',bond:b};
@@ -3355,7 +3357,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function plabItems(holdings){const out=[];let wait=false;
     for(const h of holdings){const tok=String(h.id||'').toUpperCase(),w=+h.w;if(tok==='CASH'){out.push({tok,id:'CASH',w,cash:true});continue;}
       const r=factId(tok,['PLAB']);if(!r){wait=true;out.push({tok,w,wait:true});continue;}
-      const R=plSeries(r.id,['PLAB'],h.px);out.push({tok,id:r.id,w,px:h.px,bond:R.bond||null,s:R.s||null,err:R.err,loading:!!R.wait});}
+      const R=plSeries(r.id,['PLAB'],h.px,h.iss);out.push({tok,id:r.id,w,px:h.px,iss:h.iss,bond:R.bond||null,s:R.s||null,err:R.err,loading:!!R.wait});}
     return{items:out,wait:wait||out.some(x=>x.loading),bad:out.filter(x=>!x.cash&&!x.wait&&!x.loading&&!x.s)};}
   function plabBench(id){const s=String(id||'').trim().toUpperCase();if(!s)return{none:true};const r=factId(s,['PLAB']);if(!r)return{wait:true};const R=plSeries(r.id,['PLAB']);return R.s?{s:R.s,id:r.id}:R.err?{err:R.err}:{wait:true};}
   // the common window and the backtests of the portfolio and the benchmark on it
@@ -3372,7 +3374,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const young=live.slice().sort((a,b)=>a.s.first<b.s.first?1:-1)[0];
     return{dates,W,P,bp,bt,bb,ps,pb,irr:Q.xirr(Q.btFlows(bt)),irrB:bb?Q.xirr(Q.btFlows(bb)):NaN,young,firstCommon:al.dates[0]};}
   const plabKey=(items,set,bench)=>JSON.stringify([items.map(x=>[x.id,x.w,x.s&&x.s.last,x.s&&x.s.d.length,x.s&&x.s.est?x.s.est.spread:null]),set,bench&&bench.s&&[bench.id,bench.s.last]]);
-  const plHold=h=>{const o={id:String(h.id).toUpperCase(),w:Math.round(+h.w*100)/100};if(+h.px>0)o.px=Math.round(+h.px*10000)/10000;return o;};
+  const plHold=h=>{const o={id:String(h.id).toUpperCase(),w:Math.round(+h.w*100)/100};if(+h.px>0)o.px=Math.round(+h.px*10000)/10000;if(/^\d{4}-\d{2}-\d{2}$/.test(h.iss||''))o.iss=h.iss;return o;};
   // a fund (ISIN or U.S. symbol) into the portfolio being built: the weight still free up to 100 %, or 10 % to set
   function plabAdd(id){const w=openOrFocus('PLAB',{});plabState(w.state);const dr=w.state.draft,t=String(id||'').trim().toUpperCase(),tot=dr.holdings.reduce((a,h)=>a+(+h.w||0),0);
     if(dr.holdings.some(h=>String(h.id).toUpperCase()===t))w.state.msg=tl(`${t} is already in the portfolio.`,`${t} è già nel portafoglio.`);
@@ -3388,7 +3390,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <div class="tfbar" style="margin:6px 0 8px">${tb7('plt',PL_T(),st.tab)}</div>${st.msg?`<div class="wl-msg">${esc(st.msg)}</div>`:''}`;
     const bindHead=()=>{const p=body.querySelector('.pl-pick');p.onchange=()=>{const x=list.find(y=>y.id===p.value);st.pid=x?x.id:null;st.draft=x?{name:x.name,holdings:x.holdings.map(h=>({...h}))}:{name:'',holdings:[]};if(x&&x.settings)st.set=Object.assign({},st.set,x.settings);st.msg='';paintWin(win);};
       const nm=body.querySelector('.pl-name');nm.onchange=()=>{dr.name=nm.value.trim().slice(0,40);paintWin(win);};
-      const save=async(asNew)=>{dr.name=(body.querySelector('.pl-name').value||'').trim();const b={name:dr.name,holdings:dr.holdings.map(h=>{const o={id:String(h.id).toUpperCase(),w:+h.w};if(+h.px>0)o.px=+h.px;return o;}),settings:st.set};if(st.pid&&!asNew)b.id=st.pid;if(asNew)b.name=(b.name+' '+tl('(copy)','(copia)')).slice(0,40);
+      const save=async(asNew)=>{dr.name=(body.querySelector('.pl-name').value||'').trim();const b={name:dr.name,holdings:dr.holdings.map(h=>{const o={id:String(h.id).toUpperCase(),w:+h.w};if(+h.px>0)o.px=+h.px;if(/^\d{4}-\d{2}-\d{2}$/.test(h.iss||''))o.iss=h.iss;return o;}),settings:st.set};if(st.pid&&!asNew)b.id=st.pid;if(asNew)b.name=(b.name+' '+tl('(copy)','(copia)')).slice(0,40);
         const r=await send7('POST','/api/user/plab',b);if(r.err){st.msg=r.err;}else{PL.data=r.j.plab;PL.at=Date.now();st.pid=r.j.saved;if(asNew)dr.name=b.name;st.msg=tl('Saved.','Salvato.');}paintWin(win);};
       body.querySelector('.pl-save').onclick=()=>save(false);const cp=body.querySelector('.pl-copy');if(cp)cp.onclick=()=>save(true);
       const del=body.querySelector('.pl-del');if(del)del.onclick=async()=>{if(del.dataset.sure!=='1'){del.dataset.sure='1';del.textContent=tl('DELETE? CLICK AGAIN','ELIMINARE? CLICCA ANCORA');return;}const r=await send7('DELETE','/api/user/plab?id='+encodeURIComponent(st.pid));if(r.err)st.msg=r.err;else{PL.data=r.j.plab;st.pid=null;st.draft={name:'',holdings:[]};st.msg=tl('Deleted.','Eliminato.');}paintWin(win);};
@@ -3421,9 +3423,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const plCpn=c=>String(+(+c).toFixed(4))+'%';
   function plBondRow(x,i){const s=x.s,b=x.bond,bd=b.bond||{},e=s&&s.est,pl=b.plan;
     const desc=`<b>${esc(b.name||b.isin)}</b> <span class="k">${esc([b.isin,tl('BOND','OBBLIGAZIONE'),bd.zero?tl('zero coupon','zero coupon'):fin(bd.coupon)?plCpn(bd.coupon)+' '+(bd.freq===2?tl('semi-annual','semestrale'):tl('annual','annuale')):null,bd.maturity?tl('maturity','scadenza')+' '+fmtDay(bd.maturity):null,bd.issue?tl('issued','emessa il')+' '+fmtDay(bd.issue):null,b.ccy].filter(Boolean).join(' · '))}${b.ccy&&b.ccy!=='EUR'?' → EUR':''}</span>`;
-    const pxIn=pl?` <label class="k">${tl('price today','prezzo oggi')} <input class="sr-in pl-px" data-i="${i}" type="number" min="0" max="1000" step="any" value="${esc(x.px!=null?x.px:'')}" placeholder="${tl('clean','secco')}" style="width:74px" title="${tl('the clean price you see today at your broker: it sets the spread over the curve','il prezzo secco che vedi oggi dal tuo broker: fissa lo spread sulla curva')}"></label>`:'';
+    const issIn=pl&&!bd.issue?` <label class="k">${tl('issued on','emessa il')} <input class="sr-in pl-iss" data-i="${i}" type="date" value="${esc(x.iss||'')}" style="width:132px" title="${tl('not on the ECB list: type the issue date (prospectus, your broker) — the estimate starts there','non è nella lista BCE: inserisci la data di emissione (prospetto, broker) — la stima parte da lì')}"></label>`:'';
+    const pxIn=issIn+(pl?` <label class="k">${tl('price today','prezzo oggi')} <input class="sr-in pl-px" data-i="${i}" type="number" min="0" max="1000" step="any" value="${esc(x.px!=null?x.px:'')}" placeholder="${tl('clean','secco')}" style="width:74px" title="${tl('the clean price you see today at your broker: it sets the spread over the curve','il prezzo secco che vedi oggi dal tuo broker: fissa lo spread sulla curva')}"></label>`:'');
     const est=s&&e?`<div class="k">${tl('ESTIMATE','STIMA')}: ${tl(`${esc(pl.cc)} government curve`,`curva governativa ${esc(pl.cc)}`)} (CNBC ${esc(s.tenors.join(' '))}) ${e.spread<0?'−':'+'} ${Math.abs(e.spread*10000).toFixed(0)} bp ${e.calib?tl('(set by your price)','(fissato dal tuo prezzo)'):tl('(no price typed: spread 0)','(nessun prezzo inserito: spread 0)')} · ${tl('model price today','prezzo modello oggi')} ${e.clean[e.clean.length-1].toFixed(2)} · ${tl('yield','rendimento')} ${(e.y[e.y.length-1]*100).toFixed(2)}%${s.missing.length?' · '+tl('maturities not quoted','scadenze non quotate')+': '+esc(s.missing.join(' ')):''}</div>`:'';
-    const cell=s?desc+pxIn+est:x.loading?desc+` <span class="k">${tl('loading the curve (CNBC)…','caricamento della curva (CNBC)…')}</span>`:desc+' '+naS(P.errorText(x.err||'no_data'))+` <span class="k">${esc(P.errorText(x.err||'no_data'))}</span>`;
+    const cell=s?desc+pxIn+est:x.err==='no_issue_date'?desc+pxIn+` <span class="k">${esc(P.errorText('no_issue_date'))}</span>`:x.loading?desc+` <span class="k">${tl('loading the curve (CNBC)…','caricamento della curva (CNBC)…')}</span>`:desc+' '+naS(P.errorText(x.err||'no_data'))+` <span class="k">${esc(P.errorText(x.err||'no_data'))}</span>`;
     return`<tr><td><input class="sr-in pl-id" data-i="${i}" value="${esc(x.tok)}" maxlength="24" style="width:120px"></td><td><input class="sr-in pl-w" data-i="${i}" type="number" min="0" max="100" step="any" value="${esc(x.w)}" style="width:70px"></td>
       <td class="l">${cell}</td><td class="num">${s?fmtDay(s.first):''}</td><td class="num">—</td><td class="k">${tl('coupons','cedole')}</td><td class="l k">${esc(tl('an estimate priced on the curve, not a market price','una stima prezzata sulla curva, non un prezzo di mercato')+(bd.source?' · '+tl('terms','condizioni')+': '+bd.source:'')+(bd.freqFrom&&!bd.zero?' · '+tl('coupon frequency: usual for the','frequenza cedola: quella usuale per')+' '+(bd.freqFrom==='currency'?tl('currency','valuta'):tl("issuer's country","paese dell'emittente")):''))}</td><td><button class="wl-btn pl-rm" data-i="${i}" aria-label="${tl('remove','rimuovi')}">×</button></td></tr>`;}
   // the ECB list's government bonds of a country, to pick from (terms only: no prices)
@@ -3452,6 +3455,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const upd=()=>paintWin(win);
     $$('.pl-id',body).forEach(i=>i.onchange=()=>{const v=i.value.trim().toUpperCase();if(/^[A-Z0-9][A-Z0-9.\-:]{0,23}$/.test(v)){dr.holdings[+i.dataset.i].id=v;st.msg='';}else st.msg=tl('An instrument: ticker, ISIN, C:code or CASH','Uno strumento: ticker, ISIN, codice C: o CASH');upd();});
     $$('.pl-w',body).forEach(i=>i.onchange=()=>{const v=+i.value;if(v>0&&v<=100)dr.holdings[+i.dataset.i].w=v;upd();});
+    $$('.pl-iss',body).forEach(i=>i.onchange=()=>{const h=dr.holdings[+i.dataset.i];if(/^\d{4}-\d{2}-\d{2}$/.test(i.value)&&i.value<=new Date().toISOString().slice(0,10))h.iss=i.value;else delete h.iss;upd();});
     $$('.pl-px',body).forEach(i=>i.onchange=()=>{const v=+i.value,h=dr.holdings[+i.dataset.i];if(i.value===''){delete h.px;st.msg='';}else if(v>0&&v<=1000){h.px=v;st.msg='';}else st.msg=tl('Price: the clean price per 100, above 0','Prezzo: il prezzo secco per 100, sopra 0');upd();});
     const blo=body.querySelector('.pl-bl-open');if(blo)blo.onclick=()=>{st.bl={cc:'IT',q:''};upd();};
     const blc=body.querySelector('.pl-blc');if(blc)blc.onchange=()=>{st.bl.cc=blc.value;upd();};
