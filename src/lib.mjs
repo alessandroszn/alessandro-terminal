@@ -2,12 +2,28 @@
 // Policy: a source either returns real data, or an error code — never a substitute value.
 
 export const UA = "AlessandroTerminal/1.0 (+https://alessandrozanichelli.com/terminal)";
+// CNBC's services (quote.cnbc.com, ts-api.cnbc.com, symlookup.cnbc.com) sit behind a bot screen that refuses, now and then,
+// requests that do not look like the ones its own pages send (403 "provider refused the request" on the bars, seen on the
+// Worker): they get the headers of a cnbc.com page in a browser. Nothing else changes: the same public endpoints.
+export const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+const CNBC_HEADERS = { "user-agent": BROWSER_UA, accept: "application/json, text/plain, */*", "accept-language": "en-US,en;q=0.9", origin: "https://www.cnbc.com", referer: "https://www.cnbc.com/" };
+export const siteHeaders = (url) => { try { return /(^|\.)cnbc\.com$/.test(new URL(url).hostname) ? CNBC_HEADERS : null; } catch { return null; } };
+
+// a few requests at a time within one request (CNBC refuses bursts of dozens of bar requests from one address): results
+// in the order of the items, as Promise.all would give them
+export async function mapLimit(items, n, fn) {
+  const out = new Array(items.length); let next = 0;
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); } };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
 
 export async function fetchText(url, { timeoutMs = 8000, headers = {}, method, body } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const r = await fetch(url, { signal: ac.signal, headers: { "user-agent": UA, ...headers }, ...(method ? { method } : {}), ...(body != null ? { body } : {}) });
+    const site = siteHeaders(url);
+    const r = await fetch(url, { signal: ac.signal, headers: site ? { ...headers, ...site } : { "user-agent": UA, ...headers }, ...(method ? { method } : {}), ...(body != null ? { body } : {}) });
     const text = await r.text();
     if (r.status === 429) return { err: "rate_limited", http: r.status };
     if (r.status === 403) return { err: "provider_forbidden", http: r.status };

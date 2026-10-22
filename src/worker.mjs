@@ -27,7 +27,7 @@
 import { handleYields } from "./yields.mjs";
 import { handleMarketYields } from "./mktyields.mjs";
 import { handleCbWorld } from "./cbworld.mjs";
-import { handleCnbc, barsBlocked, noteBarsRefused } from "./cnbc.mjs";
+import { handleCnbc, barsBlocked, noteBarsRefused, noteBarsOk } from "./cnbc.mjs";
 import { handleNasdaq } from "./nasdaq.mjs";
 import { handleReddit } from "./reddit.mjs";
 import { handleCalendar } from "./calendar.mjs";
@@ -61,7 +61,7 @@ import { handlePlab } from "./plab.mjs";
 import { handleBondRef } from "./yas.mjs";
 import { stepEcbList } from "./ecbassets.mjs";
 import { fetchText } from "./lib.mjs";
-import { setBackupEnv, BACKUP_ERRORS, cnbcAnyCode, isUsStock, avTarget, finnhubQuote, avQuote, backupInstrument, alpacaDaily, avDaily } from "./backup.mjs";
+import { setBackupEnv, BACKUP_ERRORS, cnbcAnyCode, isUsStock, avTarget, finnhubQuote, avQuote, backupInstrument, alpacaDaily, avDaily, keepCopy, keptCopy, KEEP_DAYS_FRESH, cnbcDailyB, avIdOfCnbc } from "./backup.mjs";
 import { handleEtfPerf, refreshEtfPerf, PERF_CRON } from "./etfperf.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -537,7 +537,7 @@ export function exchangeToday(tz, now = new Date(Date.now())) {
 }
 
 // history of a listing outside the Twelve Data plan: CNBC's bars (intl.mjs), in the same contract
-async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "plan_required", bk = null) {
+async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "plan_required", bk = null, env = null) {
   const { id, range, interval, intraday, ttl } = built, cache = cacheFor(), now = Date.now(), code = bk ? bk.code : cnbcCodeFor(id);
   const key = `${url.origin}/__cache/history-cnbc?${new URLSearchParams({ symbol: id, range, interval })}`, entry = await cacheGet(cache, key);
   const envelope = (points, fetchedAt, stale, staleReason) => {
@@ -552,10 +552,21 @@ async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "pl
   if (entry && entry.points && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.points, entry.fetchedAt, false), "HIT");
   // as a backup CNBC gets 5 seconds (the page has already waited on the first provider)
   const blocked = await barsBlocked(url.origin, ctx), r = blocked ? { err: blocked.err } : await cnbcHistory(code, { range, interval, now }, bk ? (u) => fetchText(u, { timeoutMs: 5000, headers: { accept: "application/json" } }) : undefined);
-  if (!blocked && r.err) await noteBarsRefused(url.origin, r.err, ctx);
-  if (r.data) { const fetchedAt = Date.now(); cachePut(cache, key, { points: r.data, fetchedAt }, ctx); return respond(envelope(r.data, fetchedAt, false), "MISS"); }
+  if (!blocked && r.err) await noteBarsRefused(url.origin, r.err, ctx); else if (!blocked) await noteBarsOk(url.origin, ctx);
+  // a daily / weekly / monthly chart CNBC answered is kept (KV, once a day): CNBC refusing later, it is shown STALE with its date
+  const keptKind = `h/${range}/${interval}`;
+  if (r.data) { const fetchedAt = Date.now(); cachePut(cache, key, { points: r.data, fetchedAt }, ctx); if (!intraday) await keepCopy(url.origin, ctx, keptKind, code, r.data, env || undefined); return respond(envelope(r.data, fetchedAt, false), "MISS"); }
+  const kept = intraday ? null : await keptCopy(keptKind, code, env || undefined);
+  const fromKept = () => { const b = envelope(kept.data, kept.at, true, r.err); b.note = `CNBC's bars as last read on ${new Date(kept.at).toISOString().slice(0, 10)} (kept copy): CNBC did not answer now (${r.err})`; if (!bk) { b.backupFor = CNBC_INTL_SOURCE; b.primaryError = r.err; } return respond(b, "KEPT"); };
+  if (kept && now - kept.at < KEEP_DAYS_FRESH * 86400_000 && !(entry && entry.points && entry.fetchedAt > kept.at && now - entry.fetchedAt < STALE_MAX_MS)) return fromKept();
   if (bk) return null; // the next backup
   if (entry && entry.points && now - entry.fetchedAt < STALE_MAX_MS) return respond(envelope(entry.points, entry.fetchedAt, true, r.err), "STALE");
+  // CNBC refused (or failed), nothing kept of late: Alpha Vantage for a listing it carries (Xetra, London, Toronto), an older copy kept
+  if (!intraday) {
+    const avId = avTarget(id) ? id : avIdOfCnbc(code);
+    if (env && avId) { const alt = await historyBackup(url, env, ctx, { ...built, id: avId }, r.err, []); if (alt) { const b = { ...alt.body, symbol: id, primaryError: r.err, backupFor: CNBC_INTL_SOURCE }; return respond(b, alt.xc); } }
+    if (kept) return fromKept();
+  }
   const error = isCnbcId(id) ? (r.err === "no_data" ? "no_data" : r.err) : tdError;
   const out = json({ error, symbol: id, status: STATUS.NA, ...(!isCnbcId(id) ? { detail: [planDetail, "CNBC has no bars for this listing either"].filter(Boolean).join(" · ") } : {}) }, H, error === "no_data" ? 404 : ERROR_HTTP[error] || 502);
   out.headers.set("x-cache", "MISS");
@@ -586,12 +597,12 @@ async function handleHistory(url, env, ctx, H) {
   let built;
   try { built = buildHistoryQuery(Object.fromEntries(url.searchParams)); }
   catch (e) { if (e instanceof BadRequest) return json({ error: "bad_request", message: e.message }, H, 400); throw e; }
-  if (isCnbcId(built.id)) return cnbcHistoryResponse(url, ctx, H, built);
+  if (isCnbcId(built.id)) return cnbcHistoryResponse(url, ctx, H, built, undefined, undefined, null, env);
   const key = env.TWELVEDATA_KEY;
 
   const { id, q, range, interval, adjust, intraday, ttl } = built;
   const cache = cacheFor();
-  if (cnbcCodeFor(id) && await cacheGet(cache, `${url.origin}/__cache/tdplan/${encodeURIComponent(id)}`)) return cnbcHistoryResponse(url, ctx, H, built);
+  if (cnbcCodeFor(id) && await cacheGet(cache, `${url.origin}/__cache/tdplan/${encodeURIComponent(id)}`)) return cnbcHistoryResponse(url, ctx, H, built, undefined, undefined, null, env);
   const cacheKey = `${url.origin}/__cache/history?${new URLSearchParams({ symbol: id, range, interval, adjust, d: q.start_date || "intraday" })}`;
   const entry = await cacheGet(cache, cacheKey);
   const now = Date.now();
@@ -633,7 +644,7 @@ async function handleHistory(url, env, ctx, H) {
     return respond(envelope(n, fetchedAt, false), "MISS");
   }
   // a listing outside the plan: CNBC is its source; any other failure: the backups (backup.mjs), then the last real copy
-  if (["plan_required", "provider_error", "symbol_not_found"].includes(error) && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail, error);
+  if (["plan_required", "provider_error", "symbol_not_found"].includes(error) && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail, error, null, env);
   const tried = [];
   if (BACKUP_ERRORS.has(error)) {
     const bkCode = cnbcAnyCode(id);
@@ -705,7 +716,7 @@ export const app = {
     if (url.pathname === "/api/cot") return handleCot(url, env, ctx, H, json);
     if (url.pathname === "/api/indices" || url.pathname === "/api/indices/history") return handleIndices(url, env, ctx, H, json);
     if (url.pathname === "/api/markets/fx" || url.pathname === "/api/markets/cmdty") return handleMarkets(url, env, ctx, H, json);
-    if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json);
+    if (url.pathname === "/api/etf/ucits" || url.pathname === "/api/etf/ucits/returns") return handleUcits(url, env, ctx, H, json, { daily: cnbcDailyB });
     if (url.pathname === "/api/etf/perf" || url.pathname === "/api/etf/perftable") return handleEtfPerf(url, env, ctx, H, json);
     if (/^\/api\/etf\/(universe|profile|compare|exposure|resolve)$/.test(url.pathname)) return handleEtf(url, env, ctx, H, json);
     if (url.pathname === "/api/factors") return handleFactors(url, env, ctx, H, json);

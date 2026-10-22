@@ -168,20 +168,50 @@ export function backupInstrument(rec, { source, fetchedAt, now = Date.now(), fie
 // the Worker's bindings for the backups of modules that do not receive them (set once per request / scheduled run)
 let ENV = null;
 export const setBackupEnv = (env) => { ENV = env || null; };
-// CNBC's code → the backup's daily closes [[date, close]]: FRED for the FX codes, Alpaca for a U.S. symbol
+// a CNBC code of a listing Alpha Vantage carries (Xetra, London, Toronto) → the terminal's id for avTarget: VWCE-DE → VWCE:XETR
+const AV_OF_CNBC = { DE: "XETR", GB: "XLON", CA: "XTSE" };
+export function avIdOfCnbc(code) { const m = /^([A-Z0-9.]{1,12})-([A-Z]{2})$/.exec(String(code || "").toUpperCase()); return m && AV_OF_CNBC[m[2]] ? `${m[1]}:${AV_OF_CNBC[m[2]]}` : null; }
+// CNBC's code → the backup's daily closes [[date, close]]: FRED for the FX codes, Alpaca for a U.S. symbol, Alpha Vantage
+// (the last 100 sessions only, free plan) for a Xetra / London / Toronto listing
 export async function backupDaily(code, days, now, env = ENV, deps = {}) {
   const from = now - days * DAY;
   if (FRED_FX[code]) { const r = await (deps.fred || fredFxDaily)(env, code, from); return r.data ? { data: r.data, source: `FRED ${r.series}` } : r; }
   if (isUsStock(code)) { const r = await (deps.alpaca || alpacaDaily)(env, code, from, now); return r.data ? { data: r.data.map((p) => [p.t, p.c]), source: "Alpaca" } : r; }
+  const av = avIdOfCnbc(code);
+  if (av) { const r = await (deps.avDaily || avDaily)(env, av); return r.data ? { data: r.data.map((p) => [p.t, p.c]).filter(([t]) => Date.parse(t) >= from), source: "Alpha Vantage (last 100 sessions)" } : r; }
   return { err: "no_backup" };
 }
-// cnbcDaily, then — only when CNBC gives nothing, not even a stale copy — the backup (kept 6 hours under its own key);
-// the answer says which provider gave it: { data, source?, backupFor?, primaryError? }
+
+// ---------- the last real copy (KV) ----------
+// The daily closes of a listing the owner looked at (PLAB, WIF, EFC, FACT, charts), kept in KV at most once a day: when
+// CNBC refuses and no backup has the listing, the page shows them STALE with their date instead of N/A. Never written by a
+// scheduled run (KV writes are counted: about one per listing and day).
+export const KEEP_DAYS_FRESH = 7;
+const keepKey = (kind, id) => `last/${kind}/${id}`;
+export async function keepCopy(origin, ctx, kind, id, data, env = ENV) {
+  if (!env || !env.BRIEFS || (ctx && ctx.store) || !Array.isArray(data) || data.length < 2) return;
+  const memo = `kept/${kind}/${id}`;
+  if (await cacheRead(origin, memo)) return;
+  const at = Date.now();
+  await env.BRIEFS.put(keepKey(kind, id), JSON.stringify({ at, data }));
+  await cacheWrite(origin, memo, { at }, ctx, 86400);
+}
+export async function keptCopy(kind, id, env = ENV) {
+  if (!env || !env.BRIEFS) return null;
+  try { const t = await env.BRIEFS.get(keepKey(kind, id)); const j = t ? JSON.parse(t) : null; return j && Array.isArray(j.data) && j.data.length ? j : null; } catch { return null; }
+}
+const keptAnswer = (k, err) => ({ data: k.data, fetchedAt: k.at, cache: "STALE", staleReason: err, source: `CNBC — last copy kept ${iso(k.at).slice(0, 10)}`, backupFor: "CNBC", primaryError: err, kept: true });
+
+// cnbcDaily, then — only when CNBC gives nothing, not even a stale copy — the last copy kept (≤ 7 days), the backup (kept
+// 6 hours under its own key), an older copy kept; the answer says which provider gave it: { data, source?, backupFor?, primaryError? }
 export async function cnbcDailyB(origin, ctx, code, days, now, deps = {}) {
+  const env = deps.env || ENV;
   const r = await (deps.daily || cnbcDaily)(origin, ctx, code, days, now);
-  if (r && r.data) return r;
+  if (r && r.data) { if (r.cache !== "STALE") await keepCopy(origin, ctx, `d${days}`, code, r.data, env); return r; }
+  const err = (r && r.err) || "no_data", kept = await keptCopy(`d${days}`, code, env);
+  if (kept && now - kept.at < KEEP_DAYS_FRESH * DAY) return keptAnswer(kept, err);
   const b = await cachedSource({ origin, key: `bk/d${days}/${code}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * DAY, ctx, now,
-    load: async () => { const x = await backupDaily(code, days, now, deps.env || ENV, deps); return x.data ? { data: { rows: x.data, source: x.source } } : x; } });
-  if (!b.data) return { err: (r && r.err) || b.err, backupErr: b.err };
-  return { data: b.data.rows, fetchedAt: b.fetchedAt, cache: b.cache, source: b.data.source, backupFor: "CNBC", primaryError: (r && r.err) || "no_data" };
+    load: async () => { const x = await backupDaily(code, days, now, env, deps); return x.data ? { data: { rows: x.data, source: x.source } } : x; } });
+  if (!b.data) return kept ? keptAnswer(kept, err) : { err, backupErr: b.err };
+  return { data: b.data.rows, fetchedAt: b.fetchedAt, cache: b.cache, source: b.data.source, backupFor: "CNBC", primaryError: err };
 }

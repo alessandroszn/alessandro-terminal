@@ -9,7 +9,7 @@
 //   GET /api/cnbc/lookup?q=tencent        CNBC's symbol lookup: listings by name or ticker, with CNBC's code (opened as C:<code>)
 //   GET /api/cnbc/implied                 index futures vs the cash index's last print: implied opening move
 //   GET /api/cnbc/history?sym=@GC.1       daily closes (5 years)
-import { fetchText, cachedSource, iso, cacheRead, cacheWrite } from "./lib.mjs";
+import { fetchText, cachedSource, iso, cacheRead, cacheWrite, mapLimit } from "./lib.mjs";
 
 export const CNBC_SOURCE = "CNBC quote service";
 export const CNBC_PAGE = "https://www.cnbc.com/markets/";
@@ -117,13 +117,24 @@ async function loadDaily(sym, days, now) {
   let rows; try { rows = dailyCloses(JSON.parse(f.text)); } catch { return { err: "provider_error" }; }
   return rows.length ? { data: rows } : { err: "no_data" };
 }
-// CNBC's bar service refusing the Worker (403 / 429): every bar request pauses 10 minutes (Cache API, per location) instead
-// of asking again — a burst of requests is what gets it refused; the last real bars kept are served meanwhile (STALE)
-const BLOCK_KEY = "cnbc/bars-block", BLOCK_MS = 600_000;
-export async function barsBlocked(origin, ctx) { if (ctx && ctx.store) return null; const b = await cacheRead(origin, BLOCK_KEY); return b && Date.now() < b.until ? b : null; }
-export function noteBarsRefused(origin, err, ctx) { if ((err === "provider_forbidden" || err === "rate_limited") && !(ctx && ctx.store)) return cacheWrite(origin, BLOCK_KEY, { until: Date.now() + BLOCK_MS, err }, ctx, BLOCK_MS / 1000); }
+// CNBC's bar service refusing the Worker (403 / 429): bar requests pause up to 5 minutes (Cache API, per location) instead
+// of asking again — a burst of requests is what gets it refused. One request a minute still goes through to see whether
+// CNBC answers again; its success lifts the pause. Meanwhile the last real bars kept are served (STALE) or the backups.
+const BLOCK_KEY = "cnbc/bars-block", BLOCK_MS = 300_000, PROBE_MS = 60_000;
+// bar requests of one page request: 4 at a time (a burst of 16–45 at once is what CNBC refuses)
+export const BARS_AT_ONCE = 4;
+export async function barsBlocked(origin, ctx) {
+  if (ctx && ctx.store) return null;
+  const b = await cacheRead(origin, BLOCK_KEY), now = Date.now();
+  if (!b || now >= b.until) return null;
+  if (now - (b.probe || b.since || 0) >= PROBE_MS) { await cacheWrite(origin, BLOCK_KEY, { ...b, probe: now }, ctx, Math.max(1, Math.ceil((b.until - now) / 1000))); return null; }
+  return b;
+}
+export function noteBarsRefused(origin, err, ctx) { if ((err === "provider_forbidden" || err === "rate_limited") && !(ctx && ctx.store)) { const now = Date.now(); return cacheWrite(origin, BLOCK_KEY, { until: now + BLOCK_MS, err, since: now }, ctx, BLOCK_MS / 1000); } }
+// a bar request answered: the pause (if one was on) is over
+export async function noteBarsOk(origin, ctx) { if (ctx && ctx.store) return; const b = await cacheRead(origin, BLOCK_KEY); if (b && Date.now() < b.until) await cacheWrite(origin, BLOCK_KEY, { until: 0 }, ctx, 1); }
 export const cnbcDaily = (origin, ctx, sym, days, now) => cachedSource({ origin, key: `cnbc/d${days}/${sym}`, ttlMs: 6 * 3600_000, staleMaxMs: 10 * 86400_000, ctx,
-  load: async () => { const b = await barsBlocked(origin, ctx); if (b) return { err: b.err }; const r = await loadDaily(sym, days, now); if (r.err) await noteBarsRefused(origin, r.err, ctx); return r; } });
+  load: async () => { const b = await barsBlocked(origin, ctx); if (b) return { err: b.err }; const r = await loadDaily(sym, days, now); if (r.err) await noteBarsRefused(origin, r.err, ctx); else await noteBarsOk(origin, ctx); return r; } });
 
 // the reference closes for returns: the last close on or before 7 / 30 / 91 / 365 days before the latest bar, and the last
 // close of the previous year (YTD) — never interpolated
@@ -167,7 +178,7 @@ export async function handleCnbc(url, env, ctx, H, json) {
   if (p === "/api/cnbc/returns") {
     const syms = [...new Set(String(url.searchParams.get("syms") || "").split(",").map((s) => s.trim()).filter(isAllowed))].slice(0, 16);
     if (!syms.length) return send({ error: "bad_request", message: "syms: up to 16 known symbols" }, 400);
-    const res = await Promise.all(syms.map((s) => cnbcDaily(url.origin, ctx, s, 400, now)));
+    const res = await mapLimit(syms, BARS_AT_ONCE, (s) => cnbcDaily(url.origin, ctx, s, 400, now));
     const out = {}, errors = {};
     syms.forEach((s, i) => { const r = res[i]; if (!r.data) { errors[s] = r.err; return; } const rows = r.data; out[s] = { ref: referenceCloses(rows), last: rows[rows.length - 1], line: rows.slice(-63).map((x) => x[1]) }; });
     return send({ returns: out, errors, basis: "CNBC's daily bars of the same symbol, dated as CNBC dates them; returns = latest price ÷ the reference close − 1 (DERIVED in the page)", ...SRC }, Object.keys(out).length ? 200 : 502);
@@ -178,7 +189,7 @@ export async function handleCnbc(url, env, ctx, H, json) {
     const syms = Array.from({ length: c[1] }, (_, i) => `@${root}.${i + 1}`);
     const q = await cachedSource({ origin: url.origin, key: `cnbc/crv/${root}`, ttlMs: 120_000, staleMaxMs: 3 * 86400_000, failTtlMs: 60_000, ctx, load: () => loadCnbcQuotes(syms) });
     if (!q.data) return send({ root, status: "N/A", error: q.err, ...SRC }, 502);
-    const hist = await Promise.all(syms.map((s) => cnbcDaily(url.origin, ctx, s, 400, now)));
+    const hist = await mapLimit(syms, BARS_AT_ONCE, (s) => cnbcDaily(url.origin, ctx, s, 400, now));
     const points = syms.map((s, i) => { const x = q.data[s], h = hist[i].data; return { pos: i + 1, sym: s, contract: x ? x.contract : null, last: x ? x.last : null, chgPct: x ? x.chgPct : null, time: x ? iso(x.time) : null, ref: h ? referenceCloses(h) : {} }; });
     return send({ root, name: c[0], points, ...SRC, basis: "each position is CNBC's continuous contract (1 = front month); earlier curves are the same positions' daily closes, so their contract months can differ (a roll)", status: q.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(q.fetchedAt) });
   }

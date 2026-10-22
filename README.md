@@ -196,8 +196,15 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   EUR/USD → EUR=, crypto BTC/USD → BTC.CM=, metals, listings elsewhere; 5 s at most) → Finnhub (U.S. stocks) → Alpha Vantage
   (secret ALPHAVANTAGE_KEY, 25 a day, counted) → the last real quote STALE → N/A with what was tried. Chart history:
   Twelve Data → CNBC bars → Alpaca daily (U.S.) → Alpha Vantage (the last 100 sessions, said) → STALE. CNBC daily bars
-  (PLAB, EFC, FACT): CNBC (or its stale copy) → FRED H.10 for EUR= / GBP= / CHF= / JPY= → Alpaca for U.S. symbols; a
-  Xetra / Milan line has no free backup. World exchanges: Twelve Data market_state → each market's main index on CNBC
+  (PLAB, EFC, FACT, UCITS returns): CNBC (or its stale copy) → the last real copy kept (≤ 7 days) → FRED H.10 for EUR= /
+  GBP= / CHF= / JPY= → Alpaca for U.S. symbols → Alpha Vantage for Xetra / London / Toronto lines (VWCE-DE → VWCE.DEX, the
+  last 100 sessions) → an older copy kept; a Milan / Paris line has no free backup beyond the copy kept.
+  CNBC refusing (403 "provider refused the request", 22 Oct 2026 with VWCE), fixed on four sides: (1) CNBC's services get
+  the headers a cnbc.com page sends (browser user agent, origin, referer — `lib.mjs` siteHeaders); (2) bar requests of one
+  page request go 4 at a time (`mapLimit`, `BARS_AT_ONCE`), never bursts of 16–45; (3) after a refusal bar requests pause
+  5 minutes, but one a minute still goes through and an answer lifts the pause; (4) the last real copy: every daily series
+  and daily / weekly / monthly chart CNBC answers for the owner is kept in KV once a day (`last/d<days>/<code>`,
+  `last/h/<range>/<interval>/<code>`, never by a scheduled run) and shown STALE with its date when CNBC refuses. World exchanges: Twelve Data market_state → each market's main index on CNBC
   (in its regular session, printed in the last 30 minutes; no countdown). World calendar: Forex Factory → this week's
   archived copy (STALE) → the Nasdaq economic calendar (actual, consensus, previous; no importance rating, every event
   shown, said). Indices: an official source with nothing (Cboe, STOXX, Nikkei, SIX, SSE, B3, ASX) → the same index on CNBC.

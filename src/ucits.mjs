@@ -6,9 +6,9 @@
 //   Reference data (TER, fund size, distribution, replication, domicile, fund currency, inception): justETF profile pages,
 //   approved 21 Oct 2026 for reference data only — read by the ETF section's cron (etf.mjs: these funds first and weekly,
 //   then the whole Xetra universe); never prices (justETF's terms forbid automated price inquiries).
-import { iso, cachedSource } from "./lib.mjs";
+import { iso, cachedSource, mapLimit } from "./lib.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
-import { cnbcDaily, referenceCloses } from "./cnbc.mjs";
+import { cnbcDaily, referenceCloses, BARS_AT_ONCE } from "./cnbc.mjs";
 import { tableMap, refFromLine } from "./etfref.mjs";
 
 // [ISIN, fund name, class, Milan ticker or null, price line (CNBC code), price-line ticker, venue MIC, tickers on Milan /
@@ -241,7 +241,9 @@ function quoteLine(line, ccy, q, now) {
 // the close on or before a date, from daily closes [[date, close]] in date order
 const closeOn = (rows, d) => { let v = null; for (const x of rows) { if (x[0] <= d) v = x[1]; else break; } return v; };
 
-export async function handleUcits(url, env, ctx, H, json) {
+// deps.daily: the Worker passes cnbcDailyB (backup.mjs: the last copy kept, the backups) — imported there, not here (import cycle)
+export async function handleUcits(url, env, ctx, H, json, deps = {}) {
+  const daily = deps.daily || cnbcDaily;
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const now = Date.now(), qc = String(url.searchParams.get("ccy") || "EUR").toUpperCase(), ccy = UCITS_CCYS.includes(qc) ? qc : null;
   if (!ccy) return send({ error: "bad_request", message: `ccy: ${UCITS_CCYS.join(", ")}` }, 400);
@@ -251,7 +253,8 @@ export async function handleUcits(url, env, ctx, H, json) {
     const part = Math.max(0, Math.floor(Number(url.searchParams.get("part")) || 0)), list = UCITS_ETFS.slice(part * UCITS_PART, (part + 1) * UCITS_PART);
     if (!list.length) return send({ error: "bad_request", message: `part: 0–${Math.ceil(UCITS_ETFS.length / UCITS_PART) - 1}` }, 400);
     const lines = list.map((e) => pickLine(e, ccy) || e.def), conv = lines.some((l) => l.ccy !== ccy);
-    const [res, fxRes] = await Promise.all([Promise.all(lines.map((l) => cnbcDaily(url.origin, ctx, l.cnbc, 400, now))), conv ? Promise.all(FX_CODES.map((c) => cnbcDaily(url.origin, ctx, c, 400, now))) : []]);
+    // 4 bar requests at a time; a line CNBC refuses: its last copy kept, else a backup (backup.mjs)
+    const res = await mapLimit(lines, BARS_AT_ONCE, (l) => daily(url.origin, ctx, l.cnbc, 400, now)), fxRes = conv ? await mapLimit(FX_CODES, BARS_AT_ONCE, (c) => daily(url.origin, ctx, c, 400, now)) : [];
     const fxRows = {}; FX_CODES.forEach((c, i) => { if (fxRes[i] && fxRes[i].data) fxRows[c] = fxRes[i].data; });
     const out = {}, errors = {};
     list.forEach((e, i) => {
@@ -260,7 +263,7 @@ export async function handleUcits(url, env, ctx, H, json) {
       const toCcy = (d, v) => { if (!conv1) return v / unit; const fx = {}; for (const c of FX_CODES) if (fxRows[c]) fx[c] = closeOn(fxRows[c], d); const k = fxRate(l.ccy, ccy, fx); return k ? (v / unit) * k : null; };
       const rows = r.data.map(([d, v]) => [d, toCcy(d, v)]).filter((x) => x[1] != null);
       if (rows.length < 2) { errors[e.isin] = conv1 ? "fx_unavailable" : "no_data"; return; }
-      out[e.isin] = { ref: referenceCloses(rows), lastClose: rows[rows.length - 1], line: l.cnbc, ...(conv1 ? { converted: l.ccy + "→" + ccy } : {}) };
+      out[e.isin] = { ref: referenceCloses(rows), lastClose: rows[rows.length - 1], line: l.cnbc, ...(conv1 ? { converted: l.ccy + "→" + ccy } : {}), ...(r.cache === "STALE" ? { stale: true } : {}), ...(r.backupFor ? { backup: { source: r.source, for: r.backupFor, reason: r.primaryError } } : {}) };
     });
     return send({ part, parts: Math.ceil(UCITS_ETFS.length / UCITS_PART), ccy, returns: out, errors, source: "CNBC",
       basis: `CNBC's daily bars of each fund's ${ccy} line, dated as CNBC dates them; a fund without a ${ccy} line: its default line's bars at each day's CNBC FX close (DERIVED); return = latest price ÷ the reference close − 1 (DERIVED in the page)` }, Object.keys(out).length ? 200 : 502);

@@ -5,7 +5,9 @@
 import { app as worker } from "../src/worker.mjs";
 import { stateFromIndices, handleExchanges } from "../src/exchanges.mjs";
 import { nqWorldEvents, handleCalendar } from "../src/calendar.mjs";
-import { finnhubRec, avTarget, avError, avQuoteRec, avFxRec, avDailyPoints, alpacaPoints, cnbcAnyCode, backupDaily, cnbcDailyB, avQuote, AV_DAILY_MAX, BACKUP_ERRORS } from "../src/backup.mjs";
+import { finnhubRec, avTarget, avError, avQuoteRec, avFxRec, avDailyPoints, alpacaPoints, cnbcAnyCode, backupDaily, cnbcDailyB, avQuote, AV_DAILY_MAX, BACKUP_ERRORS, avIdOfCnbc, keptCopy } from "../src/backup.mjs";
+import { mapLimit, siteHeaders } from "../src/lib.mjs";
+import { barsBlocked, noteBarsRefused, noteBarsOk, cnbcDaily } from "../src/cnbc.mjs";
 
 let pass = 0, fail = 0;
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
@@ -28,8 +30,9 @@ globalThis.caches = { default: { match: async (r) => { const k = typeof r === "s
 const AV_KEY = "AVKEY_secret_never_shown", FH_KEY = "FHKEY_secret";
 let down = new Set(), asked = [];
 const cnq = (symbol, last, ccy = "USD") => ({ symbol, code: 0, name: symbol + " name", last: String(last), last_time: "2026-10-22T14:30:00.000-0400", previous_day_closing: String(last - 1), change: "+1", change_pct: "+0.40%", open: String(last), high: String(last), low: String(last), currencyCode: ccy, exchange: "NASDAQ", realTime: "true", countryCode: "US" });
+const sentHeaders = {};
 globalThis.fetch = async (u, opts = {}) => {
-  const url = new URL(String(u)), h = url.hostname; asked.push(h);
+  const url = new URL(String(u)), h = url.hostname; asked.push(h); sentHeaders[h] = opts.headers || {};
   if (down.has(h)) return new Response("<html>down</html>", { status: 503 });
   if (h === "api.twelvedata.com") return new Response(JSON.stringify({ code: 429, message: "You have run out of API credits for the day.", status: "error" }));
   if (h === "quote.cnbc.com") { const syms = decodeURIComponent(/symbols=([^&]+)/.exec(String(u))[1]).split("|"); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.map((s) => (s === "AAPL" ? cnq(s, 250) : s === "EUR=" ? cnq(s, 1.16) : s === "BTC.CM=" ? cnq(s, 90000) : { symbol: s, code: 1 })) } })); }
@@ -92,11 +95,62 @@ ok("CNBC bars down → EUR= from FRED (DEXUSEU, USD per euro; days without a rat
 d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "NVDA", 400, now, { env });
 ok("…a U.S. symbol from Alpaca", d.data && d.data[1][1] === 231 && d.source === "Alpaca");
 d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "EUNL-DE", 400, now, { env });
-ok("…a Xetra line has no backup: CNBC's error stays (N/A upstream)", !d.data && d.backupErr === "no_backup");
+ok("…a Xetra line (VWCE-DE, EUNL-DE …) from Alpha Vantage (EUNL.DEX, the last 100 sessions), labelled", d.data && d.data.length >= 1 && d.source === "Alpha Vantage (last 100 sessions)" && d.backupFor === "CNBC" && d.primaryError, JSON.stringify(d).slice(0, 300));
+ok("CNBC code → Alpha Vantage id: Xetra, London, Toronto; Milan / Paris none", avIdOfCnbc("VWCE-DE") === "VWCE:XETR" && avIdOfCnbc("VOD-GB") === "VOD:XLON" && avIdOfCnbc("RY-CA") === "RY:XTSE" && avIdOfCnbc("ISP-IT") === null && avIdOfCnbc("MC-FR") === null && avIdOfCnbc("EUR=") === null);
+store = new Map(); down = new Set(["ts-api.cnbc.com", "www.alphavantage.co"]);
+d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "SXR8-DE", 400, now, { env });
+ok("…no kept copy and every backup down: CNBC's error stays (N/A upstream)", !d.data && d.err && d.backupErr, JSON.stringify(d));
 ok("backupDaily: CHF= is DEXSZUS, JPY= DEXJPUS; GBP= DEXUSUK", (await backupDaily("CHF=", 30, now, env)).source === "FRED DEXSZUS" && (await backupDaily("GBP=", 30, now, env)).source === "FRED DEXUSUK");
 store = new Map(); down = new Set();
 d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "EUNL-DE", 400, now, { env });
 ok("…CNBC answering: CNBC, no backup asked", d.data && !d.backupFor);
+
+// the last real copy kept in KV: written once a day when CNBC answers, served STALE (with its date) when CNBC refuses
+const kv = new Map(), kvPuts = [];
+const envK = { ...env, BRIEFS: { get: async (k) => (kv.has(k) ? kv.get(k) : null), put: async (k, v) => { kv.set(k, v); kvPuts.push(k); } } };
+store = new Map(); down = new Set();
+d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "VWCE-DE", 1900, now, { env: envK });
+await Promise.all(pending.splice(0));
+const d2 = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "VWCE-DE", 1900, now, { env: envK });
+await Promise.all(pending.splice(0));
+ok("kept copy: written when CNBC answers, once a day (not again on the next request)", d.data && !d.backupFor && kvPuts.filter((k) => k === "last/d1900/VWCE-DE").length === 1 && (await keptCopy("d1900", "VWCE-DE", envK)).data.length === d.data.length, kvPuts.join());
+store = new Map(); down = new Set(["ts-api.cnbc.com"]);
+d = await cnbcDailyB("https://alessandrozanichelli.com", ctx, "VWCE-DE", 1900, now, { env: envK });
+ok("…CNBC refusing: the kept copy, STALE, its date and CNBC's error said — before Alpha Vantage's 100 sessions", d.data && d.cache === "STALE" && d.kept && /last copy kept \d{4}-\d{2}-\d{2}/.test(d.source) && d.backupFor === "CNBC" && d.primaryError && d.data.length === d2.data.length, JSON.stringify(d).slice(0, 300));
+const scheduled = { ...ctx, store: { get: async () => null, put: async () => {} } };
+kvPuts.length = 0; store = new Map(); down = new Set();
+await cnbcDailyB("https://alessandrozanichelli.com", scheduled, "EUNL-DE", 1900, now, { env: envK });
+ok("…never written by a scheduled run (KV writes are counted)", kvPuts.length === 0, kvPuts.join());
+
+// chart history of a Xetra listing: CNBC refusing → the kept copy of that chart, else Alpha Vantage
+store = new Map(); down = new Set(); kv.clear();
+r = await call("/api/history?symbol=VWCE:XETR&range=6M", envK);
+await Promise.all(pending.splice(0));
+ok("chart history of VWCE:XETR from CNBC's bars; a copy of the chart kept", r.res.status === 200 && r.body.source === "cnbc" && kv.has("last/h/6M/1day/VWCE-DE"), r.text.slice(0, 300) + " " + [...kv.keys()].join());
+store = new Map(); down = new Set(["ts-api.cnbc.com"]);
+r = await call("/api/history?symbol=VWCE:XETR&range=6M", envK);
+ok("…CNBC refusing: the kept chart, STALE with its date and the reason — not N/A", r.res.status === 200 && r.body.status === "STALE" && r.body.staleReason && /kept copy/.test(r.body.note) && r.body.points.length > 10, r.text.slice(0, 400));
+store = new Map(); kv.clear();
+r = await call("/api/history?symbol=C:VWCE-DE&range=6M", envK);
+ok("…nothing kept (a CNBC listing typed as C:VWCE-DE): Alpha Vantage's daily bars (VWCE.DEX), labelled backup for CNBC", r.res.status === 200 && r.body.source === "alphavantage" && r.body.backupFor === "cnbc" && r.body.primaryError && r.body.symbol === "C:VWCE-DE", r.text.slice(0, 400));
+
+// CNBC's pause after a refusal: one request a minute goes through; an answer lifts the pause
+store = new Map();
+const O = "https://alessandrozanichelli.com";
+await noteBarsRefused(O, "provider_forbidden", ctx); await Promise.all(pending.splice(0));
+const b1 = await barsBlocked(O, ctx); await Promise.all(pending.splice(0));
+const b2 = await barsBlocked(O, ctx); await Promise.all(pending.splice(0));
+ok("pause: just refused → paused; after a minute one request is let through (a probe), the next one paused again", b1 && b1.err === "provider_forbidden" && !await (async () => { const real = Date.now; Date.now = () => real() + 61_000; const x = await barsBlocked(O, ctx); Date.now = real; return x; })() && !!b2);
+await noteBarsOk(O, ctx); await Promise.all(pending.splice(0));
+ok("…an answer lifts it", !(await barsBlocked(O, ctx)));
+// headers and bursts
+store = new Map(); down = new Set();
+await cnbcDaily(O, ctx, "SAP-DE", 400, now);
+const hh = sentHeaders["ts-api.cnbc.com"] || {};
+ok("CNBC's services get a cnbc.com page's headers (a browser's user agent, origin, referer); other providers keep the terminal's own", /Mozilla\/5\.0/.test(hh["user-agent"]) && hh.origin === "https://www.cnbc.com" && hh.referer === "https://www.cnbc.com/" && siteHeaders("https://quote.cnbc.com/x") && !siteHeaders("https://api.stlouisfed.org/x"), JSON.stringify(hh));
+let live = 0, peak = 0;
+const lim = await mapLimit([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, async (x) => { live++; peak = Math.max(peak, live); await new Promise((res) => setTimeout(res, 5)); live--; return x * 2; });
+ok("bar requests of one page request: 4 at a time, results in order", peak === 4 && lim.join() === "2,4,6,8,10,12,14,16,18,20");
 
 // ---------- sections ----------
 // world exchanges: Twelve Data's market_state not answering → each market's main index on CNBC
