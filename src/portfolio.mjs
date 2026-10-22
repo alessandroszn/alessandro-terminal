@@ -7,6 +7,7 @@
 // euro reference rate of the trade date (last published rate on or before it; ECB Data Portal, EXR).
 // Market value is computed by the page from live quotes (Twelve Data) — never stored, never estimated.
 import { fetchText, cachedSource, parseCsv, iso } from "./lib.mjs";
+import { fredEcbRates } from "./backup.mjs";
 
 export const BASE_CCY = "EUR";
 const KEY = "pf/tx", MAX_TX = 2000;
@@ -46,8 +47,15 @@ export function parseEcbFx(text) {
   return out;
 }
 export const ecbUrl = (ccys, start) => `https://data-api.ecb.europa.eu/service/data/EXR/D.${ccys.join("+")}.EUR.SP00.A?startPeriod=${start}&format=csvdata`;
-async function ecbRates(origin, ctx, ccys, start) {
+// the ECB's rates; ECB not answering and no copy → FRED's H.10 rates crossed through the dollar (backup.mjs), said
+async function ecbRates(origin, ctx, ccys, start, env = null) {
   if (!ccys.length) return { data: {} };
+  const r = await ecbRates0(origin, ctx, ccys, start);
+  if (r.data || !env) return r;
+  const b = await cachedSource({ origin, key: `pf/fred/${ccys.join("+")}/${start}`, ttlMs: 6 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, load: () => fredEcbRates(env, ccys, start) });
+  return b.data ? { ...b, backup: { source: "FRED H.10 (noon buying rates in New York, crossed through the dollar)", for: "ECB", reason: r.err } } : r;
+}
+async function ecbRates0(origin, ctx, ccys, start) {
   return cachedSource({
     origin, key: `pf/ecb/${ccys.join("+")}/${start}`, ttlMs: 6 * 3600_000, staleMaxMs: 7 * 86400_000, ctx, failTtlMs: 5 * 60_000,
     load: async () => { const f = await fetchText(ecbUrl(ccys, start), { timeoutMs: 15000, headers: { accept: "text/csv" } }); if (f.err) return { err: f.err }; const d = parseEcbFx(f.text); return Object.keys(d).length ? { data: d } : { err: "no_data" }; },
@@ -105,7 +113,7 @@ async function view(origin, env, ctx, txs) {
   const start = txs.length ? txs.reduce((m, t) => (t.date < m ? t.date : m), "9999-12-31") : null;
   // ECB series from 10 days before the first trade (weekends / holidays have no fixing)
   const st = start ? new Date(Date.parse(start + "T00:00:00Z") - 10 * 86400_000).toISOString().slice(0, 10) : null;
-  const fx = st ? await ecbRates(origin, ctx, ccys, st) : { data: {} };
+  const fx = st ? await ecbRates(origin, ctx, ccys, st, env) : { data: {} };
   const b = buildPositions(txs, fx.data || null);
   const missingFx = ccys.filter((c) => !(fx.data && fx.data[c]));
   return {
@@ -131,10 +139,10 @@ export async function handlePortfolio(url, env, ctx, H, json, req) {
     const from = String(url.searchParams.get("from") || "");
     if (!DATE_RE.test(from) || from < "1999-01-04" || !Number.isFinite(Date.parse(from + "T00:00:00Z"))) return send({ error: "bad_request", message: "from must be YYYY-MM-DD (1999 or later)" }, 400);
     const st = new Date(Date.parse(from + "T00:00:00Z") - 10 * 86400_000).toISOString().slice(0, 10); // a fixing before a weekend / holiday trade
-    const fx = await ecbRates(url.origin, ctx, ccys, st);
+    const fx = await ecbRates(url.origin, ctx, ccys, st, env);
     if (!fx.data) return send({ error: fx.err || "no_data", status: "N/A" }, 502);
     return send({ base: BASE_CCY, basis: "units of each currency per 1 euro, daily fixing around 16:00 CET", series: fx.data, from: st, currencies: ccys, missing: ccys.filter((c) => !fx.data[c]),
-      source: "ECB euro reference rates (ECB Data Portal, EXR)", sourceUrl: "https://data.ecb.europa.eu/data/datasets/EXR", fetchedAt: fx.fetchedAt ? iso(fx.fetchedAt) : iso(Date.now()), status: fx.cache === "STALE" ? "STALE" : "LIVE" });
+      source: fx.backup ? fx.backup.source + " — BACKUP (ECB: " + fx.backup.reason + ")" : "ECB euro reference rates (ECB Data Portal, EXR)", sourceUrl: fx.backup ? "https://fred.stlouisfed.org/categories/94" : "https://data.ecb.europa.eu/data/datasets/EXR", ...(fx.backup ? { backupFor: "ECB", primaryError: fx.backup.reason } : {}), fetchedAt: fx.fetchedAt ? iso(fx.fetchedAt) : iso(Date.now()), status: fx.cache === "STALE" ? "STALE" : "LIVE" });
   }
   if (sub !== "tx") return send({ error: "not found" }, 404);
   // writes: same-origin JSON only (a cross-site form cannot send application/json without a preflight)

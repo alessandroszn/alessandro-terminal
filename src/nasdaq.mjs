@@ -100,7 +100,25 @@ export function parseNqHolders(j) {
 }
 const CO_PARSE = { ratings: parseNqRatings, target: parseNqTarget, forecast: parseNqForecast, holders: parseNqHolders };
 
-export async function handleNasdaq(url, env, ctx, H, json) {
+// Alpaca's screener → the movers lists in Nasdaq's shape (keys MostActiveByShareVolume, MostAdvanced, MostDeclined)
+export function alpacaMoverLists(act, mov) {
+  const fmtPct = (v) => (Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)}%` : null), fmtChg = (v) => (Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)}` : null);
+  const out = [];
+  if (act && Array.isArray(act.most_actives) && act.most_actives.length) out.push({ key: "MostActiveByShareVolume", asOf: act.last_updated || null, cols: { last: "Last", chg: "Volume", third: "Trades" },
+    rows: act.most_actives.map((r) => ({ sym: String(r.symbol || ""), name: null, last: null, chg: Number.isFinite(r.volume) ? `vol ${(r.volume / 1e6).toFixed(1)}M` : null, third: Number.isFinite(r.trade_count) ? String(r.trade_count) : null })).filter((r) => r.sym) });
+  for (const [k, list] of [["MostAdvanced", mov && mov.gainers], ["MostDeclined", mov && mov.losers]]) if (Array.isArray(list) && list.length)
+    out.push({ key: k, asOf: (mov && mov.last_updated) || null, cols: { last: "Last", chg: "Change", third: "Change %" },
+      rows: list.map((r) => ({ sym: String(r.symbol || ""), name: null, last: Number.isFinite(r.price) ? r.price : null, chg: fmtChg(r.change), third: fmtPct(r.percent_change) })).filter((r) => r.sym) });
+  return out;
+}
+async function alpacaMovers(env, fetchImpl) {
+  if (!env.ALPACA_KEY_ID || !env.ALPACA_SECRET_KEY) return { err: "alpaca_not_configured" };
+  const h = { "APCA-API-KEY-ID": env.ALPACA_KEY_ID, "APCA-API-SECRET-KEY": env.ALPACA_SECRET_KEY, accept: "application/json" }, get = (u) => (fetchImpl ? fetchImpl(u) : fetchText(u, { timeoutMs: 10000, headers: h }));
+  const [a, m] = await Promise.all([get("https://data.alpaca.markets/v1beta1/screener/stocks/most-actives?by=volume&top=20"), get("https://data.alpaca.markets/v1beta1/screener/stocks/movers?top=20")]);
+  let ja = null, jm = null; try { ja = a.err ? null : JSON.parse(a.text); } catch { ja = null; } try { jm = m.err ? null : JSON.parse(m.text); } catch { jm = null; }
+  const lists = alpacaMoverLists(ja, jm); return lists.length ? { data: lists } : { err: a.err || m.err || "no_data" };
+}
+export async function handleNasdaq(url, env, ctx, H, json, deps = {}) {
   const now = Date.now(), p = url.pathname, send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (p === "/api/nasdaq/calendar") {
     const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && Number.isFinite(Date.parse(d + "T00:00:00Z"));
@@ -141,6 +159,8 @@ export async function handleNasdaq(url, env, ctx, H, json) {
     return send({ ...out, errors, ...SRC("company"), sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${sym.toLowerCase()}`,
       basis: "as Nasdaq publishes them: analysts' mean rating, price targets (consensus, low, high, and the monthly history of the consensus with the buy / hold / sell counts), EPS forecasts with their range and revisions; institutional holders from 13F filings (holdings as of each holder's filing date)", status: any ? "LIVE" : "N/A" }, any ? 200 : 502);
   }
+  // backup (22 Oct 2026): Nasdaq not answering and no copy → Alpaca's screener (approved: most active by volume, the top
+  // gainers and losers of U.S. stocks), in the same lists, said as a backup
   if (p === "/api/nasdaq/movers") {
     const r = await cachedSource({ origin: url.origin, key: "nq/mov", ttlMs: 2 * 60_000, staleMaxMs: 3 * DAY, failTtlMs: 60_000, ctx, load: async () => {
       const f = await fetchText(NQ_MOV, { timeoutMs: 12000, headers: NQ_HEADERS });
@@ -148,7 +168,11 @@ export async function handleNasdaq(url, env, ctx, H, json) {
       let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
       const lists = parseNqMovers(j); return lists.length ? { data: lists } : { err: "no_data" };
     } });
-    if (!r.data) return send({ status: "N/A", error: r.err, ...SRC("movers") }, 502);
+    if (!r.data) {
+      const b = await alpacaMovers(env, deps.fetchAlpaca);
+      if (b.data) return send({ lists: b.data, source: "Alpaca screener — BACKUP (Nasdaq: " + r.err + ")", sourceUrl: "https://alpaca.markets/", backupFor: "Nasdaq", primaryError: r.err, status: "LIVE", fetchedAt: iso(Date.now()) });
+      return send({ status: "N/A", error: r.err, ...SRC("movers"), backupError: b.err }, 502);
+    }
     return send({ lists: r.data, ...SRC("movers"), status: r.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) });
   }
   return send({ error: "not_found" }, 404);

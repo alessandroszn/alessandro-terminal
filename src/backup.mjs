@@ -185,3 +185,35 @@ export async function cnbcDailyB(origin, ctx, code, days, now, deps = {}) {
   if (!b.data) return { err: (r && r.err) || b.err, backupErr: b.err };
   return { data: b.data.rows, fetchedAt: b.fetchedAt, cache: b.cache, source: b.data.source, backupFor: "CNBC", primaryError: (r && r.err) || "no_data" };
 }
+
+// ---------- the ECB's euro reference rates backed by FRED's H.10 rates (noon buying rates in New York) ----------
+// units of a currency per euro, crossed through the dollar: USD per EUR (DEXUSEU) with USD per unit (pound, Australian and
+// New Zealand dollar) or units per USD (the others) — DERIVED, labelled; another day's fixing than the ECB's 16:00 CET
+export const FRED_PER_USD = { JPY: "DEXJPUS", CHF: "DEXSZUS", CAD: "DEXCAUS", CNY: "DEXCHUS", HKD: "DEXHKUS", SEK: "DEXSDUS", NOK: "DEXNOUS", DKK: "DEXDNUS", ZAR: "DEXSFUS", MXN: "DEXMXUS", INR: "DEXINUS", KRW: "DEXKOUS", SGD: "DEXSIUS", BRL: "DEXBZUS" };
+export const FRED_USD_PER = { GBP: "DEXUSUK", AUD: "DEXUSAL", NZD: "DEXUSNZ" };
+async function fredObs(env, id, start, fetchImpl) {
+  const qs = new URLSearchParams({ series_id: id, api_key: env.FRED_KEY, file_type: "json", observation_start: start });
+  const u = `https://api.stlouisfed.org/fred/series/observations?${qs}`;
+  const f = fetchImpl ? await fetchImpl(u) : await fetchText(u, { timeoutMs: 12000, headers: { accept: "application/json" } });
+  if (f.err) return { err: f.err };
+  let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
+  return { data: new Map((j.observations || []).map((o) => [o.date, num(o.value)]).filter(([d, v]) => /^\d{4}-\d{2}-\d{2}$/.test(d) && v > 0)) };
+}
+export async function fredEcbRates(env, ccys, start, fetchImpl) {
+  if (!env || !env.FRED_KEY) return { err: "not_configured" };
+  const want = ccys.filter((c) => c === "USD" || FRED_PER_USD[c] || FRED_USD_PER[c]); if (!want.length) return { err: "no_backup" };
+  const ids = [...new Set(["DEXUSEU", ...want.map((c) => FRED_PER_USD[c] || FRED_USD_PER[c]).filter(Boolean)])];
+  const res = await Promise.all(ids.map((id) => fredObs(env, id, start, fetchImpl))), M = Object.fromEntries(ids.map((id, i) => [id, res[i].data]));
+  if (!M.DEXUSEU) return { err: res[0].err || "no_data" };
+  const out = {};
+  for (const c of want) {
+    const rows = [];
+    for (const [d, ue] of M.DEXUSEU) {
+      if (c === "USD") { rows.push([d, ue]); continue; }
+      const x = FRED_PER_USD[c] ? M[FRED_PER_USD[c]] && M[FRED_PER_USD[c]].get(d) : M[FRED_USD_PER[c]] && M[FRED_USD_PER[c]].get(d);
+      if (x > 0) rows.push([d, FRED_PER_USD[c] ? ue * x : ue / x]);
+    }
+    if (rows.length) out[c] = rows.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  }
+  return Object.keys(out).length ? { data: out } : { err: "no_data" };
+}

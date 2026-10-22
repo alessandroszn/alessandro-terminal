@@ -126,20 +126,61 @@ async function contracts(env, sym, q) {
   } while (token && ++pages < 4);
   return { data: out };
 }
-export async function handleOptions(url, env, ctx, H, json) {
+// ---------- backup (22 Oct 2026): Cboe's delayed options (the Cboe already approved for the indices) when Alpaca gives
+// nothing — one file a symbol with every listed contract: bid, ask, last, IV, greeks, open interest; and the underlying's price.
+// Format parsed as Cboe publishes it on its site (not yet seen from the Worker)
+export const CBOE_OPT = (sym) => `https://cdn.cboe.com/api/global/delayed_quotes/options/${encodeURIComponent(sym)}.json`;
+const nOr = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+export function parseCboeOptions(j) {
+  const d = j && j.data; if (!d || !Array.isArray(d.options)) return null;
+  const list = d.options.map((o) => { const p = parseOcc(o && o.option); return p ? { ...p, symbol: o.option, bid: nOr(o.bid), ask: nOr(o.ask), last: nOr(o.last_trade_price), tradeTime: o.last_trade_time || null, iv: nOr(o.iv), delta: nOr(o.delta), gamma: nOr(o.gamma), theta: nOr(o.theta), vega: nOr(o.vega), oi: nOr(o.open_interest), volume: nOr(o.volume) } : null; }).filter(Boolean);
+  const px = nOr(d.current_price), t = String(j.timestamp || "");
+  return { spot: px > 0 ? { price: px, time: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t) ? t : null } : null, list };
+}
+async function cboeOptions(url, ctx, sym, fetchImpl) {
+  return cachedSource({ origin: url.origin, key: `opt/cboe/${sym}`, ttlMs: 5 * 60_000, staleMaxMs: 86400_000, ctx, failTtlMs: 2 * 60_000,
+    load: async () => { const f = fetchImpl ? await fetchImpl(CBOE_OPT(sym)) : await fetchText(CBOE_OPT(sym), { timeoutMs: 12000, headers: { accept: "application/json" } }); if (f.err) return { err: f.err };
+      let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; } const p = parseCboeOptions(j); return p && p.list.length ? { data: p } : { err: "no_data" }; } });
+}
+export function cboeExpirations(list, S, first, last) {
+  const by = {}; for (const x of list) if (x.exp >= first && x.exp <= last && x.strike >= S * (100 - BAND_EXP) / 100 && x.strike <= S * (100 + BAND_EXP) / 100) by[x.exp] = (by[x.exp] || 0) + 1;
+  return Object.entries(by).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([exp, n]) => ({ exp, contractsNearSpot: n }));
+}
+export function cboeChain(list, S, exp) {
+  const rows = {};
+  for (const x of list) {
+    if (x.exp !== exp || x.strike < S * (100 - BAND_CHAIN) / 100 || x.strike > S * (100 + BAND_CHAIN) / 100) continue;
+    const row = rows[x.strike] || (rows[x.strike] = { strike: x.strike });
+    row[x.type] = { symbol: x.symbol, bid: x.bid, ask: x.ask, quoteTime: null, last: x.last, tradeTime: x.tradeTime, iv: x.iv, delta: x.delta, gamma: x.gamma, theta: x.theta, vega: x.vega, oi: x.oi, oiDate: null };
+  }
+  return Object.values(rows).sort((a, b) => a.strike - b.strike);
+}
+export async function handleOptions(url, env, ctx, H, json, deps = {}) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   const sym = String(url.searchParams.get("symbol") || "").trim().toUpperCase();
   if (!SYM_RE.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
-  if (!alpacaConfigured(env)) return send({ error: "alpaca_not_configured", status: "N/A" }, 503);
   const today = easternDate(new Date());
+  // Alpaca, or — not configured / not answering — Cboe's delayed file (the same file gives the price, the dates and the chain)
+  const viaCboe = async (why) => {
+    const c = await cboeOptions(url, ctx, sym, deps.fetchCboe); if (!c.data || !c.data.spot) return null;
+    const S = c.data.spot.price, label = `Cboe delayed options — BACKUP (Alpaca: ${why})`, bk = { backupFor: "alpaca", primaryError: why };
+    if (url.pathname.endsWith("/expirations")) { const etHM = new Date().toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false }).slice(0, 5), first = etHM >= "16:15" ? addDays(today, 1) : today, ex = cboeExpirations(c.data.list, S, first, addDays(today, 120));
+      return ex.length ? send({ symbol: sym, spot: c.data.spot, expirations: ex, source: label, ...bk, status: c.cache === "STALE" ? "STALE" : "LIVE" }) : null; }
+    const exp = url.searchParams.get("exp") || ""; if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) return send({ error: "bad_request", message: "exp=YYYY-MM-DD" }, 400);
+    const rows = cboeChain(c.data.list, S, exp);
+    return rows.length ? send({ symbol: sym, exp, spot: c.data.spot, rows, feed: "Cboe delayed options quotes (15 minutes or more) — " + label, ...bk, fetchedAt: iso(c.fetchedAt), status: c.cache === "STALE" ? "STALE" : "LIVE" }) : null;
+  };
+  if (!url.pathname.endsWith("/expirations") && !url.pathname.endsWith("/chain")) return send({ error: "not found" }, 404);
+  if (!alpacaConfigured(env)) return (await viaCboe("alpaca_not_configured")) || send({ error: "alpaca_not_configured", status: "N/A" }, 503);
   const spot = await cachedSource({ origin: url.origin, key: `opt/spot/${sym}`, ttlMs: 60_000, staleMaxMs: 3 * 86400_000, ctx, load: async () => { const s = await spotOf(env, sym); return s ? { data: s } : { err: "no_data" }; } });
-  if (!spot.data) return send({ error: spot.err === "no_data" ? "no_underlying_price" : spot.err, status: "N/A" }, 502);
+  if (!spot.data) return (await viaCboe(spot.err)) || send({ error: spot.err === "no_data" ? "no_underlying_price" : spot.err, status: "N/A" }, 502);
   const S = spot.data.price;
   if (url.pathname.endsWith("/expirations")) {
     // after the U.S. close (16:15 New York) today's expiries are over: list from the next day
     const etHM = new Date().toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false }).slice(0, 5), first = etHM >= "16:15" ? addDays(today, 1) : today;
     const r = await cachedSource({ origin: url.origin, key: `opt/exp/${sym}/${first}`, ttlMs: 3600_000, staleMaxMs: 86400_000, ctx, failTtlMs: 5 * 60_000,
       load: async () => { const c = await contracts(env, sym, { expiration_date_gte: first, expiration_date_lte: addDays(today, 120), strike_price_gte: String(Math.floor(S * (100 - BAND_EXP) / 100)), strike_price_lte: String(Math.ceil(S * (100 + BAND_EXP) / 100)) }); if (c.err) return c; const by = {}; for (const x of c.data) by[x.exp] = (by[x.exp] || 0) + 1; const exps = Object.entries(by).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([exp, n]) => ({ exp, contractsNearSpot: n })); return exps.length ? { data: exps } : { err: "no_data" }; } });
+    if (!r.data && r.err !== "no_data") { const b = await viaCboe(r.err); if (b) return b; }
     return send(r.data ? { symbol: sym, spot: spot.data, expirations: r.data, source: "Alpaca options contracts", status: "LIVE" } : { symbol: sym, error: r.err === "no_data" ? "no_listed_options" : r.err, status: "N/A" }, r.data ? 200 : r.err === "no_data" ? 404 : 502);
   }
   if (!url.pathname.endsWith("/chain")) return send({ error: "not found" }, 404);
@@ -163,5 +204,6 @@ export async function handleOptions(url, env, ctx, H, json) {
       const list = Object.values(rows).sort((a, b) => a.strike - b.strike);
       return list.length ? { data: list } : { err: "no_data" };
     } });
+  if (!r.data && r.err !== "no_data") { const b = await viaCboe(r.err); if (b) return b; }
   return send(r.data ? { symbol: sym, exp, spot: spot.data, rows: r.data, feed: "Alpaca indicative options feed (free; derived from OPRA, delayed) — not the consolidated quote", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : "LIVE" } : { symbol: sym, exp, error: r.err, status: "N/A" }, r.data ? 200 : 502);
 }
