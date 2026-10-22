@@ -14,10 +14,10 @@ const files = [];
 const images = files.filter((f) => f.endsWith(".png")).map((f) => f.slice(ROOT.length));
 const shipped = Object.fromEntries(files.filter((f) => !f.endsWith(".png")).map((f) => [f.slice(ROOT.length), readFileSync(f, "utf8")]));
 const all = Object.values(shipped).join("\n");
-const html = shipped["terminal/index.html"];
+const html = shipped["terminal/desk/index.html"];
 const script = (html.match(/<script>\n([\s\S]*?)<\/script>/) || [])[1] || "";
 
-ok("shipped files = the page, its provenance rules, its interface translations, the self-hosted chart library with its license, the app's manifest and service worker, and the quant library (formulas only)", Object.keys(shipped).sort().join() === "terminal/i18n.js,terminal/index.html,terminal/manifest.webmanifest,terminal/provenance.js,terminal/qmath.js,terminal/sw.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
+ok("shipped files = the terminal page, the public landing page and the replay's player, its provenance rules, its interface translations, the self-hosted chart library with its license, the app's manifest and service worker, and the quant library (formulas only)", Object.keys(shipped).sort().join() === "terminal/desk/index.html,terminal/i18n.js,terminal/index.html,terminal/manifest.webmanifest,terminal/provenance.js,terminal/qmath.js,terminal/replay/player.js,terminal/sw.js,terminal/vendor/lightweight-charts.LICENSE.txt,terminal/vendor/lightweight-charts.js", Object.keys(shipped).join());
 ok("the only images are the app's icons and iOS launch images, under terminal/app/", images.length === 15 && images.every((f) => /^terminal\/app\/(icon-(32|180|192|512|maskable-512)|launch-\d+x\d+)\.png$/.test(f)), images.join());
 // the chart library draws only what the page gives it: unmodified TradingView Lightweight Charts 5.2.1 (Apache-2.0), no network access
 const lwc = shipped["terminal/vendor/lightweight-charts.js"];
@@ -51,6 +51,11 @@ ok("no hand-written company descriptions", !/\bDES\b —|desc:/.test(html));
 ok("no currency symbol on FX / crypto / metal rates (no conversion invented)", /function pxText\(t,v\)\{[^}]*includes\('\/'\)/.test(script));
 const literals = (script.match(/[^\w#.]\d+\.\d+/g) || []).map((x) => x.slice(1));
 ok("only drawing constants as decimal literals (no hard-coded market numbers)", literals.every((v) => Number(v) < 3), literals.filter((v) => Number(v) >= 3).join());
+// ---- the public pages (/terminal/ and the replay's player): words and the recording, no data of their own ----
+const landing = shipped["terminal/index.html"], player = shipped["terminal/replay/player.js"];
+ok("public landing page: no numbers that could be data, no /api request, not indexed, the sign-in goes to /terminal/desk/", !/\b\d+\.\d+\b/.test(landing.replace(/<style>[\s\S]*?<\/style>/, "")) && !/\/api\//.test(landing) && /<meta name="robots" content="noindex,nofollow">/.test(landing) && /href="\/terminal\/desk\/"/.test(landing) && /src="\/terminal\/replay\/"/.test(landing));
+ok("replay player: no market numbers; it reads only the recording (and, in the owner's terminal, the recording routes)", !/[^\w#.]\d+\.\d+/.test(player.replace(/var css = [\s\S]*?;\n/, "")) /* its banner's CSS sizes aside */ && (player.match(/realFetch\("[^"]+"/g) || []).every((x) => /"\/terminal\/replay\/recording\.json"|"\/api\/user\/recording(\/take|\/commit)?"/.test(x)) && /not_recorded/.test(player));
+ok("replay player: it says it is a recording, with its date, of official sources only, not real time", /RECORDING/.test(player) && /official sources only/.test(player) && /not real time/.test(player) && /REGISTRAZIONE/.test(player));
 // ---- server side: the Worker and its source modules (tests may use mocks; production code may not) ----
 const SRC = new URL("../src/", import.meta.url).pathname;
 const srcFiles = Object.fromEntries(readdirSync(SRC).filter((f) => f.endsWith(".mjs")).map((f) => [f, readFileSync(join(SRC, f), "utf8")]));

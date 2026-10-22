@@ -14,9 +14,11 @@ routes = [
   { pattern = "alessandrozanichelli.com/api/*", zone_name = "alessandrozanichelli.com" }
 ]
 
-# public/terminal/index.html is served at /terminal/
+# static files: /terminal/ (public landing page), /terminal/desk/ (the terminal, behind Cloudflare Access),
+# /terminal/replay/player.js; the Worker reads the terminal page through ASSETS for the public replay (src/replay.mjs)
 [assets]
 directory = "./public"
+binding = "ASSETS"
 
 # briefing model (Cloudflare Workers AI, free allocation)
 [ai]

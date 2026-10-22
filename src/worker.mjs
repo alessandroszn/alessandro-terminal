@@ -15,6 +15,7 @@
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
+//   /api/user/recording[/take|/commit] (owner) · /terminal/replay/[recording.json] (public)  the public replay (src/replay.mjs)
 //   GET /api/health
 //   GET /api/quote?symbols=AAPL,MSFT        (T01/T02, provenance + shared cache in T04;
 //                                            "SYMBOL:MIC" ids such as NOVN:XSWX address one venue)
@@ -38,6 +39,7 @@ import { handleCalendarHistory, handleCalendarReactions } from "./calendar.mjs";
 import { handlePortfolio } from "./portfolio.mjs";
 import { handleSearch, splitId, US_MICS } from "./search.mjs";
 import { verifyAccess } from "./access.mjs";
+import { handleRecording, handleReplayPublic } from "./replay.mjs";
 import { handleSpx } from "./spx.mjs";
 import { handleHeadlines } from "./press.mjs";
 import { handleBriefs } from "./briefs.mjs";
@@ -694,6 +696,8 @@ export const app = {
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
     if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
+    // the public replay's recording (src/replay.mjs): made by the owner, official sources only
+    if (url.pathname === "/api/user/recording" || url.pathname.startsWith("/api/user/recording/")) return handleRecording(url, env, ctx, H, json, req, app.fetch);
     if (url.pathname.startsWith("/api/user/")) return handleUserData(url, env, ctx, H, json, req);
     if (url.pathname === "/api/alerts" || url.pathname.startsWith("/api/alerts/")) return handleAlerts(url, env, ctx, H, json, req);
     if (url.pathname === "/api/status") return handleStatus(url, env, ctx, H, json);
@@ -715,6 +719,9 @@ export const app = {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    // public, no sign-in: the replay of the terminal with its recording of official sources (src/replay.mjs); the
+    // landing page /terminal/ and the scripts are static assets and never reach this Worker
+    if (url.pathname === "/terminal/replay" || url.pathname.startsWith("/terminal/replay/")) return handleReplayPublic(url, env, req);
     if (url.pathname.startsWith("/api/")) {
       const a = await verifyAccess(req, env);
       if (!a.ok) {

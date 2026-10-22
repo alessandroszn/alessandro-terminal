@@ -3,15 +3,41 @@
 A multi-window market terminal served at **alessandrozanichelli.com/terminal**.
 
 ```
-Browser ──► alessandrozanichelli.com/terminal   (static page: public/terminal/index.html + provenance.js)
-        └─► alessandrozanichelli.com/api/*      (Cloudflare Worker, src/worker.mjs) ──► Twelve Data
+Browser ──► alessandrozanichelli.com/terminal/         public page (public/terminal/index.html): the replay below, sign-in link
+        ├─► alessandrozanichelli.com/terminal/replay/  public: the terminal playing itself on a recording of official sources
+        ├─► alessandrozanichelli.com/terminal/desk/    the terminal (public/terminal/desk/index.html + provenance.js), private
+        └─► alessandrozanichelli.com/api/*             (Cloudflare Worker, src/worker.mjs) ──► Twelve Data …, private
 ```
 
 The Twelve Data API key lives only in the Worker as the secret `TWELVEDATA_KEY`.
 It is never in this repository, in the page, in a URL the browser sees, or in a response.
 
+## Public page and replay (22 Oct 2026)
+Modelled on n1c0.net/terminal (reimplemented, nothing copied). `/terminal/` is public: a brand bar (❚❚, ↺, Sign in →
+`/terminal/desk/`), on a computer the replay filling the window, on a phone the words first and the replay in the
+terminal's phone layout below; `noindex,nofollow`; an app installed on a home screen before the move is sent on to
+`/terminal/desk/`.
+- `/terminal/replay/` (`src/replay.mjs`): the Worker serves the real terminal page (read through the `ASSETS` binding)
+  with `public/terminal/replay/player.js` loaded first. The player answers every `/api` request from the recording
+  (`/terminal/replay/recording.json`), anything not recorded with `not_recorded` (N/A, "not in this public recording");
+  sets the page's clock to the recording's time; keeps settings in memory (the site's storage is the owner's); types
+  CB, CURVE, BOND, SPRD (official 2s10s), COT, CAL (U.S. official) and TILE with a caption for each; a banner says
+  RECORDING of <date, Rome time> · official sources only · not real time. No recording yet → NO RECORDING YET, nothing played.
+- The recording holds **official sources only**: routes `/api/cb`, `/api/cb/world`, `/api/cb/history`, `/api/yields`
+  (+ catalog, history), `/api/bonds`, `/api/sprd`, `/api/cot`, `/api/calendar`, filtered: no curve of Portugal (LSEG
+  data), New Zealand (NZFMA), Malaysia (Bursa Malaysia Bonds) or China (ChinaBond); no ICE BofA index or Freddie Mac
+  mortgage rate; the calendar's BLS / BEA schedules only (no Forex Factory, no Nasdaq). Nothing from Twelve Data,
+  CNBC, Nasdaq, Alpaca, Finnhub, Alpha Vantage, justETF or the owner's own data.
+- Made in the owner's terminal: SYS → PUBLIC REPLAY → RECORD NOW, and by itself when older than 3 days (computer, page in
+  front, 45 s after opening). A hidden copy of the replay (`?rec=1`) runs the same commands against the live `/api` and
+  lists the requests; for each official one the Worker re-reads its own route (`POST /api/user/recording/take`, never a
+  body from the page), filters it and keeps it a day in KV (`rec/p/<id>/<n>`); `POST /api/user/recording/commit` writes
+  `rec/current` and `rec/meta` (≈ 10–15 KV writes a recording). An answer that failed at the time is left out.
+
 ## Access (T05)
-The terminal is **private**: `/terminal*` and `/api/*` sit behind Cloudflare Access (owner login).
+The terminal is **private**: `/terminal/desk*` and `/api/*` sit behind Cloudflare Access (owner login); `/terminal/`
+(landing page), `/terminal/replay/` and the page's scripts and icons are public (code and words, no data — the replay's
+data is the recording above).
 The free Twelve Data plan is licensed for internal use only ("Internal non-display usage";
 external display needs a redistribution agreement), so its quotes are not shown publicly.
 `workers_dev` and preview URLs are disabled so nothing bypasses Access.
@@ -19,8 +45,8 @@ external display needs a redistribution agreement), so its quotes are not shown 
 Three layers:
 0. **WAF custom rule** (free plan): a request to `/api/*` without the Access session cookie is blocked
    with `403` before anything else runs.
-1. **Cloudflare Access** (Zero Trust Free): self-hosted application on `alessandrozanichelli.com/terminal`
-   and `alessandrozanichelli.com/api` (sub-paths included), one Allow policy for the owner's e-mail;
+1. **Cloudflare Access** (Zero Trust Free): self-hosted application on `alessandrozanichelli.com/terminal/desk`
+   (until 22 Oct 2026: `/terminal`) and `alessandrozanichelli.com/api` (sub-paths included), one Allow policy for the owner's e-mail;
    everyone else is denied (Access is deny-by-default). Login: one-time PIN by e-mail. Session 24 h.
 2. **Worker check** (`src/access.mjs`): every `/api/*` request must carry the Access JWT of this
    application — RS256 signature against the team's public keys, audience = the app's AUD tag,
@@ -246,7 +272,7 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   minimising or maximising one of the two, TILE, CLOSE or a saved VIEW ends the split; the browser's size is followed.
 
 ## iPhone app (installable web app, no cost)
-- Install: open alessandrozanichelli.com/terminal/ in Safari → Share → Add to Home Screen. It opens full screen
+- Install: open alessandrozanichelli.com/terminal/desk/ in Safari → Share → Add to Home Screen. It opens full screen
   (`display: standalone`), translucent status bar over the theme's background. iOS 26.1+ blurs a band under the
   clock, so the header starts 20 px below the inset; the tab bar sits 18 px into the home-indicator area (both tuned
   on the iPhone). The status-bar tag is read at install time: changing it needs the app removed and added again., with its icon and launch image; no App Store, no Apple
@@ -304,6 +330,7 @@ warrants: search the ticker); indices are not in the provider's search — they 
 
 ## Endpoints
 - `GET /api/health` → `{ ok, ts }`
+- `GET /api/user/recording` → `{ meta: { t0, at, n, bytes, paths } | null, routes }` · `POST /api/user/recording/take` `{rid, i, path}` → `{ ok, path, bytes } | { skipped }` · `POST /api/user/recording/commit` `{rid, n}` → `{ ok, meta }` (owner) · public: `GET /terminal/replay/` (the page with the player), `GET /terminal/replay/recording.json` → `{ v, t0, at, n, sources, r: { "<path>": { s, b } } }` (404 `no_recording`)
 - `GET /api/yields` → `{ curves: { US, EA, DE, UK, JP, CH, CA }, errors, notConnected }` · `GET /api/bonds` → `{ countries: [{ id, tenors: { "10Y": { value, d1, w1, m1, note? } }, date, source, status }], spreads, fred: { groups } }`
 - `GET /api/cot` → `{ contracts: [{ code, name, group, root, date, oi, long, short, net, chg1w, chg4w, netPctOi, range, history, commNet }] }`
 - `GET /api/cb` → `{ banks: [{ id, name, ccy, page, label, rate: { date, value, previous, changedOn | unchangedSince }, target?, others?, status }] }`
@@ -438,6 +465,7 @@ node test/bondlab.test.mjs      # ECB list read in slices, bond terms (ECB / Ope
 node test/rebalance.test.mjs    # WHAT TO BUY: water filling, sales, smallest trade, cost per trade, whole units, outside positions
 node test/drift.test.mjs        # drift alert: matching by ISIN, EUR values, cash left out, weekly key, 18:40 run, message
 node test/backup.test.mjs       # backups: quotes, history, CNBC bars, exchanges, calendar — labelled, keys never shown
+node test/replay.test.mjs       # public replay: allowed routes, filters, owner-only recording, public paths
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron

@@ -1,9 +1,9 @@
 {
-  "id": "/terminal/",
+  "id": "/terminal/desk/",
   "name": "Alessandro Terminal",
   "short_name": "AZ Terminal",
   "description": "Private market terminal: real data only, every value with its source.",
-  "start_url": "/terminal/",
+  "start_url": "/terminal/desk/",
   "scope": "/terminal/",
   "display": "standalone",
   "orientation": "any",

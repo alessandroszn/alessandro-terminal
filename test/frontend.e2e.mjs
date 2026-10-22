@@ -12,8 +12,9 @@ import { settlementCandidates } from "../src/finra.mjs";
 import { ucitsMatch, JUSTETF_KEY, UCITS_ETFS } from "../src/ucits.mjs";
 import { FF_BASE } from "../src/factors.mjs";
 import { deflateRawSync } from "node:zlib";
+import { handleRecording, handleReplayPublic, recordable } from "../src/replay.mjs";
 
-const html0 = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
+const html0 = readFileSync(new URL("../public/terminal/desk/index.html", import.meta.url), "utf8");
 // speed: lift the client credit budget for UI tests (scenario D tests the real budget)
 const htmlFast = html0.replace("creditsPerMin:8,", "creditsPerMin:60,");
 const provJs = readFileSync(new URL("../public/terminal/provenance.js", import.meta.url), "utf8");
@@ -408,6 +409,8 @@ async function openTerminal(api, html = htmlFast, init = null) {
   await page.route("**/*", async (route) => {
     const u = new URL(route.request().url());
     const send = (r) => route.fulfill({ status: r.status || 200, contentType: "application/json", body: JSON.stringify(r.body) });
+    if (api.pre && await api.pre(route, u)) return; // scenario R: the public replay's own paths
+    if (u.origin === ORIGIN && u.pathname.startsWith("/api/user/recording")) return send({ status: 404, body: { error: "not found" } }); // no recording made outside scenario R
     if (u.origin === ORIGIN && u.pathname === "/terminal/provenance.js") return route.fulfill({ contentType: "application/javascript", body: provJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/i18n.js") return route.fulfill({ contentType: "application/javascript", body: i18nJs });
     if (u.origin === ORIGIN && u.pathname === "/terminal/vendor/lightweight-charts.js") return route.fulfill({ contentType: "application/javascript", body: lwcJs });
@@ -437,7 +440,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     return route.abort();
   });
   if (init) await page.addInitScript(init);
-  await page.goto(ORIGIN + "/terminal/");
+  await page.goto(ORIGIN + "/terminal/desk/");
   return { page, requests, errors, quoteBatches, spxCalls, brfState, pfState, t7 };
 }
 const shotWin = async (page, prefix, name) => { if (!SHOTS) return; await page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); if (w) { w.querySelector(".w-max").click(); } }, prefix); await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}/${name}.png` }); await page.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); if (w) w.querySelector(".w-max").click(); }, prefix); };
@@ -1332,7 +1335,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     return { cred: l.crossOrigin, m: { name: m.name, start: m.start_url, scope: m.scope, display: m.display, bg: m.background_color }, icons, apple: !!document.querySelector('link[rel="apple-touch-icon"]'), capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
       bar: document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content, launch: document.querySelectorAll('link[rel="apple-touch-startup-image"]').length,
       launchOk: (await Promise.all([...document.querySelectorAll('link[rel="apple-touch-startup-image"]')].map(async (x) => (await fetch(x.href)).ok))).every(Boolean) }; });
-  ok("[L] installable: manifest fetched with credentials (Access), standalone, start /terminal/, icons and launch images served, iOS tags", man.cred === "use-credentials" && man.m.display === "standalone" && man.m.start === "/terminal/" && man.m.scope === "/terminal/" && man.icons.length >= 3 && man.icons.every(Boolean) && man.apple && man.capable === "yes" && man.bar === "black-translucent" && man.launch === 10 && man.launchOk, JSON.stringify(man));
+  ok("[L] installable: manifest fetched with credentials (Access), standalone, start /terminal/desk/, icons and launch images served, iOS tags", man.cred === "use-credentials" && man.m.display === "standalone" && man.m.start === "/terminal/desk/" && man.m.scope === "/terminal/" && man.icons.length >= 3 && man.icons.every(Boolean) && man.apple && man.capable === "yes" && man.bar === "black-translucent" && man.launch === 10 && man.launchOk, JSON.stringify(man));
   await page.setViewportSize({ width: 1400, height: 900 }); await page.waitForTimeout(700);
   const desk = await page.evaluate(() => ({ phone: document.body.classList.contains("phone"), shown: [...document.querySelectorAll(".win")].filter((w) => getComputedStyle(w).display !== "none").length, n: document.querySelectorAll(".win").length, fn: document.querySelectorAll("#fnbar .ptab").length }));
   ok("[L] wider than a phone (rotated tablet, desktop): back to floating windows, all shown, the desktop dock", !desk.phone && desk.shown === desk.n && desk.n >= 2 && desk.fn === 0, JSON.stringify(desk));
@@ -1695,6 +1698,118 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[N] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined|Infinity/.test(txt) && errors.length === 0, errors.join(" | ") + (txt.match(/.{40}(NaN|undefined|Infinity).{40}/) || [""])[0]);
   await page.close();
+}
+
+// =============== R. the public replay: recorded by the owner's terminal (official sources only), played on /terminal/ ===============
+{
+  const kv = new Map();
+  const RENV = { ALLOWED_ORIGIN: ORIGIN, BRIEFS: { get: async (k) => (kv.has(k) ? kv.get(k) : null), put: async (k, v) => { kv.set(k, v); } },
+    ASSETS: { fetch: async () => new Response(htmlFast, { headers: { "content-type": "text/html" } }) } };
+  const t7r = { calls: [], alerts: [], notes: [], boards: [], hits: [], noEia: false, noFred: false };
+  // the Worker's router as the recording re-reads it: the official routes answer the same fixtures as the scenarios above
+  const routerFix = async (req) => { const u = new URL(req.url);
+    const r = u.pathname === "/api/yields" && u.searchParams.get("ids") ? yieldsIds(u) : u.pathname === "/api/yields/history" ? yieldsHistory(u) : u.pathname === "/api/yields" ? { body: YIELDS } : u.pathname === "/api/calendar" ? { body: CALENDAR } : t07Api(u, "GET", null, t7r);
+    return new Response(JSON.stringify(r.body), { status: r.status || 200, headers: { "content-type": "application/json" } }); };
+  const jsonR = (b, H, st = 200) => new Response(JSON.stringify(b), { status: st, headers: { ...H, "content-type": "application/json" } });
+  const fulfill = async (route, res) => route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+  const playerJs = readFileSync(new URL("../public/terminal/replay/player.js", import.meta.url), "utf8");
+  const landing = readFileSync(new URL("../public/terminal/index.html", import.meta.url), "utf8");
+  const pre = async (route, u) => {
+    if (u.origin !== ORIGIN) return false;
+    if (u.pathname === "/terminal/replay/player.js") { await route.fulfill({ contentType: "application/javascript", body: playerJs }); return true; }
+    if (u.pathname.startsWith("/terminal/replay")) { await fulfill(route, await handleReplayPublic(u, RENV, new Request(u.href))); return true; }
+    if (u.pathname === "/terminal/") { await route.fulfill({ contentType: "text/html", body: landing }); return true; }
+    if (u.pathname.startsWith("/api/user/recording")) { const rq = route.request(); await fulfill(route, await handleRecording(u, RENV, {}, {}, jsonR, new Request(u.href, { method: rq.method(), headers: rq.headers(), body: rq.method() === "POST" ? rq.postData() : undefined }), routerFix)); return true; }
+    return false;
+  };
+  const statics = async (route, u) => {
+    const js = { "/terminal/provenance.js": provJs, "/terminal/i18n.js": i18nJs, "/terminal/vendor/lightweight-charts.js": lwcJs, "/terminal/qmath.js": quantJs }[u.pathname];
+    if (u.origin === ORIGIN && js) { await route.fulfill({ contentType: "application/javascript", body: js }); return true; }
+    if (u.origin === ORIGIN && u.pathname.startsWith("/terminal/app/") && existsSync("public" + u.pathname)) { await route.fulfill({ contentType: "image/png", body: readFileSync("public" + u.pathname) }); return true; }
+    if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) { await route.fulfill({ body: "" }); return true; }
+    return false;
+  };
+  // 1. the owner's terminal records (SYS → RECORD NOW: a hidden copy of the replay runs the script against /api)
+  const { page, errors } = await openTerminal({ ...OK_API, pre });
+  await page.waitForTimeout(1200);
+  await cmd(page, "SYS");
+  await page.waitForFunction(() => /PUBLIC REPLAY/.test(document.body.innerText) && /no recording yet/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => null);
+  let sys = await winOf(page, "SYS");
+  ok("[R] SYS: PUBLIC REPLAY — no recording yet, RECORD NOW", sys && /PUBLIC REPLAY · \/terminal\//.test(sys.text) && /no recording yet/.test(sys.text) && /RECORD NOW/.test(sys.text), sys && sys.text.slice(-900));
+  await page.click(".sys-rec");
+  const frames0 = await page.evaluate(() => [...document.querySelectorAll("iframe")].map((f) => f.getAttribute("src") + "|" + getComputedStyle(f).visibility).join());
+  await page.waitForFunction(() => /recorded: \d+ answers/.test(document.body.innerText), null, { timeout: 120000 }).catch(() => null);
+  sys = await winOf(page, "SYS");
+  const meta = JSON.parse(kv.get("rec/meta") || "null"), recText = kv.get("rec/current") || "{}", rec = JSON.parse(recText), keys = Object.keys(rec.r || {});
+  ok("[R] recorded in a hidden copy of the replay (?rec=1), removed afterwards; SYS shows when and how much", frames0 === "/terminal/replay/?rec=1|hidden" && (await page.$$("iframe")).length === 0 && /recording of\s+\d/.test(sys.text) && /recorded: \d+ answers/.test(sys.text), frames0 + " · " + JSON.stringify(sys && sys.text.slice(sys.text.indexOf("PUBLIC REPLAY"), sys.text.indexOf("PUBLIC REPLAY") + 400)));
+  ok("[R] the recording holds the official routes the script asked for, nothing else", meta && meta.n === keys.length && keys.length >= 7 && keys.every((k) => recordable(k) === k) && ["/api/cb/world", "/api/yields", "/api/bonds", "/api/sprd", "/api/cot", "/api/calendar"].every((p) => keys.some((k) => k.split("?")[0] === p)), keys.join(" "));
+  ok("[R] nothing commercial recorded: no Forex Factory event, no ICE BofA index, no quote, no market yield", !/Forex Factory|"source":"FF"|BAML|ICE BofA|\/api\/quote|\/api\/yields\/market|Twelve Data/.test(recText) && rec.r["/api/calendar"].b.world.length === 0 && rec.r["/api/calendar"].b.events.every((e) => ["BLS", "BEA"].includes(e.source)), (recText.match(/.{60}(Forex Factory|"source":"FF"|BAML|ICE BofA|Twelve Data).{60}/) || [""])[0]);
+  ok("[R] the owner's terminal: no JavaScript error while recording", errors.length === 0, errors.join(" | "));
+  await page.close();
+
+  // 2. a visitor on a computer: /terminal/ plays the terminal by itself on the recording
+  const p2 = await browser.newPage({ viewport: { width: 1600, height: 1000 }, serviceWorkers: "block" });
+  const net = [], errs2 = [];
+  p2.on("request", (r) => net.push(r.url()));
+  p2.on("console", (m) => { if (m.type() === "error" && !/^Failed to load resource/.test(m.text())) errs2.push(m.text()); });
+  p2.on("pageerror", (e) => errs2.push(String(e)));
+  await p2.route("**/*", async (route) => { const u = new URL(route.request().url()); if (await pre(route, u)) return; if (await statics(route, u)) return; return route.abort(); });
+  await p2.goto(ORIGIN + "/terminal/");
+  const top = await p2.evaluate(() => ({ h1: document.querySelector("h1").textContent, login: document.querySelector(".login").getAttribute("href"), robots: document.querySelector('meta[name="robots"]').content, ctl: document.querySelectorAll(".ctl button").length, hero: getComputedStyle(document.querySelector(".hero")).display }));
+  ok("[R] /terminal/ on a computer: brand bar with ❚❚ / ↺ and the sign-in to /terminal/desk/, not indexed, the terminal filling the window", /market terminal in the browser/.test(top.h1) && top.login === "/terminal/desk/" && top.robots === "noindex,nofollow" && top.ctl === 2 && top.hero === "none", JSON.stringify(top));
+  await p2.waitForFunction(() => document.querySelector("#loader").classList.contains("off"), null, { timeout: 20000 }).catch(() => null);
+  const fr = p2.frames().find((f) => /\/terminal\/replay\/$/.test(f.url()));
+  const bar = fr ? await fr.evaluate(() => document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText) : "";
+  ok("[R] the replay says what it is: a RECORDING of its date and time, official sources only, not real time", /RECORDING\s+of \d{1,2} \w{3} \d{4}, \d{2}:\d{2} Rome time · official sources only · not real time/.test(bar), bar);
+  const clock = fr ? await fr.evaluate(() => Date.now()) : 0;
+  ok("[R] the page's clock is the recording's (and runs on from there)", Math.abs(clock - Date.parse(meta.t0)) < 5 * 60000, new Date(clock).toISOString() + " vs " + meta.t0);
+  await fr.waitForFunction(() => window.AZ_REPLAY && window.AZ_REPLAY.state.done, null, { timeout: 120000, polling: 500 }).catch(() => null);
+  const tags = await fr.$$eval(".win .w-tag", (t) => t.map((x) => x.textContent).join());
+  ok("[R] the script typed CB, CURVE, BOND, SPRD (official 2s10s), COT, CAL and tiled the desk", tags === "CB,CURVE,BOND,SPRD,COT,CAL", tags);
+  const wt = async (prefix) => (await fr.evaluate((p) => { const w = [...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title")?.textContent.startsWith(p)); return w ? w.querySelector(".win-body").innerText : ""; }, prefix));
+  const cbT = await wt("CENTRAL BANKS"), sprdT = await wt("SPREADS"), calT = await wt("ECONOMIC CALENDAR"), cotT = await wt("FUTURES POSITIONING"), bondT = await wt("WORLD GOVERNMENT BONDS");
+  ok("[R] windows show the recorded official data: BIS policy rates, CFTC positioning, the official 2s10s, BLS releases", /Federal Reserve/.test(cbT) && /3\.875|3\.88/.test(cbT) && /E-mini S&P 500/.test(cotT) && /2s10s|10Y minus 2Y|EURO AREA|Euro area/i.test(sprdT) && /Consumer Price Index/.test(calT) && !/German Ifo|Forex Factory/.test(calT), JSON.stringify([cbT.slice(0, 300), cotT.slice(0, 200), sprdT.slice(0, 300), calT.slice(0, 600)]));
+  ok("[R] BOND without the ICE BofA index (not public), with the breakeven from FRED", /10-year breakeven inflation/.test(bondT) && !/ICE BofA/.test(bondT), bondT.slice(-500));
+  const cap = fr ? await fr.evaluate(() => document.querySelector("#rpbar .rp-cap").textContent) : "";
+  ok("[R] at the end: ↺ plays it again; the visitor may type a function", /End of the recording/.test(cap), cap);
+  // a function outside the recording: N/A, said why — never a value from elsewhere
+  await fr.fill("#cmd", "NVDA"); await fr.press("#cmd", "Enter"); await p2.waitForTimeout(1500);
+  const gpT = await fr.evaluate(() => document.body.innerText);
+  ok("[R] a function that is not in the recording: N/A — not in this public recording (official sources only)", /not in this public recording/.test(gpT), gpT.slice(0, 300));
+  ok("[R] no /api request leaves the replay (every answer comes from the recording)", !net.some((u) => /\/api\//.test(u)), net.filter((u) => /\/api\//.test(u)).join());
+  ok("[R] the replay keeps its settings in memory: this site's storage untouched", (await p2.evaluate(() => localStorage.length)) === 0);
+  await p2.click("#pp"); await p2.waitForTimeout(300);
+  const paused = await fr.evaluate(() => window.AZ_REPLAY.state.paused), ppTxt = await p2.textContent("#pp");
+  await p2.click("#pp"); await p2.waitForTimeout(300);
+  ok("[R] ❚❚ pauses the replay and becomes ▶; again resumes", paused === true && ppTxt === "▶" && (await fr.evaluate(() => window.AZ_REPLAY.state.paused)) === false && (await p2.textContent("#pp")) === "❚❚");
+  const allTxt = (await p2.evaluate(() => document.body.innerText)) + (await fr.evaluate(() => document.body.innerText));
+  ok("[R] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(allTxt) && !/\bNaN\b|undefined/.test(allTxt) && errs2.length === 0, errs2.join(" | ") + (allTxt.match(/.{40}(NaN|undefined).{40}/) || [""])[0]);
+  if (SHOTS) await p2.screenshot({ path: SHOTS + "/replay-desktop.png" });
+  await p2.close();
+
+  // 3. a visitor on a phone: words first, then the terminal in its phone layout
+  const ctx3 = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: "block", locale: "it-IT",
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1" });
+  const p3 = await ctx3.newPage();
+  await p3.route("**/*", async (route) => { const u = new URL(route.request().url()); if (await pre(route, u)) return; if (await statics(route, u)) return; return route.abort(); });
+  await p3.goto(ORIGIN + "/terminal/");
+  await p3.waitForTimeout(6000);
+  const f3 = p3.frames().find((f) => /\/terminal\/replay\/$/.test(f.url()));
+  const ph = await p3.evaluate(() => ({ h2: document.querySelector(".hero h2").textContent, hero: getComputedStyle(document.querySelector(".hero")).display, ifr: document.querySelector("#rp").getBoundingClientRect().height, lang: document.documentElement.lang }));
+  const inner = f3 ? await f3.evaluate(() => ({ phone: document.body.classList.contains("phone"), wins: document.querySelectorAll(".win").length, bar: document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText })) : {};
+  ok("[R] /terminal/ on a phone (Italian): the words first, then the terminal in its phone layout playing the recording", ph.hero === "block" && /Un terminale di mercato nel browser/.test(ph.h2) && ph.lang === "it" && ph.ifr > 400 && inner.phone && inner.wins >= 1 && /REGISTRAZIONE\s+del .* solo fonti ufficiali · non in tempo reale/.test(inner.bar || ""), JSON.stringify({ ph, inner }));
+  if (SHOTS) await p3.screenshot({ path: SHOTS + "/replay-phone.png" });
+  await ctx3.close();
+
+  // 4. before the first recording: the page says so and plays nothing
+  kv.clear();
+  const p4 = await browser.newPage({ viewport: { width: 1400, height: 900 }, serviceWorkers: "block" });
+  await p4.route("**/*", async (route) => { const u = new URL(route.request().url()); if (await pre(route, u)) return; if (await statics(route, u)) return; return route.abort(); });
+  await p4.goto(ORIGIN + "/terminal/replay/");
+  await p4.waitForTimeout(3500);
+  const empty = await p4.evaluate(() => ({ bar: document.querySelector("#rpbar") && document.querySelector("#rpbar").innerText, wins: document.querySelectorAll(".win").length }));
+  ok("[R] no recording yet: NO RECORDING YET, no window opened, nothing invented", /NO RECORDING YET/.test(empty.bar || "") && empty.wins === 0, JSON.stringify(empty));
+  await p4.close();
 }
 
 await browser.close();

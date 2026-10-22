@@ -139,7 +139,8 @@
     no_currency: "the bond's currency is not known (not on the ECB list)",
     not_loaded: "the ECB list has not been read yet (it is read a slice every 10 minutes)",
     no_issue_date: "the issue date is not known (not on the ECB list): type it — the estimate starts there",
-    inflation_linked: "an inflation-linked bond (BTP€i, BTP Italia, OATi, iBund …): it cannot be priced from the nominal curve"
+    inflation_linked: "an inflation-linked bond (BTP€i, BTP Italia, OATi, iBund …): it cannot be priced from the nominal curve",
+    not_recorded: "not in this public recording: it carries official sources only (central banks, BIS, U.S. Treasury, FRED, CFTC, BLS, BEA)"
   };
   function errorText(code) { return ERRORS[code] || code || "unavailable"; }
 

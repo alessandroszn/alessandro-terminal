@@ -4,11 +4,13 @@
 // terminal shows N/A, never an old value as if it were current.
 // Network first: the interface on the server wins whenever it answers within SHELL_TIMEOUT_MS. A redirect (the
 // Cloudflare Access sign-in when the session has expired) is passed through and never cached.
-const VERSION = "shell-v3";
+// Since 22 Oct 2026 the terminal lives at /terminal/desk/; /terminal/ is the public page and /terminal/replay/ the public
+// recording: neither is the app, both go straight to the network.
+const VERSION = "shell-v4";
 const SHELL_TIMEOUT_MS = 3500;
-const SHELL = ["/terminal/", "/terminal/i18n.js", "/terminal/provenance.js", "/terminal/qmath.js", "/terminal/vendor/lightweight-charts.js", "/terminal/manifest.webmanifest", "/terminal/app/icon-180.png", "/terminal/app/icon-192.png"];
+const SHELL = ["/terminal/desk/", "/terminal/i18n.js", "/terminal/provenance.js", "/terminal/qmath.js", "/terminal/vendor/lightweight-charts.js", "/terminal/manifest.webmanifest", "/terminal/app/icon-180.png", "/terminal/app/icon-192.png"];
 
-const isShell = (url) => url.origin === self.location.origin && url.pathname.startsWith("/terminal/") && !url.pathname.startsWith("/terminal/sw.js");
+const isShell = (url) => url.origin === self.location.origin && url.pathname.startsWith("/terminal/") && !url.pathname.startsWith("/terminal/sw.js") && url.pathname !== "/terminal/" && !url.pathname.startsWith("/terminal/replay/");
 const cacheable = (r) => !!(r && r.ok && r.type === "basic" && !r.redirected);
 
 self.addEventListener("install", (event) => {
@@ -37,7 +39,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (!isShell(url)) return; // /api/* and every other origin: straight to the network, never cached
   // a navigation is keyed on the page itself (query strings ignored): one copy of the interface
-  const key = req.mode === "navigate" ? "/terminal/" : url.origin + url.pathname;
+  if (req.mode === "navigate" && !url.pathname.startsWith("/terminal/desk")) return; // only the terminal's own page is kept
+  const key = req.mode === "navigate" ? "/terminal/desk/" : url.origin + url.pathname;
   event.respondWith(networkFirst(req, key));
 });
 
