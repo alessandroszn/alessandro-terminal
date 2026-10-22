@@ -5,18 +5,25 @@
 import { app as worker } from "../src/worker.mjs";
 import { stateFromIndices, handleExchanges } from "../src/exchanges.mjs";
 import { nqWorldEvents, handleCalendar } from "../src/calendar.mjs";
-import { finnhubRec, avTarget, avError, avQuoteRec, avFxRec, avDailyPoints, alpacaPoints, cnbcAnyCode, backupDaily, cnbcDailyB, avQuote, AV_DAILY_MAX, BACKUP_ERRORS, avIdOfCnbc, keptCopy } from "../src/backup.mjs";
+import { finnhubRec, avTarget, avError, avQuoteRec, avFxRec, avDailyPoints, alpacaPoints, cnbcAnyCode, backupDaily, cnbcDailyB, avQuote, AV_DAILY_MAX, BACKUP_ERRORS, avIdOfCnbc, keptCopy, AV_PACE, avMessage } from "../src/backup.mjs";
 import { mapLimit, siteHeaders } from "../src/lib.mjs";
 import { barsBlocked, noteBarsRefused, noteBarsOk, cnbcDaily } from "../src/cnbc.mjs";
 
 let pass = 0, fail = 0;
+AV_PACE.ms = 0; // no 1.2 s spacing between Alpha Vantage requests in the tests (tested on its own below)
 const ok = (l, c, x = "") => { console.log(`${c ? "PASS" : "FAIL"}  ${l}${c ? "" : "  " + x}`); c ? pass++ : fail++; };
 
 // ---------- parsers and mappings ----------
 ok("CNBC codes for a backup: AAPL, EUR/USD → EUR=, USD/JPY → JPY=, BTC/USD → BTC.CM=, XAU/USD → XAU=, ISP:XMIL → ISP-IT", cnbcAnyCode("AAPL") === "AAPL" && cnbcAnyCode("EUR/USD") === "EUR=" && cnbcAnyCode("USD/JPY") === "JPY=" && cnbcAnyCode("BTC/USD") === "BTC.CM=" && cnbcAnyCode("XAU/USD") === "XAU=" && cnbcAnyCode("ISP:XMIL") === "ISP-IT" && cnbcAnyCode("IDX:SPX") === null);
 ok("Finnhub quote: c / d / dp / pc / t; an unknown symbol answers zeros → nothing", finnhubRec("AAPL", { c: 251.2, d: 1.2, dp: 0.48, h: 252, l: 249, o: 250, pc: 250, t: 1792000000 }).price === 251.2 && finnhubRec("ZZZ", { c: 0, d: null, dp: null, h: 0, l: 0, o: 0, pc: 0, t: 0 }) === null);
 ok("Alpha Vantage ids: U.S. as is, Xetra .DEX, London .LON, FX from/to; Milan not offered", avTarget("AAPL").symbol === "AAPL" && avTarget("SAP:XETR").symbol === "SAP.DEX" && avTarget("VOD:XLON").symbol === "VOD.LON" && avTarget("EUR/USD").fx && avTarget("ISP:XMIL") === null);
-ok("Alpha Vantage refusals: Information / Note → rate_limited; premium → plan_required; Error Message → symbol_not_found", avError({ Information: "Our standard API rate limit is 25 requests per day." }) === "rate_limited" && avError({ Information: "This is a premium endpoint." }) === "plan_required" && avError({ "Error Message": "Invalid API call." }) === "symbol_not_found" && avError({ "Global Quote": {} }) === null);
+ok("Alpha Vantage's real refusal texts: the daily limit (it mentions premium plans) → daily_limit, a burst → rate_limited, a premium endpoint → plan_required, a bad key → provider_auth; its words kept, the key masked",
+  avError({ Information: "We have detected your API key as KEY123 and our standard API rate limit is 25 requests per day. Please subscribe to any of the premium plans at https://www.alphavantage.co/premium/ to instantly remove all daily rate limits." }) === "daily_limit"
+  && avError({ Information: "Thank you for using Alpha Vantage! Please consider spreading out your free API requests more sparingly (1 request per second). You may subscribe to any of the premium plans at https://www.alphavantage.co/premium/ to lift the free key rate limit (25 requests per day), raise the per-second burst limit, and instantly access all premium endpoints" }) !== "plan_required"
+  && avError({ Information: "Thank you for using Alpha Vantage! This is a premium endpoint. You may subscribe to any of the premium plans at https://www.alphavantage.co/premium/ to instantly unlock all premium endpoints" }) === "plan_required"
+  && avError({ Information: "the parameter apikey is invalid or missing. Please claim your free API key on (https://www.alphavantage.co/support/#api-key)." }) === "provider_auth"
+  && avMessage({ Information: "We have detected your API key as KEY123 and ..." }, "KEY123") === "We have detected your API key as *** and ...");
+ok("Alpha Vantage refusals: the 25-a-day limit → daily_limit; premium → plan_required; Error Message → symbol_not_found", avError({ Information: "Our standard API rate limit is 25 requests per day." }) === "daily_limit" && avError({ Information: "This is a premium endpoint." }) === "plan_required" && avError({ "Error Message": "Invalid API call." }) === "symbol_not_found" && avError({ "Global Quote": {} }) === null);
 const GQ = { "Global Quote": { "01. symbol": "AAPL", "02. open": "250.00", "03. high": "252.00", "04. low": "249.00", "05. price": "251.10", "06. volume": "1000", "07. latest trading day": "2026-10-21", "08. previous close": "250.00", "09. change": "1.10", "10. change percent": "0.44%" } };
 ok("Alpha Vantage quote: the last session's price and date (no time)", avQuoteRec("AAPL", GQ).price === 251.1 && avQuoteRec("AAPL", GQ).changePct === 0.44 && avQuoteRec("AAPL", GQ).dateOnly === "2026-10-21" && avQuoteRec("AAPL", { "Global Quote": {} }) === null);
 ok("Alpha Vantage FX: the rate and its UTC time", avFxRec("EUR/USD", { "Realtime Currency Exchange Rate": { "3. To_Currency Code": "USD", "5. Exchange Rate": "1.16100000", "6. Last Refreshed": "2026-10-22 12:00:01", "7. Time Zone": "UTC" } }).asOf === "2026-10-22T12:00:01.000Z");

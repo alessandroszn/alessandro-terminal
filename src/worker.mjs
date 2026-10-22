@@ -716,8 +716,8 @@ export const app = {
     if (url.pathname === "/api/status" && url.searchParams.get("test") === "alphavantage") {
       const o = { origin: url.origin, ctx, now: Date.now() }, [q, d] = [await avQuote(env, "VWCE:XETR", o), await avDaily(env, "VWCE:XETR", o)];
       const body = { configured: !!env.ALPHAVANTAGE_KEY, symbol: "VWCE.DEX",
-        quote: q.rec ? { ok: true, price: q.rec.price, currency: q.rec.currency || null, date: q.rec.dateOnly || q.rec.asOf || null } : { ok: false, error: q.err },
-        daily: d.data ? { ok: true, sessions: d.data.length, first: d.data[0].t, last: d.data[d.data.length - 1].t, lastClose: d.data[d.data.length - 1].c } : { ok: false, error: d.err },
+        quote: q.rec ? { ok: true, price: q.rec.price, currency: q.rec.currency || null, date: q.rec.dateOnly || q.rec.asOf || null } : { ok: false, error: q.err, ...(q.detail ? { said: q.detail } : {}) },
+        daily: d.data ? { ok: true, sessions: d.data.length, first: d.data[0].t, last: d.data[d.data.length - 1].t, lastClose: d.data[d.data.length - 1].c } : { ok: false, error: d.err, ...(d.detail ? { said: d.detail } : {}) },
         note: "Alpha Vantage: 25 requests a day (counted); this check used up to 2" };
       const r = json(body, H, 200); r.headers.set("cache-control", "no-store"); return r;
     }

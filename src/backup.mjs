@@ -59,12 +59,20 @@ export function avTarget(id) {
 }
 export const avUrl = (params, key) => `${AV_BASE}?${new URLSearchParams({ ...params, apikey: key })}`;
 // a refusal comes as a JSON message: "Information" / "Note" (the daily or per-minute limit), "Error Message" (unknown symbol)
+// (the rate-limit messages also mention "premium plans": only "premium endpoint" means the call itself needs a paid plan)
 export function avError(j) {
   if (!j || typeof j !== "object") return "provider_error";
   if (j["Error Message"]) return "symbol_not_found";
-  if (j.Information || j.Note) return /premium/i.test(String(j.Information || j.Note)) ? "plan_required" : "rate_limited";
-  return null;
+  const m = String(j.Information || j.Note || "");
+  if (!m) return null;
+  if (/request per second|spreading out|burst/i.test(m)) return "rate_limited";
+  if (/requests per day|daily rate limit/i.test(m)) return "daily_limit";
+  if (/premium endpoint|premium feature|only available (on|with|to) premium/i.test(m)) return "plan_required";
+  if (/api ?key|apikey/i.test(m) && /invalid|missing|not (valid|recogni)/i.test(m)) return "provider_auth";
+  return "rate_limited";
 }
+// Alpha Vantage's own words when it refuses (they never hold the key; any copy of it is masked all the same)
+export const avMessage = (j, key) => { const m = j && typeof j === "object" ? String(j.Information || j.Note || j["Error Message"] || "") : ""; return (key ? m.split(key).join("***") : m).slice(0, 400); };
 export function avQuoteRec(id, j) {
   const g = j && j["Global Quote"]; if (!g || !Object.keys(g).length) return null;
   const price = num(g["05. price"]), day = String(g["07. latest trading day"] || "");
@@ -84,20 +92,29 @@ async function avBudget(origin, ctx, now) {
   if (c.n >= AV_DAILY_MAX) return false;
   await cacheWrite(origin, k, { n: c.n + 1 }, ctx, DAY / 1000); return true;
 }
+// the free key also refuses bursts ("1 request per second"): requests from this Worker instance are spaced 1.2 s apart
+let avNextAt = 0;
+export const AV_PACE = { ms: 1200 }; // tests set 0
+async function avPace(fetchImpl) { if (fetchImpl || !AV_PACE.ms) return; const now = Date.now(), wait = Math.max(0, avNextAt - now); avNextAt = Math.max(now, avNextAt) + AV_PACE.ms; if (wait) await new Promise((res) => setTimeout(res, wait)); }
 async function avGet(env, params, { origin, ctx, now = Date.now(), fetchImpl } = {}) {
   const key = env && env.ALPHAVANTAGE_KEY; if (!key) return { err: "not_configured" };
   if (origin && !(await avBudget(origin, ctx, now))) return { err: "daily_limit" };
+  await avPace(fetchImpl);
   const u = avUrl(params, key);
   const f = fetchImpl ? await fetchImpl(u) : await fetchText(u, { timeoutMs: 10000, headers: { accept: "application/json" } });
   if (f.err) return { err: f.err === "provider_error" && f.http ? "provider_error" : f.err }; // never the URL: it holds the key
   let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
-  const e = avError(j); return e && !j["Global Quote"] && !j["Realtime Currency Exchange Rate"] && !j["Time Series (Daily)"] ? { err: e } : { json: j };
+  const e = avError(j);
+  if (!e || j["Global Quote"] || j["Realtime Currency Exchange Rate"] || j["Time Series (Daily)"]) return { json: j };
+  // Alpha Vantage says the day's 25 are used: no more requests today from here
+  if (e === "daily_limit" && origin) await cacheWrite(origin, `av/count/${new Date(now).toISOString().slice(0, 10)}`, { n: AV_DAILY_MAX }, ctx, DAY / 1000);
+  return { err: e, detail: avMessage(j, key) };
 }
 export async function avQuote(env, id, opts = {}) {
   const t = avTarget(id); if (!t) return { err: "not_supported" };
   const r = await avGet(env, t.fx ? { function: "CURRENCY_EXCHANGE_RATE", from_currency: t.from, to_currency: t.to } : { function: "GLOBAL_QUOTE", symbol: t.symbol }, opts);
   if (r.err) return r;
-  const rec = t.fx ? avFxRec(id, r.json) : avQuoteRec(id, r.json); return rec ? { rec } : { err: "no_data" };
+  const rec = t.fx ? avFxRec(id, r.json) : avQuoteRec(id, r.json); return rec ? { rec } : { err: "no_data", detail: avMessage(r.json, env && env.ALPHAVANTAGE_KEY) || "no Global Quote in the answer" };
 }
 // daily bars (free: the last 100 sessions) → [{ t, o, h, l, c, v }] oldest first
 export function avDailyPoints(j) {
