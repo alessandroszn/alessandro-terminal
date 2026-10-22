@@ -88,7 +88,7 @@ export async function loadCnbcRaw(codes, fetchImpl) {
 
 // ---------- history: CNBC bars in the History contract ----------
 const DAY = 86400_000;
-const START = { "1W": 7, "1M": 31, "3M": 92, "6M": 183, "1Y": 366, "5Y": 1827, "10Y": 3653, MAX: 13000 };
+export const START = { "1W": 7, "1M": 31, "3M": 92, "6M": 183, "1Y": 366, "5Y": 1827, "10Y": 3653, MAX: 13000 };
 // CNBC bars → [{ t, o, h, l, c, v }]; daily bars carry CNBC's date (tradeTime YYYYMMDD), intraday bars their start instant (UTC)
 export function cnbcBarsPoints(j, intraday) {
   const bars = j && j.barData && Array.isArray(j.barData.priceBars) ? j.barData.priceBars : [], out = [], seen = new Set();

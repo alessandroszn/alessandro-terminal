@@ -373,9 +373,23 @@ async function indexRow(url, env, ctx, ix, now, cq) {
   return { ...base(ix), ...c, kind: "close", source: s, sourceUrl: su, status: stale(r) || tooOld(c.date, now) ? "STALE" : "LIVE", fetchedAt: iso(r.fetchedAt) };
 }
 
-export async function getIndexGroup(url, env, ctx, g, now = Date.now()) {
+// the same index on CNBC (checked against CNBC on 20 Oct 2026, the alerts' symbols): the backup of an official source
+export const INDEX_CNBC = { SPX: ".SPX", NDX: ".NDX", DJI: ".DJI", RUT: ".RUT", VIX: ".VIX", VXN: ".VXN", OVX: ".OVX", GVZ: ".GVZ", SX5E: ".STOXX50E", SXXP: ".STOXX",
+  DAX: ".GDAXI", TDXP: ".TECDAX", SMI: ".SSMI", IBEX: ".IBEX", N225: ".N225", XJO: ".AXJO", SHCOMP: ".SSEC", IBOV: ".BVSP" };
+export async function getIndexGroup(url, env, ctx, g, now = Date.now(), deps = {}) {
   const list = INDICES.filter((x) => x.g === g), cq = list.some((x) => x.src === "cnbc") ? await cnbcGroup(url, ctx, g) : null;
-  return Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now, cq)));
+  const rows = await Promise.all(list.map((ix) => indexRow(url, env, ctx, ix, now, cq)));
+  // backup (22 Oct 2026): an index whose source gave nothing → the same index on CNBC, said as such
+  const miss = rows.map((r, i) => [r, list[i]]).filter(([r, ix]) => r.status === "N/A" && ix.src !== "cnbc" && INDEX_CNBC[ix.id]);
+  if (miss.length) {
+    const q = await (deps.loadQuotes || loadCnbcQuotes)(miss.map(([, ix]) => INDEX_CNBC[ix.id])).catch(() => ({ err: "provider_error" }));
+    for (const [r, ix] of miss) {
+      const c = q.data && cnbcIndexRow(q.data[INDEX_CNBC[ix.id]]); if (!c) continue;
+      rows[rows.indexOf(r)] = { ...base(ix), ...c, kind: "delayed", delayMin: null, source: `${SRC.cnbc.name}${c.venue ? ` · ${c.venue}` : ""} — BACKUP (${r.source}: ${r.error})`, sourceUrl: SRC.cnbc.url,
+        backupFor: r.source, primaryError: r.error, status: tooOld(c.date, now) ? "STALE" : "LIVE", fetchedAt: iso(now) };
+    }
+  }
+  return rows;
 }
 
 export async function getIndexHistory(url, env, ctx, ix) {

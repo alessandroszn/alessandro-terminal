@@ -10,6 +10,7 @@
 //                without a close, an FX rate or a factor is left out.
 import { fetchBinary, unzipEntry, zipNames, iso } from "./lib.mjs";
 import { cnbcDaily } from "./cnbc.mjs";
+import { cnbcDailyB } from "./backup.mjs";
 import { loadCnbcRaw, isCnbcId, cnbcCodeFor, cnbcForeignFallback } from "./intl.mjs";
 import { isinValid } from "./isin.mjs";
 import { UCITS_ETFS, lineOf } from "./ucits.mjs";
@@ -211,7 +212,7 @@ export async function handleFactors(url, env, ctx, H, json, deps = {}) {
   const fWin = fr.filter((r) => r[0] >= firstM && r[0] <= lastF);
   // CNBC daily bars over the window (and a month before it), the FX bars when a listing is not in USD
   const days = years === 10 ? 3720 : 1900, ok = targets.filter((t) => !t.error), needFx = ok.some((t) => t.ccy !== "USD");
-  const daily = deps.daily || ((code) => cnbcDaily(url.origin, ctx, code, days, now));
+  const daily = deps.daily || ((code) => cnbcDailyB(url.origin, ctx, code, days, now));
   const [bars, fxRes] = await Promise.all([Promise.all(ok.map((t) => daily(t.cnbc))), needFx ? Promise.all(FX_CODES.map((c) => daily(c))) : []]);
   const fxRows = {}; FX_CODES.forEach((c, i) => { if (fxRes[i] && fxRes[i].data) fxRows[c] = fxRes[i].data; });
   ok.forEach((t, i) => {
@@ -219,13 +220,13 @@ export async function handleFactors(url, env, ctx, H, json, deps = {}) {
     if (t.ccy !== "USD" && !(t.ccy === "EUR" ? fxRows["EUR="] : t.ccy === "GBP" ? fxRows["GBP="] : fxRows["CHF="])) { t.error = "fx_unavailable"; return; }
     const s = monthlyUsd(b.data, t.ccy, t.pence, fxRows), keep = s.months.map((m, j) => [m, s.r[j]]).filter(([m]) => m >= firstM && m <= lastF);
     t.months = keep.map((x) => x[0]); t.r = keep.map((x) => x[1]); t.firstBar = b.data[0][0]; t.lastBar = b.data[b.data.length - 1][0];
-    t.barsStatus = b.cache === "STALE" ? "STALE" : "LIVE";
+    t.barsStatus = b.cache === "STALE" ? "STALE" : "LIVE"; if (b.backupFor) t.backup = { source: b.source, for: b.backupFor, reason: b.primaryError };
   });
   return send({
     region, regionName: FF_REGIONS[region].name, regionAbout: FF_REGIONS[region].about, auto, years,
     factors: { source: FF_SOURCE, sourceUrl: FF_PAGE, files: F.data.files, cols: FF_COLS, rows: fWin, asOf: lastF, fetchedAt: iso(F.data.fetchedAt), status: F.status, ...(F.staleReason ? { staleReason: F.staleReason } : {}), units: "monthly returns, decimal (the library publishes %), in USD" },
     items: targets.map((t) => ({ id: t.id, weight: t.weight, isin: t.isin || null, name: t.name || null, cnbc: t.cnbc || null, venue: t.venue || null, ticker: t.ticker || null, ccy: t.ccy || null,
-      conv: t.ccy && t.ccy !== "USD" ? { from: t.ccy, to: "USD", via: "CNBC FX" } : null, ...(t.error ? { error: t.error } : { months: t.months, r: t.r, firstBar: t.firstBar, lastBar: t.lastBar, status: t.barsStatus }) })),
+      conv: t.ccy && t.ccy !== "USD" ? { from: t.ccy, to: "USD", via: "CNBC FX" } : null, ...(t.error ? { error: t.error } : { months: t.months, r: t.r, firstBar: t.firstBar, lastBar: t.lastBar, status: t.barsStatus, ...(t.backup ? { backup: t.backup } : {}) }) })),
     basis: "month-end = the last CNBC daily bar dated in the month; USD at CNBC's FX close of that day; returns of consecutive months only",
     meta: { generatedAt: iso(now) },
   });

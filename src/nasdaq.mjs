@@ -36,7 +36,7 @@ export function parseNqCalendar(j, date) {
   }).filter((r) => r.event && r.country);
 }
 const DAY = 86400_000;
-async function calDay(origin, ctx, date, now) {
+export async function calDay(origin, ctx, date, now) {
   const past = Date.parse(date + "T23:59:59Z") < now - DAY;
   return cachedSource({ origin, key: `nq/cal/${date}`, ttlMs: past ? 12 * 3600_000 : 10 * 60_000, staleMaxMs: 7 * DAY, failTtlMs: 5 * 60_000, ctx, load: async () => {
     const f = await fetchText(NQ_CAL(date), { timeoutMs: 12000, headers: NQ_HEADERS });

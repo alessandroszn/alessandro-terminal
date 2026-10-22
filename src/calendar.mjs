@@ -8,6 +8,7 @@
 // Actual / previous need the FRED API (free key, not configured yet) → N/A.
 // Forecast (consensus) and importance have no free licensed source → N/A. Nothing is estimated.
 import { fetchText, cachedSource, cacheRead, cacheWrite, iso, easternToUtc } from "./lib.mjs";
+import { calDay, NQ_PAGE } from "./nasdaq.mjs";
 
 export const FF_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 export const FF_PAGE = "https://www.forexfactory.com/calendar";
@@ -156,10 +157,42 @@ export async function archivedFF(env, now = Date.now(), maxAgeMs = 3 * 86400_000
 }
 const prevWeek = (wk) => { const d = new Date(wk + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); };
 export const BACK_DAYS = 4;
+// ---------- backup of the world calendar (22 Oct 2026): Forex Factory not answering and no copy of this week's export in
+// the cache or the archive → the Nasdaq economic calendar of the week (approved): its actual, consensus and previous;
+// it rates no importance (impact N/A, said), and only the countries of the Forex Factory currencies are kept
+export const NQ_CCY = { "United States": "USD", "Euro Zone": "EUR", Germany: "EUR", France: "EUR", Italy: "EUR", Spain: "EUR", "United Kingdom": "GBP", Japan: "JPY", Switzerland: "CHF", Canada: "CAD", Australia: "AUD", "New Zealand": "NZD", China: "CNY" };
+export function nqWorldEvents(rows, now = Date.now()) {
+  const out = [], seen = new Set();
+  for (const r of rows || []) {
+    const ccy = NQ_CCY[r.country], t = Date.parse(r.at); if (!ccy || !Number.isFinite(t) || !r.event) continue;
+    const k = `${r.country}|${r.event}|${t}`; if (seen.has(k)) continue; seen.add(k);
+    const et = new Date(t).toLocaleString("en-CA", { timeZone: "America/New_York", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }), mm = /(\d{4}-\d{2}-\d{2}),?\s*(\d{2}):(\d{2})/.exec(et);
+    out.push({ id: `NQ-${k}`, datetime: new Date(t).toISOString(), dateET: mm ? mm[1] : null, timeET: mm ? `${mm[2] === "24" ? "00" : mm[2]}:${mm[3]}` : null,
+      currency: ccy, country: ccy, region: ccy === "EUR" && r.country !== "Euro Zone" ? r.country : REGIONS[ccy] || r.country, indicator: r.event, impact: null, released: t <= now,
+      actual: val(r.actual, "not published yet"), forecast: val(r.consensus, "no consensus published"), previous: val(r.previous, "no previous value published"),
+      source: "NQ", sourceName: "Nasdaq economic calendar (backup)", sourceUrl: NQ_PAGE.calendar });
+  }
+  return out.sort((a, b) => (a.datetime < b.datetime ? -1 : a.datetime > b.datetime ? 1 : 0));
+}
+async function worldBackup(origin, ctx, env, now, deps = {}) {
+  const a = await (deps.archived || archivedFF)(env, now);
+  if (a) return { kind: "archive", events: normalizeFF(a.raw, now), at: a.at, week: a.week };
+  const wk = ffWeekOf(now), days = [...Array(7)].map((_, i) => { const d = new Date(wk + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + i); return d.toISOString().slice(0, 10); });
+  const res = await Promise.all(days.map((d) => (deps.calDay || calDay)(origin, ctx, d, now)));
+  const rows = res.flatMap((r) => r.data || []); if (!rows.length) return null;
+  return { kind: "nasdaq", events: nqWorldEvents(rows, now), stale: res.some((r) => r.cache === "STALE") };
+}
 
-export async function handleCalendar(url, env, ctx, H, json) {
+export async function handleCalendar(url, env, ctx, H, json, deps = {}) {
   const now = Date.now();
-  const [{ events, sources, errors, cache }, world] = await Promise.all([getCalendar(url.origin, ctx, now), getWorldCalendar(url.origin, ctx, now)]);
+  const [{ events, sources, errors, cache }, world] = await Promise.all([getCalendar(url.origin, ctx, now), (deps.world || getWorldCalendar)(url.origin, ctx, now)]);
+  let backup = null;
+  if (!world.data) {
+    backup = await worldBackup(url.origin, ctx, env, now, deps);
+    if (backup && backup.kind === "archive") sources.unshift({ id: "FF", name: "Forex Factory (weekly export) — the copy archived when last fetched", url: FF_PAGE, status: "STALE", fetchedAt: iso(backup.at), staleReason: world.err });
+    if (backup && backup.kind === "nasdaq") sources.unshift({ id: "NQ", name: "Nasdaq economic calendar — backup (Forex Factory: " + world.err + ")", url: NQ_PAGE.calendar, status: backup.stale ? "STALE" : "LIVE", fetchedAt: iso(now), backupFor: "FF", primaryError: world.err });
+    if (backup) world.events = backup.events;
+  }
   if (world.data) sources.unshift({ id: "FF", name: "Forex Factory (weekly export)", url: FF_PAGE, status: world.cache === "STALE" ? "STALE" : "LIVE", fetchedAt: iso(world.fetchedAt), ...(world.staleReason ? { staleReason: world.staleReason } : {}) });
   else errors.FF = { error: world.err, status: "N/A" };
   // keep every fresh export; add the last days of the previous week from the archive
@@ -171,7 +204,7 @@ export async function handleCalendar(url, env, ctx, H, json) {
       try { const t = await env.BRIEFS.get(`cal/ff/${prevWeek(wk)}`); if (t) past = normalizeFF(JSON.parse(t), now).filter((e) => Date.parse(e.datetime) >= now - BACK_DAYS * 86400_000).map((e) => ({ ...e, archived: true })); } catch { /* no archive yet */ }
     }
   }
-  const r = json({ world: [...past, ...world.events], backDays: BACK_DAYS, events, sources, errors, fields: { actual: "N/A — not in the Forex Factory export; US: FRED key not configured", forecast: "Forex Factory (world); N/A for the US official schedules", impact: "Forex Factory (High / Medium / Low / Holiday)", reaction: "price move after the scheduled time, from 1-minute data (Twelve Data FX, Alpaca SPY/TLT) — DERIVED" }, meta: { generatedAt: iso(now) } }, H, sources.length ? 200 : 502);
+  const r = json({ world: [...past, ...world.events], backDays: BACK_DAYS, events, sources, errors, fields: { actual: "N/A — not in the Forex Factory export; US: FRED key not configured", forecast: "Forex Factory (world); N/A for the US official schedules", impact: backup && backup.kind === "nasdaq" ? "N/A — the Nasdaq calendar (backup) rates no importance" : "Forex Factory (High / Medium / Low / Holiday)", reaction: "price move after the scheduled time, from 1-minute data (Twelve Data FX, Alpaca SPY/TLT) — DERIVED" }, worldBackup: backup ? { kind: backup.kind, primaryError: world.err } : null, meta: { generatedAt: iso(now) } }, H, sources.length ? 200 : 502);
   r.headers.set("cache-control", "no-store");
   return r;
 }

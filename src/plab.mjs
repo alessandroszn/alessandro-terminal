@@ -16,7 +16,7 @@
 // and prices the bond each day (qmath.js bondHistory: the curve at the remaining maturity plus a constant spread set by
 // today's price, coupons reinvested) — an ESTIMATE, labelled as such, never shown as a market price.
 import { iso } from "./lib.mjs";
-import { cnbcDaily } from "./cnbc.mjs";
+import { cnbcDailyB } from "./backup.mjs";
 import { loadCnbcRaw, cnbcForeignFallback } from "./intl.mjs";
 import { isinValid } from "./isin.mjs";
 import { factorTarget, uniMaps, valuesOn, usdPer, offListTarget } from "./factors.mjs";
@@ -109,7 +109,9 @@ async function bondAnswer(url, env, ctx, id, isin, now, deps) {
 export async function handlePlab(url, env, ctx, H, json, deps = {}) {
   const send = (b, st = 200) => { const r = json(b, H, st); r.headers.set("cache-control", "no-store"); return r; };
   if (!env.BRIEFS) return send({ error: "not_configured", status: "N/A" }, 503);
-  const now = deps.now || Date.now(), daily0 = deps.daily || ((code) => cnbcDaily(url.origin, ctx, code, PLAB_DAYS, now));
+  const now = deps.now || Date.now(), daily0 = deps.daily || ((code) => cnbcDailyB(url.origin, ctx, code, PLAB_DAYS, now));
+  // a value from a backup (CNBC gave nothing): which provider, and why
+  const bkOf = (list) => list.filter((x) => x && x.backupFor).map((x) => ({ source: x.source, for: x.backupFor, reason: x.primaryError }));
   if (url.pathname === "/api/plab/curve") {
     const cc = String(url.searchParams.get("cc") || "").toUpperCase(), tenor = String(url.searchParams.get("tenor") || "").toUpperCase();
     if (!MKT_TENORS[cc] || !MKT_TENORS[cc].includes(tenor)) return send({ error: "bad_request", message: "cc and tenor: a country and a maturity CNBC quotes (see /api/yields/market)" }, 400);
@@ -127,7 +129,8 @@ export async function handlePlab(url, env, ctx, H, json, deps = {}) {
     if (need.some((c) => !fx[c])) return send({ from, to: to2, error: "fx_unavailable", status: "N/A" }, 502);
     const rows = toCcy(fx[need[0]].map(([d]) => [d, 1]), from, false, fx, to2);
     if (rows.length < 2) return send({ from, to: to2, error: "no_data", status: "N/A" }, 502);
-    return send({ from, to: to2, d: rows.map((x) => x[0]), v: rows.map((x) => sig(x[1])), first: rows[0][0], last: rows[rows.length - 1][0], status: res.some((x) => x && x.cache === "STALE") ? "STALE" : "LIVE", source: "CNBC FX daily closes", basis: `the value of 1 ${from} in ${to2} (DERIVED from CNBC's EUR=, GBP=, CHF=)` });
+    const bk = bkOf(res);
+    return send({ from, to: to2, d: rows.map((x) => x[0]), v: rows.map((x) => sig(x[1])), first: rows[0][0], last: rows[rows.length - 1][0], status: res.some((x) => x && x.cache === "STALE") ? "STALE" : "LIVE", source: bk.length ? `CNBC FX daily closes; backup: ${bk.map((x) => x.source).join(", ")}` : "CNBC FX daily closes", backups: bk.length ? bk : undefined, basis: `the value of 1 ${from} in ${to2} (DERIVED from CNBC's EUR=, GBP=, CHF=${bk.length ? "; FRED's H.10 rates where CNBC gave nothing" : ""})` });
   }
   if (url.pathname !== "/api/plab/series") return send({ error: "not found" }, 404);
   const id = String(url.searchParams.get("id") || "").trim().toUpperCase(), to = String(url.searchParams.get("ccy") || "EUR").toUpperCase();
@@ -160,7 +163,7 @@ export async function handlePlab(url, env, ctx, H, json, deps = {}) {
     id, isin: t.isin || null, name: t.name || null, cnbc: t.cnbc, venue: t.venue || null, ticker: t.ticker || null, ccy: t.ccy, pence: !!t.pence,
     to, conv: t.ccy !== to ? { from: t.ccy, to, via: "CNBC FX" } : null, us: !!t.us, offList: !!t.offList,
     first: rows[0][0], last: rows[rows.length - 1][0], d: rows.map((x) => x[0]), v: rows.map((x) => sig(x[1])),
-    status: b.cache === "STALE" || fxr.some((x) => x && x.cache === "STALE") ? "STALE" : "LIVE", source: "CNBC daily bars", fetchedAt: iso(b.fetchedAt || now),
+    status: b.cache === "STALE" || fxr.some((x) => x && x.cache === "STALE") ? "STALE" : "LIVE", source: b.backupFor ? `${b.source} daily bars (backup: CNBC ${b.primaryError})` : "CNBC daily bars", backups: bkOf([b, ...fxr]).length ? bkOf([b, ...fxr]) : undefined, fetchedAt: iso(b.fetchedAt || now),
     ref: ref ? { ter: ref.ter, distribution: ref.distribution, focus: ref.focus, day: ref.day, source: "justETF" } : null,
     basis: "CNBC daily closes of the listing (the fund's own line in the currency where it has one), converted at CNBC's FX close of the same day where the listing is in another currency (DERIVED); price returns as CNBC adjusts its bars",
   });

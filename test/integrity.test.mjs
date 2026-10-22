@@ -159,7 +159,7 @@ const t0 = realNow();
 r = await call("/api/quote?symbols=AAPL");
 const took = realNow() - t0;
 ok("[12 timeout] hung provider -> 504 provider_timeout", r.res.status === 504 && r.body.errors.AAPL.error === "provider_timeout", `${r.res.status} ${r.text}`);
-ok("[12 timeout] aborted after ~8 s (not hanging)", took >= 7500 && took < 10000, `${took} ms`);
+ok("[12 timeout] aborted after ~8 s, then one backup (CNBC) waited 5 s at most — never hanging", took >= 7500 && took < 14500, `${took} ms`);
 ok("[12 timeout] no value returned", Object.keys(r.body.quotes).length === 0);
 
 // =============== 13. invalid ticker ===============

@@ -122,9 +122,9 @@ r = await call("?range=6M");
 ok("missing symbol -> 400", r.status === 400 && (await r.json()).error === "bad_request");
 mode = "hang";
 const t0 = Date.now(); r = await call("?symbol=NVDA&range=1M");
-ok("timeout -> 504 within ~8s", r.status === 504 && Date.now() - t0 < 9500, `${r.status} ${Date.now() - t0}ms`);
+ok("timeout -> 504 after ~8 s and one backup (CNBC, 5 s at most) — never hanging", r.status === 504 && Date.now() - t0 < 14500, `${r.status} ${Date.now() - t0}ms`);
 const noKey = await worker.fetch(new Request("https://x/api/history?symbol=AAPL"), {}, ctx);
-ok("no secret -> 500 explicit", noKey.status === 500);
+ok("no Twelve Data key → the backups are tried; none answering → 500 not_configured, said", noKey.status === 500 && (await noKey.json()).error === "not_configured");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

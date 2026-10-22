@@ -218,7 +218,9 @@ export function sourcesStatus(env) {
   return [
     { id: "twelvedata", name: "Twelve Data", use: "quotes, intraday and daily history, market state", configured: !!env.TWELVEDATA_KEY },
     { id: "alpaca", name: "Alpaca", use: "U.S. consolidated daily bars, trades, crypto, options (indicative)", configured: !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY) },
-    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN)", configured: !!finnhubKey(env) },
+    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN); backup quotes of U.S. stocks when Twelve Data and CNBC do not answer", configured: !!finnhubKey(env) },
+    { id: "alphavantage", name: "Alpha Vantage", use: "last backup for quotes and the last 100 daily bars (U.S., Xetra, London, Toronto, FX) when Twelve Data, CNBC, Finnhub and Alpaca do not answer (approved 22 Oct 2026)", configured: !!env.ALPHAVANTAGE_KEY, note: env.ALPHAVANTAGE_KEY ? "free key: 25 requests a day, counted by the Worker" : "not set: add the Secret ALPHAVANTAGE_KEY (free key from alphavantage.co)" },
+    { id: "stooq", name: "Stooq", use: "approved 22 Oct 2026 as a history backup — not used", configured: false, note: "since mid-2026 its downloads sit behind a JavaScript check (keys included), which also says automated access is not wanted" },
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and weekly inventories (CMDTY)", configured: !!env.EIA_KEY },
     { id: "openfigi", name: "OpenFIGI", use: "ISIN → listings in symbol search (SRCH)", configured: true, note: env.OPENFIGI_KEY ? "free key set: higher limit" : "no key needed (25 searches a minute; OPENFIGI_KEY optional)" },
     { id: "justetf", name: "justETF", use: "ETF reference data: TER, size, distribution, replication, provider, focus, top holdings, countries, sectors (UCITS, EFS, EFP, EXPO) — never prices", configured: !!env.BRIEFS, note: "no key; one profile page every 5 minutes by the cron (your funds first, weekly; the whole Xetra list ≈ every 10 days); a profile opened is read then" },

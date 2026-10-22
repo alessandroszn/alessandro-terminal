@@ -23,7 +23,7 @@
 // plus one heartbeat an hour.
 import { iso, fetchText } from "./lib.mjs";
 import { loadCnbcQuotes, FUTURES } from "./cnbc.mjs";
-import { INDICES } from "./indices.mjs";
+import { INDICES, INDEX_CNBC } from "./indices.mjs";
 import { NQ_CAL, NQ_HEADERS, parseNqCalendar } from "./nasdaq.mjs";
 import { cnbcCodeFor } from "./intl.mjs";
 import { computeDrift, loadDriftInputs } from "./drift.mjs";
@@ -43,8 +43,7 @@ const FX_CCY = new Set([...FX_USD_QUOTE, ...FX_USD_BASE]);
 const CRYPTO = new Set(["BTC", "ETH", "SOL", "XRP", "LTC", "DOGE", "ADA", "BCH"]);
 const METALS = new Set(["XAU", "XAG", "XPT", "XPD"]);
 // indices: the IDX catalog's CNBC rows, and the others CNBC also quotes
-export const IDX_CNBC = { SPX: ".SPX", NDX: ".NDX", DJI: ".DJI", RUT: ".RUT", VIX: ".VIX", VXN: ".VXN", OVX: ".OVX", GVZ: ".GVZ", SX5E: ".STOXX50E", SXXP: ".STOXX",
-  DAX: ".GDAXI", TDXP: ".TECDAX", SMI: ".SSMI", IBEX: ".IBEX", N225: ".N225", XJO: ".AXJO", SHCOMP: ".SSEC", IBOV: ".BVSP",
+export const IDX_CNBC = { ...INDEX_CNBC,
   ...Object.fromEntries(INDICES.filter((i) => i.src === "cnbc").map((i) => [i.id, i.sym])) };
 export const FUT_ROOTS = new Set(FUTURES.map((f) => /^@([A-Z]+)\.1$/.exec(f[0])[1]));
 export function alertCnbcSym(sym) {

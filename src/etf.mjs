@@ -11,6 +11,7 @@
 import { fetchText, iso, cachedSource } from "./lib.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 import { cnbcDaily, referenceCloses } from "./cnbc.mjs";
+import { cnbcDailyB } from "./backup.mjs";
 import { isinValid } from "./isin.mjs";
 import { UCITS_ETFS, UCITS_CCYS, fxRate, justEtfUrl, parseJustEtf, lineOf, JUSTETF } from "./ucits.mjs";
 import { handleSearch } from "./search.mjs";
@@ -223,7 +224,7 @@ export async function compareFunds(url, env, ctx, items, ccy) {
     return { id, name: null, line: { cnbc: id, ticker: id, venue: "U.S.", ccy: "USD", pence: false, id: "C:" + id } }; // a U.S. ETF: CNBC's plain symbol, in USD
   });
   const need = pick.some((p) => p.line && p.line.ccy !== ccy);
-  const [bars, fxRes] = await Promise.all([Promise.all(pick.map((p) => (p.line ? cnbcDaily(url.origin, ctx, p.line.cnbc, 1900, now) : { err: "no_line" }))), need ? Promise.all(FX_CODES.map((c) => cnbcDaily(url.origin, ctx, c, 1900, now))) : []]);
+  const [bars, fxRes] = await Promise.all([Promise.all(pick.map((p) => (p.line ? cnbcDailyB(url.origin, ctx, p.line.cnbc, 1900, now) : { err: "no_line" }))), need ? Promise.all(FX_CODES.map((c) => cnbcDailyB(url.origin, ctx, c, 1900, now))) : []]);
   const fxRows = {}; FX_CODES.forEach((c, i) => { if (fxRes[i] && fxRes[i].data) fxRows[c] = fxRes[i].data; });
   return pick.map((p, i) => {
     const b = bars[i]; if (!p.line || !b.data) return { ...p, error: (b && b.err) || "no_line" };
@@ -231,7 +232,7 @@ export async function compareFunds(url, env, ctx, items, ccy) {
     const rows = b.data.map(([d, v]) => { if (!conv) return [d, v / unit]; const fx = {}; for (const c of FX_CODES) if (fxRows[c]) fx[c] = closeOn(fxRows[c], d); const k = fxRate(p.line.ccy, ccy, fx); return [d, k ? (v / unit) * k : null]; }).filter((x) => x[1] != null && x[1] > 0);
     if (rows.length < 20) return { ...p, error: conv ? "fx_unavailable" : "no_data" };
     const weekly = rows.filter((x, j) => j === rows.length - 1 || new Date(x[0] + "T12:00:00Z").getUTCDay() === 5 || j === 0);
-    return { ...p, conv: conv ? { from: p.line.ccy, to: ccy } : null, stats: seriesStats(rows), weekly };
+    return { ...p, conv: conv ? { from: p.line.ccy, to: ccy } : null, stats: seriesStats(rows), weekly, ...(b.backupFor ? { backup: { source: b.source, for: b.backupFor, reason: b.primaryError } } : {}) };
   });
 }
 

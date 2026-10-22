@@ -164,6 +164,20 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   in PLAB, a REAL yield in YAS; VALR → step-up, priced at today's coupon, said. A bond not on the ECB list has no issue
   date: typed in BUILD, else N/A. BUILD → "+ GOVERNMENT BONDS (ECB LIST)": a country's central-government bonds to pick
   from (`/api/bond/list?cc=IT`).
+- Backups, 22 Oct 2026 (`src/backup.mjs`; "dove il provider non va più serve un backup, in ogni cosa"): a value from a
+  backup is always labelled with the provider that gave it and the first one's error (BACKUP in captions, `backupFor` /
+  `primaryError` in the answers). Quotes: Twelve Data (credits, limit, refusal, outage, no key) → CNBC (U.S. stocks, FX
+  EUR/USD → EUR=, crypto BTC/USD → BTC.CM=, metals, listings elsewhere; 5 s at most) → Finnhub (U.S. stocks) → Alpha Vantage
+  (secret ALPHAVANTAGE_KEY, 25 a day, counted) → the last real quote STALE → N/A with what was tried. Chart history:
+  Twelve Data → CNBC bars → Alpaca daily (U.S.) → Alpha Vantage (the last 100 sessions, said) → STALE. CNBC daily bars
+  (PLAB, EFC, FACT): CNBC (or its stale copy) → FRED H.10 for EUR= / GBP= / CHF= / JPY= → Alpaca for U.S. symbols; a
+  Xetra / Milan line has no free backup. World exchanges: Twelve Data market_state → each market's main index on CNBC
+  (in its regular session, printed in the last 30 minutes; no countdown). World calendar: Forex Factory → this week's
+  archived copy (STALE) → the Nasdaq economic calendar (actual, consensus, previous; no importance rating, every event
+  shown, said). Indices: an official source with nothing (Cboe, STOXX, Nikkei, SIX, SSE, B3, ASX) → the same index on CNBC.
+  No backup exists where one publisher is the source (CFTC, FINRA, French library, central banks' curves and calendars,
+  justETF, ApeWisdom): the last real copy STALE. Stooq (approved) is not used: its downloads now sit behind a JavaScript
+  check. Tests: test/backup.test.mjs.
 - PLAB → WHAT TO BUY, 22 Oct 2026: the portfolio open in the lab is the target; your open positions (PORTFOLIO) at their
   live prices in EUR are what you hold, matched to the target by the fund's ISIN (`/api/etf/resolve`: Xetra mnemonics,
   UCITS tickers and lines) or the symbol (several listings of one fund add up). This month's money is split so that the
@@ -252,7 +266,9 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   never cached.
 - When `/api` stops answering, a bar says why: SESSION EXPIRED (sign in again) or NO NETWORK — checked with
   `/api/health`, also when the app comes back from the background after 5 minutes.
-- Icons and launch images: `public/terminal/app/`, drawn by `tools/mkicons.py`.
+- Icons and launch images: `public/terminal/app/`, drawn by `tools/mkicons.py` — since 22 Oct 2026 the terminal's prompt
+  (an amber `>` and block cursor, no initials, no degree sign); the top bar reads AZ TERMINAL. An installed iPhone app
+  shows the new icon once removed from the Home Screen and added again.
 
 ## Languages (EN / IT)
 - Toggle in the top bar, remembered in the browser (Italian by default for an Italian browser).
@@ -421,6 +437,7 @@ node test/plab.test.mjs         # PLAB: saved portfolios, EUR series (FX, GBp, C
 node test/bondlab.test.mjs      # ECB list read in slices, bond terms (ECB / OpenFIGI), the estimate's plan, curve / FX endpoints, bondHistory
 node test/rebalance.test.mjs    # WHAT TO BUY: water filling, sales, smallest trade, cost per trade, whole units, outside positions
 node test/drift.test.mjs        # drift alert: matching by ISIN, EUR values, cash left out, weekly key, 18:40 run, message
+node test/backup.test.mjs       # backups: quotes, history, CNBC bars, exchanges, calendar — labelled, keys never shown
 node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy (daily, STALE, 6 h), listings, month-ends in USD, route, betas recovered
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron

@@ -47,7 +47,7 @@ import { handleDes, handleOptions } from "./company.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
 import { handleAlerts, runAlerts, ALERT_CRON } from "./alerts.mjs";
 import { handleFinra } from "./finra.mjs";
-import { isCnbcId, cnbcCodeFor, cnbcIntlRec, cnbcInstrument, loadCnbcRaw, cnbcHistory, cnbcTzOf, CNBC_INTL_SOURCE } from "./intl.mjs";
+import { isCnbcId, cnbcCodeFor, cnbcIntlRec, cnbcInstrument, loadCnbcRaw, cnbcHistory, cnbcTzOf, CNBC_INTL_SOURCE, aggregate, START } from "./intl.mjs";
 import { handleBonds } from "./bonds.mjs";
 import { handleCot } from "./cot.mjs";
 import { handleIndices } from "./indices.mjs";
@@ -58,6 +58,8 @@ import { handleFactors } from "./factors.mjs";
 import { handlePlab } from "./plab.mjs";
 import { handleBondRef } from "./yas.mjs";
 import { stepEcbList } from "./ecbassets.mjs";
+import { fetchText } from "./lib.mjs";
+import { setBackupEnv, BACKUP_ERRORS, cnbcAnyCode, isUsStock, avTarget, finnhubQuote, avQuote, backupInstrument, alpacaDaily, avDaily } from "./backup.mjs";
 import { handleEtfPerf, refreshEtfPerf, PERF_CRON } from "./etfperf.mjs";
 
 const TD_BASE = "https://api.twelvedata.com";
@@ -244,7 +246,7 @@ export function providerDetail(td, key) {
   if (key) m = m.split(key).join("");
   return m.replace(/\*\*/g, "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
 }
-const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, daily_limit: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502 };
+const ERROR_HTTP = { plan_required: 403, symbol_not_found: 404, rate_limited: 429, daily_limit: 429, provider_timeout: 504, provider_unreachable: 502, provider_auth: 502, provider_error: 502, not_configured: 500 };
 
 // the key travels in the Authorization header (provider's recommended method), never in the URL
 export const tdAuth = (key) => ({ authorization: `apikey ${key}` });
@@ -339,16 +341,15 @@ function fetchQuotesCoalesced(syms, key) {
 
 export const SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-:\/^]{0,19}$/;
 
-async function handleQuote(url, env, ctx, H) {
+async function handleQuote(url, env, ctx, H, deps = {}) {
   const raw = (url.searchParams.get("symbols") || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
   const symbols = [...new Set(raw)].slice(0, 20);
   if (!symbols.length) return json({ error: "no symbols" }, H, 400);
   const key = env.TWELVEDATA_KEY;
-  if (!key && !symbols.every(isCnbcId)) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
 
   const cache = cacheFor();
   const now = Date.now();
-  const quotes = {}, errors = {}, stat = { hit: 0, miss: 0, stale: 0 };
+  const quotes = {}, errors = {}, stat = { hit: 0, miss: 0, stale: 0, backup: 0 };
   const entries = {}, misses = [];
   const valid0 = symbols.filter(s => SYMBOL_RE.test(s));
   for (const s of symbols) if (!valid0.includes(s)) errors[s] = { error: "invalid_symbol", status: STATUS.NA };
@@ -369,51 +370,70 @@ async function handleQuote(url, env, ctx, H) {
       stat.hit++;
     } else misses.push(s);
   }
+  // Twelve Data not answering (credits, limit, refusal, outage, no key): a backup provider stands in (backup.mjs) before
+  // the last real quote is served STALE
+  const tdErr = {}, backupable = [];
+  const staleTd = (s, err) => { const e = entries[s]; if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS && err !== "symbol_not_found" && err !== "plan_required") { quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: err }); stat.stale++; return true; } return false; };
   if (misses.length) {
-    const results = blocked ? misses.map(s => [s, { err: "daily_limit" }]) : await fetchQuotesCoalesced(misses, key);
-    if (!blocked && results.some(([, r]) => r.err === "daily_limit")) limitUntil = tdBlock(url.origin, now, ctx);
+    const results = !key ? misses.map(s => [s, { err: "not_configured" }]) : blocked ? misses.map(s => [s, { err: "daily_limit" }]) : await fetchQuotesCoalesced(misses, key);
+    if (key && !blocked && results.some(([, r]) => r.err === "daily_limit")) limitUntil = tdBlock(url.origin, now, ctx);
     for (const [s, r] of results) {
       if (r.rec) {
         const fetchedAt = Date.now();
         cachePut(cache, `${url.origin}/__cache/quote/${encodeURIComponent(s)}`, { rec: r.rec, fetchedAt }, ctx);
         quotes[s] = buildInstrument(r.rec, { fetchedAt, now: fetchedAt, closedUntil: closedUntil(r.rec, fetchedAt, fetchedAt, nyOpen) });
         stat.miss++;
-      } else {
-        const e = entries[s];
-        if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS && r.err !== "symbol_not_found" && r.err !== "plan_required") {
-          quotes[s] = buildInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: r.err });
-          stat.stale++;
-        } else {
-          errors[s] = { error: r.err, status: STATUS.NA, ...(r.detail ? { detail: r.detail } : {}) }; // never a fallback value
-        }
+      } else if (BACKUP_ERRORS.has(r.err) && (cnbcAnyCode(s) || isUsStock(s) || avTarget(s))) {
+        tdErr[s] = { error: r.err, ...(r.detail ? { detail: r.detail } : {}) }; backupable.push(s);
+      } else if (!staleTd(s, r.err)) {
+        errors[s] = { error: r.err, status: STATUS.NA, ...(r.detail ? { detail: r.detail } : {}) }; // never a fallback value
       }
     }
   }
-  // CNBC: the direct ones, and the plan-refused ones it can name
-  // Twelve Data answers venue ids outside the plan with plan_required, or for some exchanges "error in the query"
-  const fallback = Object.keys(errors).filter(s => ["plan_required", "provider_error", "symbol_not_found"].includes(errors[s].error) && cnbcCodeFor(s));
+  // CNBC: the direct ones, and those Twelve Data did not give (a listing outside the plan: CNBC is its source; any other: a
+  // backup, said as such)
+  const fallback = backupable.filter(s => cnbcAnyCode(s)), rest = backupable.filter(s => !fallback.includes(s));
   const cn = [...viaCnbc, ...fallback];
+  const isBackup = (s) => fallback.includes(s) && !(cnbcCodeFor(s) && tdErr[s].error === "plan_required");
   if (cn.length) {
     const cEntries = await Promise.all(cn.map(s => cacheGet(cache, `${url.origin}/__cache/quote-cnbc/${encodeURIComponent(s)}`)));
     const need = cn.filter((s, i) => !(cEntries[i] && cEntries[i].rec && now - cEntries[i].fetchedAt < 60_000));
-    const raw = need.length ? await loadCnbcRaw(need.map(cnbcCodeFor)) : { data: {} };
+    // a backup waits 5 seconds at most (the page is already waiting on the first provider); CNBC's own listings 12
+    const quick = need.every((s) => !viaCnbc.includes(s)), rawC = need.length ? await (deps.loadCnbcRaw || loadCnbcRaw)(need.map(cnbcAnyCode), quick ? (u) => fetchText(u, { timeoutMs: 5000, headers: { accept: "application/json" } }) : undefined) : { data: {} };
     const fetchedAt = Date.now();
+    const mark = (q, s) => (isBackup(s) ? { ...q, backupFor: SOURCE, primaryError: tdErr[s].error } : q);
     cn.forEach((s, i) => {
-      const e = cEntries[i], code = cnbcCodeFor(s), rec = need.includes(s) ? cnbcIntlRec(s, raw.data[code]) : null;
-      if (!need.includes(s)) { quotes[s] = cnbcInstrument(e.rec, { fetchedAt: e.fetchedAt, now, fieldKeys: Object.keys(QUOTE_FIELDS) }); delete errors[s]; stat.hit++; return; }
+      const e = cEntries[i], code = cnbcAnyCode(s), rec = need.includes(s) ? cnbcIntlRec(s, rawC.data[code]) : null;
+      if (!need.includes(s)) { quotes[s] = mark(cnbcInstrument(e.rec, { fetchedAt: e.fetchedAt, now, fieldKeys: Object.keys(QUOTE_FIELDS) }), s); delete errors[s]; stat.hit++; if (isBackup(s)) stat.backup++; return; }
       if (rec) {
         cachePut(cache, `${url.origin}/__cache/quote-cnbc/${encodeURIComponent(s)}`, { rec, fetchedAt }, ctx);
-        if (fallback.includes(s)) cachePut(cache, `${url.origin}/__cache/tdplan/${encodeURIComponent(s)}`, { plan: true, at: fetchedAt }, ctx);
-        quotes[s] = cnbcInstrument(rec, { fetchedAt, now: fetchedAt, fieldKeys: Object.keys(QUOTE_FIELDS) }); delete errors[s];
-        if (viaCnbc.includes(s)) stat.hit++; else stat.miss++;
+        if (fallback.includes(s) && tdErr[s].error === "plan_required" && cnbcCodeFor(s)) cachePut(cache, `${url.origin}/__cache/tdplan/${encodeURIComponent(s)}`, { plan: true, at: fetchedAt }, ctx);
+        quotes[s] = mark(cnbcInstrument(rec, { fetchedAt, now: fetchedAt, fieldKeys: Object.keys(QUOTE_FIELDS) }), s); delete errors[s];
+        if (viaCnbc.includes(s)) stat.hit++; else { stat.miss++; if (isBackup(s)) stat.backup++; }
         return;
       }
-      if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS) { quotes[s] = cnbcInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: raw.err || "no_data", fieldKeys: Object.keys(QUOTE_FIELDS) }); delete errors[s]; stat.stale++; return; }
-      errors[s] = isCnbcId(s) ? { error: raw.err && !Object.keys(raw.data).length ? raw.err : "symbol_not_found", status: STATUS.NA } : { error: (errors[s] && errors[s].error) || "plan_required", status: STATUS.NA, detail: [errors[s] && errors[s].detail, "CNBC does not quote this listing either"].filter(Boolean).join(" · ") };
+      if (fallback.includes(s) && (isUsStock(s) || avTarget(s))) { rest.push(s); tdErr[s].cnbc = rawC.err || "no_data"; return; } // the next backups
+      if (e && e.rec && now - e.fetchedAt < STALE_MAX_MS) { quotes[s] = mark(cnbcInstrument(e.rec, { fetchedAt: e.fetchedAt, now, stale: true, error: rawC.err || "no_data", fieldKeys: Object.keys(QUOTE_FIELDS) }), s); delete errors[s]; stat.stale++; return; }
+      if (fallback.includes(s) && staleTd(s, tdErr[s].error)) return;
+      errors[s] = isCnbcId(s) ? { error: rawC.err && !Object.keys(rawC.data).length ? rawC.err : "symbol_not_found", status: STATUS.NA } : { error: (tdErr[s] && tdErr[s].error) || "plan_required", status: STATUS.NA, detail: [tdErr[s] && tdErr[s].detail, "CNBC does not quote this listing either"].filter(Boolean).join(" · ") };
     });
   }
+  // the next backups: Finnhub (U.S. stocks), Alpha Vantage (25 a day); then the last real quote; then N/A, saying why
+  for (const s of rest) {
+    const tried = [];
+    let got = null;
+    if (isUsStock(s)) { const f = await (deps.finnhubQuote || finnhubQuote)(env, s); if (f.rec) got = { rec: f.rec, source: "finnhub" }; else tried.push("Finnhub: " + f.err); }
+    if (!got && avTarget(s)) { const a = await (deps.avQuote || avQuote)(env, s, { origin: url.origin, ctx, now }); if (a.rec) got = { rec: a.rec, source: "alphavantage" }; else tried.push("Alpha Vantage: " + a.err); }
+    if (got) {
+      const fetchedAt = Date.now();
+      quotes[s] = backupInstrument(got.rec, { source: got.source, fetchedAt, now: fetchedAt, fieldKeys: Object.keys(QUOTE_FIELDS), backupFor: SOURCE, primaryError: tdErr[s].error });
+      stat.miss++; stat.backup++; continue;
+    }
+    if (staleTd(s, tdErr[s].error)) continue;
+    errors[s] = { error: tdErr[s].error, status: STATUS.NA, detail: [tdErr[s].detail, tdErr[s].cnbc ? "CNBC: " + tdErr[s].cnbc : null, ...tried].filter(Boolean).join(" · ") };
+  }
   const xc = stat.stale ? "STALE" : stat.miss && stat.hit ? "PARTIAL-HIT" : stat.miss ? "MISS" : stat.hit ? "HIT" : "NONE";
-  const body = { quotes, errors, meta: { source: SOURCE, ...(cn.length ? { cnbc: cn.filter(s => quotes[s]).length } : {}), generatedAt: new Date().toISOString(), cache: stat, ...(limitUntil ? { dailyLimitUntil: new Date(limitUntil).toISOString() } : {}) } };
+  const body = { quotes, errors, meta: { source: SOURCE, ...(cn.length ? { cnbc: cn.filter(s => quotes[s]).length } : {}), ...(stat.backup ? { backups: stat.backup } : {}), generatedAt: new Date().toISOString(), cache: stat, ...(limitUntil ? { dailyLimitUntil: new Date(limitUntil).toISOString() } : {}) } };
   let status = 200;
   if (!Object.keys(quotes).length) {
     const first = Object.values(errors)[0];
@@ -515,21 +535,24 @@ export function exchangeToday(tz, now = new Date(Date.now())) {
 }
 
 // history of a listing outside the Twelve Data plan: CNBC's bars (intl.mjs), in the same contract
-async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "plan_required") {
-  const { id, range, interval, intraday, ttl } = built, cache = cacheFor(), now = Date.now(), code = cnbcCodeFor(id);
+async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "plan_required", bk = null) {
+  const { id, range, interval, intraday, ttl } = built, cache = cacheFor(), now = Date.now(), code = bk ? bk.code : cnbcCodeFor(id);
   const key = `${url.origin}/__cache/history-cnbc?${new URLSearchParams({ symbol: id, range, interval })}`, entry = await cacheGet(cache, key);
   const envelope = (points, fetchedAt, stale, staleReason) => {
     const last = points[points.length - 1];
     return { symbol: id, cnbcSymbol: code, range, interval, adjust: "cnbc", timeBasis: intraday ? "utc" : "cnbc_date", currency: null, exchange: null, exchangeTimezone: cnbcTzOf(code), type: null,
       count: points.length, points, status: stale ? STATUS.STALE : STATUS.LIVE, source: CNBC_INTL_SOURCE, fetchedAt: new Date(fetchedAt).toISOString(),
       staleAt: new Date(fetchedAt + historyStaleAfterMs(intraday, interval)).toISOString(), lastBarPartial: !intraday && !!last && last.t === isoDate(new Date(now)),
-      note: "CNBC's bars (adjusted as CNBC adjusts them); daily bars carry CNBC's date", ...(stale ? { staleReason } : {}), asOf: new Date(fetchedAt).toISOString(), provider: CNBC_INTL_SOURCE };
+      note: "CNBC's bars (adjusted as CNBC adjusts them); daily bars carry CNBC's date", ...(stale ? { staleReason } : {}), asOf: new Date(fetchedAt).toISOString(), provider: CNBC_INTL_SOURCE,
+      ...(bk ? { backupFor: SOURCE, primaryError: tdError } : {}) };
   };
   const respond = (body, xc, status = 200) => { const r = json(body, H, status, status === 200 ? ttl : 0); r.headers.set("x-cache", xc); return r; };
   if (entry && entry.points && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.points, entry.fetchedAt, false), "HIT");
-  const blocked = await barsBlocked(url.origin, ctx), r = blocked ? { err: blocked.err } : await cnbcHistory(code, { range, interval, now });
+  // as a backup CNBC gets 5 seconds (the page has already waited on the first provider)
+  const blocked = await barsBlocked(url.origin, ctx), r = blocked ? { err: blocked.err } : await cnbcHistory(code, { range, interval, now }, bk ? (u) => fetchText(u, { timeoutMs: 5000, headers: { accept: "application/json" } }) : undefined);
   if (!blocked && r.err) await noteBarsRefused(url.origin, r.err, ctx);
   if (r.data) { const fetchedAt = Date.now(); cachePut(cache, key, { points: r.data, fetchedAt }, ctx); return respond(envelope(r.data, fetchedAt, false), "MISS"); }
+  if (bk) return null; // the next backup
   if (entry && entry.points && now - entry.fetchedAt < STALE_MAX_MS) return respond(envelope(entry.points, entry.fetchedAt, true, r.err), "STALE");
   const error = isCnbcId(id) ? (r.err === "no_data" ? "no_data" : r.err) : tdError;
   const out = json({ error, symbol: id, status: STATUS.NA, ...(!isCnbcId(id) ? { detail: [planDetail, "CNBC has no bars for this listing either"].filter(Boolean).join(" · ") } : {}) }, H, error === "no_data" ? 404 : ERROR_HTTP[error] || 502);
@@ -537,13 +560,32 @@ async function cnbcHistoryResponse(url, ctx, H, built, planDetail, tdError = "pl
   return out;
 }
 
+// daily history from the backups after CNBC: Alpaca (U.S. stocks and ETFs), Alpha Vantage (the last 100 sessions) —
+// labelled with the provider and the first one's error; kept in the Worker cache like the primary
+async function historyBackup(url, env, ctx, built, tdError, tried) {
+  const { id, range, interval, ttl } = built, cache = cacheFor(), now = Date.now();
+  const key = `${url.origin}/__cache/history-bk?${new URLSearchParams({ symbol: id, range, interval })}`, entry = await cacheGet(cache, key);
+  const env2 = (pts, source, fetchedAt, note) => {
+    const points = interval === "1week" || interval === "1month" ? aggregate(pts, interval) : pts, last = points[points.length - 1];
+    return { symbol: id, range, interval, adjust: source === "alpaca" ? "all" : "none", timeBasis: "exchange_local_date", currency: source === "alpaca" ? "USD" : null, exchange: null, exchangeTimezone: source === "alpaca" ? "America/New_York" : null, type: null,
+      count: points.length, points, status: STATUS.LIVE, source, fetchedAt: new Date(fetchedAt).toISOString(), staleAt: new Date(fetchedAt + historyStaleAfterMs(false, interval)).toISOString(),
+      lastBarPartial: !!last && last.t === isoDate(new Date(now)), note, backupFor: SOURCE, primaryError: tdError, asOf: new Date(fetchedAt).toISOString(), provider: source };
+  };
+  if (entry && entry.body && now - entry.fetchedAt < ttl * 1000) return { body: entry.body, xc: "HIT" };
+  const from = now - (START[range] || 366) * 86400_000;
+  let got = null;
+  if (isUsStock(id)) { const a = await alpacaDaily(env, id, from, now); if (a.data) got = env2(a.data.filter((p) => p.t >= new Date(from).toISOString().slice(0, 10)), "alpaca", Date.now(), "Alpaca daily bars (consolidated SIP, split- and dividend-adjusted)"); else tried.push("Alpaca: " + a.err); }
+  if (!got && avTarget(id)) { const a = await avDaily(env, id, { origin: url.origin, ctx, now }); if (a.data) got = env2(a.data.filter((p) => p.t >= new Date(from).toISOString().slice(0, 10)), "alphavantage", Date.now(), "Alpha Vantage daily bars — the free plan gives the last 100 sessions only"); else tried.push("Alpha Vantage: " + a.err); }
+  if (!got || !got.points.length) return null;
+  cachePut(cache, key, { body: got, fetchedAt: Date.now() }, ctx);
+  return { body: got, xc: "MISS" };
+}
 async function handleHistory(url, env, ctx, H) {
   let built;
   try { built = buildHistoryQuery(Object.fromEntries(url.searchParams)); }
   catch (e) { if (e instanceof BadRequest) return json({ error: "bad_request", message: e.message }, H, 400); throw e; }
   if (isCnbcId(built.id)) return cnbcHistoryResponse(url, ctx, H, built);
   const key = env.TWELVEDATA_KEY;
-  if (!key) return json({ error: "server not configured (TWELVEDATA_KEY missing)" }, H, 500);
 
   const { id, q, range, interval, adjust, intraday, ttl } = built;
   const cache = cacheFor();
@@ -573,7 +615,7 @@ async function handleHistory(url, env, ctx, H) {
   if (entry && entry.n && now - entry.fetchedAt < ttl * 1000) return respond(envelope(entry.n, entry.fetchedAt, false), "HIT");
 
   const blocked = await tdBlockedUntil(url.origin, now);
-  const { json: td, err } = blocked ? { err: "daily_limit" } : await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}`, key);
+  const { json: td, err } = !key ? { err: "not_configured" } : blocked ? { err: "daily_limit" } : await providerFetchJson(`${TD_BASE}/time_series?${new URLSearchParams(q)}`, key);
   let error = err || null, detail = null, limitUntil = blocked;
   let n = null;
   if (!error) {
@@ -581,17 +623,26 @@ async function handleHistory(url, env, ctx, H) {
     else if (td.status === "error") { error = mapProviderError(td).error; detail = providerDetail(td, key); }
     else { n = normalizeHistory(td, { intraday }); if (!n.points.length) error = "no_data"; }
   }
-  if (error === "daily_limit" && !limitUntil) limitUntil = tdBlock(url.origin, now, ctx);
+  if (key && error === "daily_limit" && !limitUntil) limitUntil = tdBlock(url.origin, now, ctx);
   if (limitUntil) detail = `Twelve Data daily credits used up; resumes at ${new Date(limitUntil).toISOString()}`;
   if (!error) {
     const fetchedAt = Date.now();
     cachePut(cache, cacheKey, { n, fetchedAt }, ctx);
     return respond(envelope(n, fetchedAt, false), "MISS");
   }
+  // a listing outside the plan: CNBC is its source; any other failure: the backups (backup.mjs), then the last real copy
+  if (["plan_required", "provider_error", "symbol_not_found"].includes(error) && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail, error);
+  const tried = [];
+  if (BACKUP_ERRORS.has(error)) {
+    const bkCode = cnbcAnyCode(id);
+    if (bkCode) { const b = await cnbcHistoryResponse(url, ctx, H, built, detail, error, { code: bkCode }); if (b) return b; tried.push("CNBC"); }
+    const alt = intraday ? null : await historyBackup(url, env, ctx, built, error, tried);
+    if (alt) return respond(alt.body, alt.xc);
+  }
   if (entry && entry.n && now - entry.fetchedAt < STALE_MAX_MS && error !== "symbol_not_found" && error !== "plan_required") {
     return respond(envelope(entry.n, entry.fetchedAt, true, error), "STALE");
   }
-  if (["plan_required", "provider_error", "symbol_not_found"].includes(error) && cnbcCodeFor(id)) return cnbcHistoryResponse(url, ctx, H, built, detail, error);
+  if (tried.length) detail = [detail, `no backup answered (${tried.join(", ")})`].filter(Boolean).join(" · ");
   const status = error === "no_data" ? 404 : ERROR_HTTP[error] || 502;
   const r = json({ error, symbol: id, status: STATUS.NA, ...(detail ? { detail } : {}) }, H, status);
   r.headers.set("x-cache", "MISS");
@@ -612,6 +663,7 @@ function json(obj, headers, status = 200, cacheSec = 0) {
 export const app = {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
+    setBackupEnv(env); // the backups' keys for modules that do not receive env (backup.mjs)
     const H = cors(env);
     if (req.method === "OPTIONS") return new Response(null, { headers: H });
     if (url.pathname === "/api/health") return json({ ok: true, ts: Date.now() }, H);
@@ -676,6 +728,7 @@ export default {
   // Cron Triggers (wrangler.toml [triggers]): the alerts check every 5 minutes (alerts.mjs); briefing editions written at
   // their time (cron.mjs)
   async scheduled(event, env, ctx) {
+    setBackupEnv(env);
     if (event && event.cron === ALERT_CRON) { ctx.waitUntil(runAlerts(event.scheduledTime || Date.now(), env).catch(() => null)); ctx.waitUntil(refreshEia(env).catch(() => null)); ctx.waitUntil(refreshEtfRef(env).catch(() => null)); return; }
     // the screener's returns and risk: 8 funds a run in their own trigger (never in the alerts' run)
     // the 10-minute trigger: a slice of the ECB list while a new file is being read, otherwise the ETF screener's figures

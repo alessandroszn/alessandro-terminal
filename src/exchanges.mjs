@@ -7,6 +7,21 @@
 // The table below only adds what the provider does not give: a short label, the city and the IANA time
 // zone (to show the exchange's local time) for the major markets. It holds no market data.
 import { fetchText, cacheRead, cacheWrite, iso } from "./lib.mjs";
+import { loadCnbcQuotes } from "./cnbc.mjs";
+
+// ---------- backup (22 Oct 2026): Twelve Data not answering → whether each major market is trading, from its main index on
+// CNBC (approved): open when CNBC marks the index in its regular session and its last print is under 30 minutes old;
+// no countdown (CNBC gives no open / close times), holidays shown as they are (the index does not trade) — DERIVED
+export const MIC_INDEX = { XNYS: ".SPX", XNAS: ".SPX", XTSE: ".GSPTSE", XLON: ".FTSE", XETR: ".GDAXI", XPAR: ".FCHI", XMIL: ".FTMIB", XMAD: ".IBEX", XSWX: ".SSMI", XJPX: ".N225", XHKG: ".HSI", XSHG: ".SSEC", XNSE: ".NSEI", XKRX: ".KS11", XASX: ".AXJO" };
+export function stateFromIndices(quotes, now = Date.now()) {
+  const out = [];
+  for (const [code, label, city, tz, region] of MAJOR) {
+    const q = quotes[MIC_INDEX[code]]; if (!q || !Number.isFinite(q.time)) continue;
+    const open = q.session === "REG_MKT" && now - q.time < 30 * 60_000;
+    out.push({ code, name: label, country: null, open, openedAt: null, closesAt: null, opensAt: null, major: true, label, city, tz, region, via: MIC_INDEX[code], lastPrint: iso(q.time) });
+  }
+  return out;
+}
 
 export const MARKET_STATE_URL = "https://api.twelvedata.com/market_state";
 // MIC, label, city, IANA time zone, region
@@ -67,9 +82,9 @@ export function nextChange(exchanges) {
 }
 
 const MAX_AGE = 30 * 60_000;
-export async function handleExchanges(url, env, ctx, H, json) {
+export async function handleExchanges(url, env, ctx, H, json, deps = {}) {
   const send = (body, status = 200) => { const r = json(body, H, status); r.headers.set("cache-control", "no-store"); return r; };
-  const now = Date.now(), key = "exchanges/state";
+  const now = deps.now || Date.now(), key = "exchanges/state";
   const c = await cacheRead(url.origin, key);
   const fresh = c && c.data && now - c.fetchedAt < MAX_AGE && !(c.nextChange && now >= c.nextChange + 30_000);
   let entry = fresh ? c : null, err = null;
@@ -90,6 +105,14 @@ export async function handleExchanges(url, env, ctx, H, json) {
     }
   }
   if (!entry) {
+    // the backup: each major market's main index on CNBC (a live reading beats a stale copy with countdowns past)
+    const q = await (deps.loadQuotes || loadCnbcQuotes)([...new Set(Object.values(MIC_INDEX))]).catch(() => ({ err: "provider_error" }));
+    const data = q.data ? stateFromIndices(q.data, now) : [];
+    if (data.length) {
+      return send({ exchanges: data, count: data.length, majorOpen: data.filter((e) => e.open).length, majorCount: data.length, missingMajor: MAJOR.map(([code]) => code).filter((code) => !data.some((e) => e.code === code)),
+        fetchedAt: iso(now), nextChange: null, source: "CNBC — each market's main index: trading in its regular session now (BACKUP: Twelve Data market_state " + (err || "no_data") + ")", status: "LIVE", backupFor: "twelvedata", primaryError: err || "no_data",
+        note: "no countdown to the next open / close in the backup" });
+    }
     // last real state, if any, is shown as STALE (its countdowns may have passed); never a guessed state
     if (c && c.data && now - c.fetchedAt < 24 * 3600_000) entry = { ...c, stale: err };
     else return send({ error: err || "no_data", status: "N/A", source: "Twelve Data — market_state" }, err === "rate_limited" ? 429 : 502);
