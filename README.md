@@ -27,7 +27,9 @@ terminal's phone layout below; `noindex,nofollow`; an app installed on a home sc
   with `public/terminal/replay/player.js` loaded first. The player answers every `/api` request from the recording
   (`/terminal/replay/recording.json`), anything not recorded with `not_recorded` (N/A, "not in this public recording");
   sets the page's clock to the recording's time; keeps settings in memory (the site's storage is the owner's); types
-  CB, CURVE, BOND, SPRD (official 2s10s), COT, CAL (U.S. official) and TILE with a caption for each; a banner says
+  CB (then its BIS history chart), CURVE, BOND, SPRD (official 2s10s), COT, CAL (U.S. official) with a caption for each —
+  on a computer the desk tiled as they open, four windows at most (a fifth takes the oldest's place); the last caption
+  names the private features (portfolio, lab, what-if, bond calculator, quant, alerts) without showing them; a banner says
   RECORDING of <date, Rome time> · official sources only · not real time. No recording yet → NO RECORDING YET, nothing played.
 - The recording holds **official sources only**: routes `/api/cb`, `/api/cb/world`, `/api/cb/history`, `/api/yields`
   (+ catalog, history), `/api/bonds`, `/api/sprd`, `/api/cot`, `/api/calendar`, filtered: no curve of Portugal (LSEG
