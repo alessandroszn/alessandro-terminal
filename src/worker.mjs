@@ -14,6 +14,7 @@
 //   GET /api/factors?ids=&region=&years=   Fama/French factors (Kenneth R. French Data Library) + monthly USD returns (src/factors.mjs)
 //   GET /api/spx/universe|closes|live       (T06 S&P 500 heat map, see src/spx.mjs)
 //   GET /api/cb | /api/cb/world | /api/cb/history | /api/sprd | /api/energy | /api/earnings | /api/des | /api/options/*   (T07 function menu)
+//   GET /api/fa?symbol=&c= | /api/cn?symbol= | /api/earnings/symbol?symbol=   FA, CN, ERN of one company (src/security.mjs)
 //   /api/user/alerts|notes|board, GET /api/status                                      (T07 MY STUFF, SYS)
 //   /api/user/recording[/take|/commit] (owner) · /terminal/replay/[recording.json] (public)  the public replay (src/replay.mjs)
 //   GET /api/health
@@ -46,6 +47,7 @@ import { handleBriefs } from "./briefs.mjs";
 import { handleCentralBanks, handleSpread, handleEnergy, handleEnergyStocks, refreshEia } from "./macro.mjs";
 import { handleEarnings } from "./earnings.mjs";
 import { handleDes, handleOptions } from "./company.mjs";
+import { handleFa, handleCompanyNews, handleEarnSym } from "./security.mjs";
 import { handleUserData, handleStatus } from "./userdata.mjs";
 import { handleAlerts, runAlerts, ALERT_CRON } from "./alerts.mjs";
 import { handleFinra } from "./finra.mjs";
@@ -706,6 +708,10 @@ export const app = {
     if (url.pathname === "/api/energy/stocks") return handleEnergyStocks(url, env, ctx, H, json);
     if (url.pathname === "/api/earnings" || url.pathname === "/api/earnings/reactions") return handleEarnings(url, env, ctx, H, json);
     if (url.pathname === "/api/des" || url.pathname === "/api/des/fact") return handleDes(url, env, ctx, H, json);
+    // security functions as on Nico's terminal (src/security.mjs): FA statements (SEC), CN company news and one company's ERN (Finnhub)
+    if (url.pathname === "/api/fa") return handleFa(url, env, ctx, H, json);
+    if (url.pathname === "/api/cn") return handleCompanyNews(url, env, ctx, H, json);
+    if (url.pathname === "/api/earnings/symbol") return handleEarnSym(url, env, ctx, H, json);
     if (url.pathname.startsWith("/api/options/")) return handleOptions(url, env, ctx, H, json);
     // the public replay's recording (src/replay.mjs): made by the owner, official sources only
     if (url.pathname === "/api/user/recording" || url.pathname.startsWith("/api/user/recording/")) return handleRecording(url, env, ctx, H, json, req, app.fetch);

@@ -626,6 +626,22 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   .yr-dots i.yr-t{background:var(--amber);outline:2px solid var(--amber);outline-offset:1px}
   .yr-dots i.yr-m1{box-shadow:inset 0 0 0 1px var(--fg)}
   .yr-dots i.yr-x{visibility:hidden}
+  /* ---- FA, CN, one company's ERN, HOLD ---- */
+  .fa-t th{vertical-align:bottom;line-height:1.25}
+  .fa-t tr.fa-d td{color:var(--muted);font-style:italic}
+  .cn-list{display:flex;flex-direction:column}
+  .cn-i{display:grid;grid-template-columns:96px 120px minmax(0,1fr);gap:10px;align-items:baseline;padding:7px 4px;border-bottom:1px solid var(--line);color:var(--fg);text-decoration:none;font-size:12px}
+  .cn-i:hover{background:#ffffff0a}
+  .cn-t{color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
+  .cn-s{color:var(--amber);font-size:10.5px;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ern-next,.hold-kpi{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+  .ern-next>div,.hold-kpi>div{flex:1 1 140px;border:1px solid var(--line);border-radius:4px;padding:7px 10px;display:flex;flex-direction:column;gap:3px}
+  .ern-next b,.hold-kpi b{font-size:15px;color:var(--fg)}
+  .ern-bar,.hold-bar{width:70px}
+  .ern-bar i,.hold-bar i{display:block;height:7px;border-radius:2px;background:var(--amber)}
+  .ern-bar i.up{background:var(--up)}
+  .ern-bar i.down{background:var(--down)}
+  @container (max-width:620px){.cn-i{grid-template-columns:auto minmax(0,1fr)}.cn-h{grid-column:1/-1}}
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -739,6 +755,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>DES AAPL</code><span>Company: SEC profile and fundamentals, analysts (rating, price targets, EPS forecasts), short interest and short volume (FINRA), institutional holders; listings outside the U.S. from CNBC</span></div>
     <div class="help-row"><code>OMON AAPL</code><span>Options (Alpaca indicative feed): chain, volatility smile, term structure, surface, strategy payoff with expected move and max pain</span></div>
     <div class="help-row"><code>WS AAPL</code><span>Workspace: chart, description, options and news together</span></div>
+    <div class="help-row"><code>AAPL FA</code><span>Financial statements from the company's own filings (SEC): income, balance sheet, cash flow over five fiscal years and the last twelve months, with margins and ratios</span></div>
+    <div class="help-row"><code>AAPL CN</code><span>Company news of the last 7 days (Finnhub), each headline linking to its publisher</span></div>
+    <div class="help-row"><code>AAPL ERN</code><span>One company's earnings: the next report, and the last quarters with estimate, actual, surprise and the price reaction</span></div>
+    <div class="help-row"><code>HOLD SWDA</code><span>An ETF's holdings: IVV, QQQ and DIA in full from the issuers' daily files; UCITS ETFs: top 10, countries and sectors (justETF)</span></div>
     <div class="help-row"><code>CROSS A B</code><span>Ratio of two instruments over time, with its percentile and z-score</span></div>
     <div class="help-row"><code>BT</code><span>Backtest on real history: one instrument (buy &amp; hold or moving-average crossover) or a portfolio mix with rebalancing against a benchmark</span></div>
     <div class="help-row"><code>BOARD · ALRT · NOTE</code><span>Your boards, alerts (price, daily move, market open / close, data releases, portfolio off its lab weights — checked on the server, optionally sent to Telegram) and notes</span></div>
@@ -2393,7 +2413,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(!j||j.error){M.err[key]=(j&&j.error)||('http '+r.status);}
       else{M.err[key]=null;if(key.startsWith('ref:'))M.refs[key.slice(4)]=j;else M[key]=j;}}
     catch(e){M.err[key]='network';}
-    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'||w.type==='ETFB'||w.type==='MKT'))liveRepaint(w);});updateGlobal();}}
+    finally{M.loading[key]=false;M.at[key]=Date.now();wins.forEach(w=>{if(!w.min&&(w.type==='MAP'||w.type==='EQ'||w.type==='CRYPTO'||w.type==='ETFB'||w.type==='MKT'||w.type==='HOLD'))liveRepaint(w);});updateGlobal();}}
   function spxEnsure(metric,u='SPX'){if(u==='FX')return fxEnsure();
     spxGet('u','/api/spx/universe'+mapQ(u),false,u);spxGet('recent','/api/spx/closes'+mapQ(u,'ref=recent'),false,u);spxGet('live','/api/spx/live'+mapQ(u),false,u);
     if(metric!=='1D')spxGet('ref:'+metric,'/api/spx/closes'+mapQ(u,'ref='+encodeURIComponent(metric)),false,u);
@@ -2566,9 +2586,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // ---------- FUNCTION MENU (all functions by category, with their codes) ----------
   const menuDef=()=>[
     ['MARKETS',tl('MARKETS','MERCATI'),[['IDX',tl('World indices','Indici mondiali')],['EQ',tl('Equities — index members','Azioni — componenti degli indici')],['FX',tl('Currencies','Valute')],['CMDTY',tl('Commodities','Materie prime')],['CRYPTO',tl('Crypto','Cripto')],['FUT',tl('Futures + implied open','Futures + apertura implicita')],['COT',tl('Futures positioning (CFTC)','Posizionamento futures (CFTC)')],['BOARD',tl('My boards','Le mie tabelle')],['WL',tl('Watchlist','Watchlist')],['HEAT',tl('Heat maps','Heat map')],['MOV',tl('Movers','Migliori e peggiori')],['SCR',tl('Screener','Screener')],['RDT',tl('Reddit most mentioned','Più citati su Reddit')],['MKT',tl('Markets board','Quadro dei mercati')],['EXCH',tl('World markets clock','Orologio delle borse')],['BRIEF',tl('Briefing','Briefing')],['NEWS',tl('News','News')]]],
-    ['ETF',tl('ETF','ETF'),[['EFS',tl('ETF screener — every ETF on Xetra and in the U.S.','Screener ETF — ogni ETF su Xetra e negli USA')],['EFP',tl('ETF profile (ISIN or ticker)','Scheda ETF (ISIN o ticker)')],['EFC',tl('Compare ETFs','Confronta ETF')],['EXPO',tl('My portfolio looked through its ETFs','Il mio portafoglio scomposto nei suoi ETF')],['UCITS',tl('UCITS list: SWDA, VWCE…','Lista UCITS: SWDA, VWCE…')],['ETF',tl('U.S. ETFs by asset class','ETF USA per asset class')]]],
+    ['ETF',tl('ETF','ETF'),[['EFS',tl('ETF screener — every ETF on Xetra and in the U.S.','Screener ETF — ogni ETF su Xetra e negli USA')],['EFP',tl('ETF profile (ISIN or ticker)','Scheda ETF (ISIN o ticker)')],['EFC',tl('Compare ETFs','Confronta ETF')],['HOLD',tl('ETF holdings (HOLD SWDA, HOLD IVV)','Composizione di un ETF (HOLD SWDA, HOLD IVV)')],['EXPO',tl('My portfolio looked through its ETFs','Il mio portafoglio scomposto nei suoi ETF')],['UCITS',tl('UCITS list: SWDA, VWCE…','Lista UCITS: SWDA, VWCE…')],['ETF',tl('U.S. ETFs by asset class','ETF USA per asset class')]]],
     ['RATES',tl('RATES & MACRO','TASSI E MACRO'),[['YLD',tl('Government yields','Rendimenti dei titoli di Stato')],['CURVE',tl('Yield curves','Curve dei rendimenti')],['BOND',tl('World government bonds','Titoli di Stato mondiali')],['YAS',tl('Bond yield calculator — YTM, duration, cash flows','Calcolatore obbligazioni — rendimento, duration, flussi')],['SPRD',tl('Spreads (BTP–Bund, 2s10s, any pair)','Spread (BTP–Bund, 2s10s, qualsiasi coppia)')],['CB',tl('Central banks','Banche centrali')],['CAL',tl('Economic calendar','Calendario economico')],['ERN',tl('Earnings calendar','Calendario delle trimestrali')],['FXM',tl('FX matrix','Matrice dei cambi')],['FCRV',tl('Futures curves','Curve dei futures')]]],
-    ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')],['MC',tl('Monte Carlo','Monte Carlo')],['VAR',tl('Value at risk · ES','Valore a rischio · ES')],['VOL',tl('Volatility · GARCH','Volatilità · GARCH')],['DIST',tl('Return distribution','Distribuzione dei rendimenti')],['BETA',tl('Beta · regression','Beta · regressione')],['FACT',tl('Factor exposure · Fama/French','Esposizione ai fattori · Fama/French')],['EF',tl('Portfolio optimiser','Ottimizzatore di portafoglio')],['SEAS',tl('Seasonality','Stagionalità')]]],
+    ['ANALYSIS',tl('ANALYSIS','ANALISI'),[['DES',tl('Company description','Scheda della società')],['FA',tl('Financial statements (AAPL FA)','Bilanci (AAPL FA)')],['CN',tl('Company news (AAPL CN)','News della società (AAPL CN)')],['OMON',tl('Options monitor','Monitor delle opzioni')],['WS',tl('Ticker workspace','Area di lavoro del titolo')],['COMP',tl('Compare','Confronta')],['PERF',tl('Performance','Performance')],['CROSS',tl('Ratio of two instruments','Rapporto tra due strumenti')],['CORR',tl('Correlation','Correlazione')],['BT',tl('Backtest','Backtest')],['MC',tl('Monte Carlo','Monte Carlo')],['VAR',tl('Value at risk · ES','Valore a rischio · ES')],['VOL',tl('Volatility · GARCH','Volatilità · GARCH')],['DIST',tl('Return distribution','Distribuzione dei rendimenti')],['BETA',tl('Beta · regression','Beta · regressione')],['FACT',tl('Factor exposure · Fama/French','Esposizione ai fattori · Fama/French')],['EF',tl('Portfolio optimiser','Ottimizzatore di portafoglio')],['SEAS',tl('Seasonality','Stagionalità')]]],
     ['MINE',tl('MY STUFF','PERSONALE'),[['PORT',tl('Portfolio','Portafoglio')],['PFA',tl('Portfolio analytics — performance and risk','Analisi del portafoglio — rendimento e rischio')],['PLAB',tl('Portfolio lab — build, backtest, risk, compare, project','Laboratorio portafogli — costruisci, backtest, rischio, confronto, proiezione')],['WIF',tl('What if I had bought… (real history)','E se avessi comprato… (storia reale)')],['ALRT',tl('Alerts — price, move, market open / close, data releases; Telegram','Avvisi — prezzo, variazione, apertura / chiusura, dati macro; Telegram')],['NOTE',tl('Notes','Note')],['SYS',tl('System status','Stato del sistema')]]],
     ['LAYOUT',tl('LAYOUT','LAYOUT'),[['SET',tl('Settings','Impostazioni')],['VIEW',tl('Saved views (layouts)','Viste salvate (layout)')],['CLOSE',tl('Close all windows','Chiudi tutte le finestre')],['UNDO',tl('Reopen closed','Riapri le chiuse')],['TILE',tl('Tile windows','Affianca le finestre')],['SPLIT',tl('Split screen (two windows)','Schermo diviso (due finestre)')],['YEAR',tl('Year progress','Avanzamento dell\'anno')],['HIDE',tl('Hide amounts (privacy)','Nascondi gli importi (privacy)')],['TOUR',tl('Guided tour','Visita guidata')],['HELP',tl('Help','Aiuto')]]]];
   const MN={q:'',sel:0};
@@ -2985,8 +3005,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <div class="scr-count">${tl('Listing outside the Twelve Data plan: quote, history and fundamentals from the CNBC quote service (real-time or delayed as CNBC marks it). Analysts, holders and short interest cover U.S. companies only.','Titolo fuori dal piano Twelve Data: quotazione, storico e fondamentali dal servizio quotazioni CNBC (in tempo reale o ritardati come indica CNBC). Analisti, detentori e short interest riguardano solo le società USA.')}</div>`;
     setProv(win,{[s]:ist},'Company: CNBC quote service');bind();}
   function renderDes(body,win){const st=win.state;if(!st.sym)st.sym=defaultUsSym();const s=st.sym;
-    const form=`<div class="wl-add"><input class="wl-in" data-k="dsym" value="${esc(s)}" maxlength="12" aria-label="ticker" style="max-width:140px"><button class="wl-btn d-go">${tl('DESCRIBE','SCHEDA')}</button><span class="k">${tl('U.S. companies (SEC, Nasdaq, FINRA) · other listings: CNBC','società USA (SEC, Nasdaq, FINRA) · altri titoli: CNBC')}</span><span class="w-sp"></span><button class="sr-b d-ws" title="${tl('chart, description, options and news side by side','grafico, scheda, opzioni e news affiancati')}">WS</button><button class="sr-b d-om">OMON</button></div>`;
-    const bind=()=>{const i=body.querySelector('[data-k="dsym"]'),go=()=>{const v=i.value.trim().toUpperCase();if(usSym(v)||SYMBOL_OK.test(v)){st.sym=v;paintWin(win);}};body.querySelector('.d-go').onclick=go;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};body.querySelector('.d-ws').onclick=()=>openWorkspace(st.sym);body.querySelector('.d-om').onclick=()=>openSym('OMON',st.sym);};
+    const form=`<div class="wl-add"><input class="wl-in" data-k="dsym" value="${esc(s)}" maxlength="12" aria-label="ticker" style="max-width:140px"><button class="wl-btn d-go">${tl('DESCRIBE','SCHEDA')}</button><span class="k">${tl('U.S. companies (SEC, Nasdaq, FINRA) · other listings: CNBC','società USA (SEC, Nasdaq, FINRA) · altri titoli: CNBC')}</span><span class="w-sp"></span><button class="sr-b d-ws" title="${tl('chart, description, options and news side by side','grafico, scheda, opzioni e news affiancati')}">WS</button><button class="sr-b d-om">OMON</button><button class="sr-b" data-shf="FA">FA</button><button class="sr-b" data-shf="ERN">ERN</button><button class="sr-b" data-shf="CN">CN</button></div>`;
+    const bind=()=>{const i=body.querySelector('[data-k="dsym"]'),go=()=>{const v=i.value.trim().toUpperCase();if(usSym(v)||SYMBOL_OK.test(v)){st.sym=v;paintWin(win);}};body.querySelector('.d-go').onclick=go;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};body.querySelector('.d-ws').onclick=()=>openWorkspace(st.sym);body.querySelector('.d-om').onclick=()=>openSym('OMON',st.sym);$$('[data-shf]',body).forEach(b=>b.onclick=()=>applyFunc(b.dataset.shf,st.sym));};
     if(!usSym(s)){desIntl(body,win,form,bind,s);return;}
     const e=get7('/api/des?symbol='+encodeURIComponent(s),6*3600000,['DES']),d=e.data;
     if(!d&&!e.err){setProv(win,{'ds:DES':S.LOADING});body.innerHTML=form+`<div class="empty">${tl('Loading the SEC profile…','Caricamento del profilo SEC…')}</div>`;bind();return;}
@@ -4063,7 +4083,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // ---------- ETF SECTION: every ETF on Xetra (Deutsche Börse's list) and in the U.S. (Twelve Data's list); justETF
   //            reference data (TER, size, distribution, replication, provider, focus) as far as read; prices and returns
   //            from CNBC; compare; the portfolio looked through its ETFs ----------
-  const EF_TYPES=['EFS','EFP','EFC','EXPO'];
+  const EF_TYPES=['EFS','EFP','EFC','EXPO','HOLD'];
   function efUni(){return get7('/api/etf/universe',3600000,EF_TYPES);}
   let EFX={at:-1};
   // the lists joined with the reference table, once per arrival
@@ -4383,6 +4403,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     ALRT:{tag:'ALRT',w:1040,h:640,title:()=>'ALERTS',render:renderAlrt},
     NOTE:{tag:'NOTE',w:640,h:580,title:()=>{const q=NT.filter.trim().toUpperCase();return tl('NOTES','NOTE')+(q?' · '+q:'');},render:renderNote},
     YEAR:{tag:'YEAR',w:560,h:540,title:()=>tl('YEAR PROGRESS','AVANZAMENTO DELL\'ANNO'),render:renderYear},
+    FA:{tag:'FA',w:900,h:640,title:w=>tl('FINANCIALS','BILANCI')+' · '+(w.state.sym||''),render:renderFa},
+    CN:{tag:'CN',w:680,h:620,title:w=>tl('COMPANY NEWS','NEWS DELLA SOCIETÀ')+' · '+(w.state.sym||''),render:renderCn},
+    ERNS:{tag:'ERN',w:900,h:520,title:w=>tl('EARNINGS','TRIMESTRALI')+' · '+(w.state.sym||''),render:renderErns},
+    HOLD:{tag:'HOLD',w:780,h:660,title:w=>tl('HOLDINGS','COMPOSIZIONE')+(w.state.sym?' · '+w.state.sym:''),render:renderHold},
     SYS:{tag:'SYS',w:820,h:640,title:()=>'SYSTEM STATUS',render:renderSys},
     BOND:{tag:'BOND',w:1000,h:660,title:()=>'WORLD GOVERNMENT BONDS',render:renderBond},
     COT:{tag:'COT',w:1080,h:660,title:()=>'FUTURES POSITIONING · CFTC',render:renderCot},
@@ -4683,16 +4707,126 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // notes on one security: AAPL NOTE (or NOTE AAPL) shows its notes and fills the symbol of a new one; NOTE alone shows them all
   function openNote(sym){NT.filter=sym||'';if(sym&&!NT.form.id&&!String(NT.form.text||'').trim())NT.form.sym=sym;const w=openOrFocus('NOTE',{});paintWin(w);return w;}
 
+  /* ---------- security functions as on Nico's terminal (23 Oct 2026; no new provider) ----------
+     FA  financial statements from the company's own filings (SEC EDGAR XBRL, /api/fa) — one line per request, two at a
+         time (SEC refuses bursts; each concept file is parsed on its own); five fiscal years, then the trailing twelve
+         months (flows, DERIVED) or the latest quarter-end (balance sheet); ratios DERIVED from those lines
+     CN  company news, last 7 days (Finnhub, /api/cn): headlines linking to the publisher
+     ERN with a ticker: the next report and the last reported quarters with surprise and price reaction (/api/earnings/symbol)
+     HOLD an ETF's holdings: IVV, QQQ and DIA in full from the issuers' daily files (the ones the heat maps read), UCITS
+          ETFs from justETF (top 10, countries, sectors); any other ETF: N/A */
+  const DAY10=864e6,faNear=(a,b)=>Math.abs(Date.parse(a)-Date.parse(b))<=DAY10;
+  const symHead=(win,k,label,extra)=>`<div class="wl-add"><input class="wl-in" data-k="${k}" value="${esc(win.state.sym||'')}" maxlength="14" aria-label="ticker" style="max-width:140px"><button class="wl-btn sh-go">${label}</button>${extra||''}<span class="w-sp"></span>${['DES','FA','ERN','CN'].filter(c=>c!==WINTYPES[win.type].tag).map(c=>`<button class="sr-b" data-shf="${c}">${c}</button>`).join('')}</div>`;
+  function bindSymHead(body,win,k,ok){const i=body.querySelector(`[data-k="${k}"]`),go=()=>{const v=i.value.trim().toUpperCase();if(ok(v)){win.state.sym=v;paintWin(win);}};body.querySelector('.sh-go').onclick=go;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};
+    $$('[data-shf]',body).forEach(b=>b.onclick=()=>applyFunc(b.dataset.shf,win.state.sym));}
+  const faFmt=(unit,v)=>!fin(v)?'—':unit==='USD/shares'?(v<0?'−$':'$')+Math.abs(v).toFixed(2):unit==='shares'?bigN(v):bigUsd(v);
+  function renderFa(body,win){const st=win.state;if(!st.sym)st.sym=defaultUsSym();if(!st.st)st.st='is';const s=st.sym;
+    const head=symHead(win,'fasym',tl('SHOW','MOSTRA'),' '+tb7('fast',[['is',tl('INCOME','CONTO ECONOMICO')],['bs',tl('BALANCE SHEET','STATO PATRIMONIALE')],['cf',tl('CASH FLOW','FLUSSI DI CASSA')]],st.st));
+    const out=(html,items)=>{setProv(win,items);body.innerHTML=head+html;bindSymHead(body,win,'fasym',usSym);$$('[data-fast]',body).forEach(b=>b.onclick=()=>{st.st=b.dataset.fast;paintWin(win);});};
+    if(!usSym(s))return out(naB(tl('financial statements: U.S. companies filing with the SEC only','bilanci: solo società USA registrate alla SEC'),'no_data'),{'ds:FA':S.NA});
+    const C=get7('/api/fa?symbol='+encodeURIComponent(s),6*3600000,['FA']),cd=C.data;
+    if(!cd&&!C.err)return out(`<div class="empty">${tl('Loading…','Caricamento…')}</div>`,{'ds:FA':S.LOADING});
+    if(!cd||!cd.lines)return out(naB(cd&&cd.error==='not_sec_registrant'?tl('not an SEC registrant: financial statements','non registrata alla SEC: bilanci'):tl('financial statements','bilanci'),(cd&&cd.error)||C.err),{'ds:FA':S.NA});
+    // the lines of this statement (with revenue, for the margins), two requests at a time
+    const L=cd.lines.filter(l=>l.st===st.st),need=L.map(l=>l.id);if(!need.includes('revenue'))need.push('revenue');
+    const F={};let busy=0;
+    need.forEach(id=>{const path=`/api/fa?symbol=${encodeURIComponent(s)}&c=${id}`,x=X7[path];if((x&&(x.at||x.loading))||busy<2)F[id]=get7(path,6*3600000,['FA']);else F[id]={queued:true};if(F[id].loading||F[id].queued)busy++;});
+    const dv=id=>{const x=F[id];return x&&x.data&&!x.data.error&&x.data.years?x.data:null;};
+    const ends=[];need.forEach(id=>{const d=dv(id);if(d)d.years.forEach(y=>{if(!ends.some(e=>faNear(e,y.end)))ends.push(y.end);});});ends.sort();const cols=ends.slice(-5);
+    const yAt=(d,e)=>d?d.years.find(y=>faNear(y.end,e))||null:null,vAt=(id,e)=>{const y=yAt(dv(id),e);return y?y.value:null;},rAt=id=>{const d=dv(id);return d&&d.recent?d.recent:null;};
+    const flow=st.st!=='bs',recHead=flow?'TTM':tl('LATEST Q','ULTIMO TRIM.');
+    const yoy=(a,b)=>fin(a)&&fin(b)&&b!==0?(a/b-1)*100*(b<0?-1:1):null;
+    const items={};
+    const rows=L.map(l=>{const x=F[l.id],d=dv(l.id),k='fa:'+l.id;
+      if(!d){const wait=x.queued||x.loading||(!x.data&&!x.err);items[k]=wait?S.LOADING:S.NA;
+        return`<tr><td class="l">${esc(tl(l.label,FA_IT[l.id]||l.label))}</td><td colspan="${cols.length+2}" class="${wait?'k':'na'}">${wait?'…':'N/A — '+esc(x.data&&x.data.message?tl(x.data.message,'non presente nei documenti della società (o senza un concetto us-gaap standard)'):P.errorText((x.data&&x.data.error)||x.err||'no_data'))}</td></tr>`;}
+      items[k]=d.status==='STALE'?S.STALE:S.LIVE;const r=d.recent,last=cols.length?vAt(l.id,cols[cols.length-1]):null,prev=cols.length>1?vAt(l.id,cols[cols.length-2]):null,g=yoy(last,prev);
+      return`<tr><td class="l" title="${esc(d.concept)}">${esc(tl(l.label,FA_IT[l.id]||l.label))}</td>${cols.map(e=>{const y=yAt(d,e);return`<td class="num"${y?` title="${esc((y.concept||d.concept)+' · '+y.form+' '+tl('filed','depositato il')+' '+y.filed)}"`:''}>${y?faFmt(l.unit,y.value):'—'}</td>`;}).join('')}<td class="num"${r?` title="${esc(r.basis==='ttm'?tl('to','al')+' '+r.end+' · DERIVED':r.end+' · '+(r.form||'')+' '+(r.filed||''))}"`:''}>${r?faFmt(l.unit,r.value):'—'}</td><td class="num ${cls(g)}">${fin(g)?pct(g):'—'}</td></tr>`;});
+    // ratios from the lines above (DERIVED)
+    const rec=(id)=>{const r=rAt(id);return r?r:null;};
+    const ratio=(label,f,unit)=>{const vals=cols.map(e=>f(id=>vAt(id,e))),rv=f(id=>{const r=rec(id);return r?r.value:null;});if(!vals.some(fin)&&!fin(rv))return'';items['fa:derived']=S.DERIVED;
+      const fm=v=>!fin(v)?'—':unit==='x'?v.toFixed(2)+'×':unit==='$'?bigUsd(v):v.toFixed(1)+'%';return`<tr class="fa-d"><td class="l">${label}</td>${vals.map(v=>`<td class="num">${fm(v)}</td>`).join('')}<td class="num">${fm(rv)}</td><td></td></tr>`;};
+    const div=(a,b)=>fin(a)&&fin(b)&&b!==0?a/b:null;
+    let der='';
+    if(st.st==='is')der=ratio(tl('Gross margin','Margine lordo'),v=>{const g=fin(v('gross'))?v('gross'):fin(v('revenue'))&&fin(v('cogs'))?v('revenue')-v('cogs'):null;const q=div(g,v('revenue'));return fin(q)?q*100:null;})+ratio(tl('Operating margin','Margine operativo'),v=>{const q=div(v('opInc'),v('revenue'));return fin(q)?q*100:null;})+ratio(tl('Net margin','Margine netto'),v=>{const q=div(v('netInc'),v('revenue'));return fin(q)?q*100:null;})+ratio(tl('Tax rate','Aliquota fiscale'),v=>{const q=div(v('tax'),v('pretax'));return fin(q)?q*100:null;});
+    else if(st.st==='bs')der=ratio(tl('Current ratio','Indice di liquidità'),v=>div(v('curAssets'),v('curLiab')),'x')+ratio(tl('Debt / equity','Debito / patrimonio'),v=>div(v('ltDebt'),v('equity')),'x')+ratio(tl('Equity / assets','Patrimonio / attivo'),v=>{const q=div(v('equity'),v('assets'));return fin(q)?q*100:null;});
+    else der=ratio(tl('Free cash flow','Free cash flow'),v=>fin(v('cfo'))&&fin(v('capex'))?v('cfo')-v('capex'):null,'$')+ratio(tl('FCF margin','Margine FCF'),v=>{const q=div(fin(v('cfo'))&&fin(v('capex'))?v('cfo')-v('capex'):null,v('revenue'));return fin(q)?q*100:null;})+ratio(tl('Payout to shareholders / FCF','Distribuito agli azionisti / FCF'),v=>{const fcf=fin(v('cfo'))&&fin(v('capex'))?v('cfo')-v('capex'):null,p=(fin(v('buyback'))?v('buyback'):0)+(fin(v('divPaid'))?v('divPaid'):0);return fin(fcf)&&fcf>0&&(fin(v('buyback'))||fin(v('divPaid')))?p/fcf*100:null;});
+    const table=cols.length||rows.length?`<table class="pf fa-t"><thead><tr><th class="l">${esc(cd.name||s)}</th>${cols.map(e=>`<th title="${esc(tl('fiscal year ended','esercizio chiuso il')+' '+fmtDay(e))}">FY${e.slice(0,4)}<br><span class="k">${esc(fmtDay(e).replace(/^\d+\s/,''))}</span></th>`).join('')}<th>${recHead}${flow?' '+chip(S.DERIVED,tl('trailing twelve months: year-to-date + last fiscal year − the same year-to-date a year earlier','ultimi dodici mesi: da inizio anno + ultimo esercizio − lo stesso periodo un anno prima')):''}</th><th>${tl('YoY','A/A')}</th></tr></thead><tbody>${rows.join('')}${der}</tbody></table>`:'';
+    out(table+`<div class="src-line"><span>${tl('SEC EDGAR XBRL: the figures the company tags in its own filings — each fiscal year from the latest 10-K that reports it; TTM from the 10-Qs (DERIVED); balance sheet: the latest quarter-end. A line not tagged with a standard us-gaap concept is N/A. Ratios DERIVED from these lines.','SEC EDGAR XBRL: i valori che la società indica nei propri documenti — ogni esercizio dall\'ultimo 10-K che lo riporta; TTM dai 10-Q (DERIVED); stato patrimoniale: l\'ultima chiusura trimestrale. Una voce senza un concetto us-gaap standard è N/A. Indici DERIVED da queste voci.')}</span> <a href="${esc(cd.sourceUrl)}" target="_blank" rel="noopener">EDGAR</a></div>`,items);}
+  const FA_IT={revenue:'Ricavi',cogs:'Costo del venduto',gross:'Utile lordo',rnd:'Ricerca e sviluppo',sga:'Spese generali, amministrative e di vendita',opInc:'Utile operativo',pretax:'Utile ante imposte',tax:'Imposte sul reddito',netInc:'Utile netto',eps:'EPS (diluito)',shDil:'Azioni diluite (media)',cash:'Cassa e equivalenti',curAssets:'Attività correnti',assets:'Totale attivo',curLiab:'Passività correnti',liab:'Totale passività',ltDebt:'Debito a lungo termine',equity:'Patrimonio netto',cfo:'Flusso di cassa operativo',capex:'Investimenti in immobilizzazioni',cfi:'Flusso di cassa da investimenti',cff:'Flusso di cassa da finanziamenti',buyback:'Riacquisto di azioni proprie',divPaid:'Dividendi pagati'};
+
+  const cnAgo=t=>{const m=Math.max(0,Math.round((Date.now()-Date.parse(t))/60000));return m<60?tl(`${m} min ago`,`${m} min fa`):m<1440?tl(`${Math.round(m/60)} h ago`,`${Math.round(m/60)} h fa`):fmtDay(t);};
+  function renderCn(body,win){const st=win.state;if(!st.sym)st.sym=defaultUsSym();const s=st.sym;const head=symHead(win,'cnsym',tl('SHOW','MOSTRA'));
+    const out=(html,items)=>{setProv(win,items);body.innerHTML=head+html;bindSymHead(body,win,'cnsym',usSym);};
+    if(!usSym(s))return out(naB(tl('company news: U.S.-listed companies (Finnhub)','news della società: società quotate negli USA (Finnhub)'),'no_data'),{'ds:CN':S.NA});
+    const e=get7('/api/cn?symbol='+encodeURIComponent(s),900000,['CN']),d=e.data;
+    if(!d&&!e.err)return out(`<div class="empty">${tl('Loading…','Caricamento…')}</div>`,{'ds:CN':S.LOADING});
+    if(!d||!d.items)return out(naB(d&&d.error==='finnhub_not_configured'?tl('company news — the Finnhub key is not set in the Worker','news della società — la chiave Finnhub non è impostata nel Worker'):tl('company news','news della società'),(d&&d.error)||e.err),{'ds:CN':S.NA});
+    out((d.items.length?`<div class="cn-list">${d.items.map(x=>`<a class="cn-i" href="${esc(x.url)}" target="_blank" rel="noopener"><span class="cn-t" title="${esc(fmtDT(x.t))}">${esc(cnAgo(x.t))}</span><span class="cn-s notranslate">${esc(x.source||'')}</span><span class="cn-h notranslate">${esc(x.headline)}</span></a>`).join('')}</div>`:`<div class="empty">${tl('No news about','Nessuna news su')} ${esc(s)} ${tl('in the last 7 days.','negli ultimi 7 giorni.')}</div>`)
+      +`<div class="src-line"><span>${tl('Finnhub company news, last 7 days','News della società di Finnhub, ultimi 7 giorni')} · ${d.count} · ${tl('each headline links to its publisher','ogni titolo porta all\'editore')} · ${tl('read','letto')} ${fmtDT(d.fetchedAt)}</span> <a href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">Finnhub</a></div>`,{'ds:CN':d.status==='STALE'?S.STALE:S.LIVE});}
+
+  function renderErns(body,win){const st=win.state;if(!st.sym)st.sym=defaultUsSym();const s=st.sym;const head=symHead(win,'ernsym',tl('SHOW','MOSTRA'),` <button class="sr-b ern-cal" title="${tl('every company reporting in the coming weeks','tutte le società che pubblicano nelle prossime settimane')}">${tl('CALENDAR','CALENDARIO')}</button>`);
+    const out=(html,items)=>{setProv(win,items);body.innerHTML=head+html;bindSymHead(body,win,'ernsym',usSym);body.querySelector('.ern-cal').onclick=()=>openOrFocus('ERN',defaultState('ERN'));};
+    if(!usSym(s))return out(naB(tl('earnings of one company: U.S.-listed companies (Finnhub)','trimestrali di una società: società quotate negli USA (Finnhub)'),'no_data'),{'ds:ERNS':S.NA});
+    const e=get7('/api/earnings/symbol?symbol='+encodeURIComponent(s),3*3600000,['ERNS']),d=e.data;
+    if(!d&&!e.err)return out(`<div class="empty">${tl('Loading…','Caricamento…')}</div>`,{'ds:ERNS':S.LOADING});
+    if(!d||!d.history)return out(naB(d&&d.error==='finnhub_not_configured'?tl('earnings — the Finnhub key is not set in the Worker','trimestrali — la chiave Finnhub non è impostata nel Worker'):d&&d.error==='no_data'?tl('no earnings for','nessuna trimestrale per')+' '+s:tl('earnings','trimestrali'),(d&&d.error)||e.err),{'ds:ERNS':S.NA});
+    const n=d.next,days=n?Math.round((Date.parse(n.date+'T12:00:00Z')-Date.parse(d.today+'T12:00:00Z'))/86400000):null,usd2=v=>fin(v)?(v<0?'−$':'$')+Math.abs(v).toFixed(2):'—';
+    const nextB=n?`<div class="ern-next"><div><span class="k">${tl('NEXT REPORT','PROSSIMA TRIMESTRALE')}</span><b>${esc(fmtDay(n.date))}</b><span class="k">${n.hour?esc(tl(n.hour,{'before open':'prima dell\'apertura','after close':'dopo la chiusura','during market':'durante la seduta'}[n.hour]||n.hour))+' · ':''}${days===0?tl('today','oggi'):days===1?tl('tomorrow','domani'):tl(`in ${days} days`,`tra ${days} giorni`)}</span></div><div><span class="k">${tl('QUARTER','TRIMESTRE')}</span><b>${esc(n.quarter||'—')}</b></div><div><span class="k">${tl('EPS ESTIMATE','STIMA EPS')}</span><b>${usd2(n.epsEstimate)}</b></div><div><span class="k">${tl('REVENUE ESTIMATE','STIMA RICAVI')}</span><b>${bigUsd(n.revenueEstimate)}</b></div></div>`:`<div class="k" style="margin:4px 0 10px">${tl('No report date announced in the next 120 days.','Nessuna data annunciata nei prossimi 120 giorni.')}</div>`;
+    const mx=Math.max(1,...d.history.map(x=>Math.abs(x.surprisePct||0)));
+    const rows=d.history.map(x=>`<tr><td class="l"><b>${esc(x.quarter||'—')}</b></td><td class="l k">${esc(fmtDay(x.period))}</td><td class="l">${x.date?esc(fmtDay(x.date)):'—'}</td><td class="num">${usd2(x.epsEstimate)}</td><td class="num"><b>${usd2(x.epsActual)}</b></td><td class="num ${cls(x.surprise)}">${fin(x.surprise)?(x.surprise>=0?'+':'−')+'$'+Math.abs(x.surprise).toFixed(2):'—'}</td><td class="num ${cls(x.surprisePct)}">${fin(x.surprisePct)?pct(x.surprisePct):'—'}</td><td class="ern-bar"><i class="${cls(x.surprisePct)}" style="width:${fin(x.surprisePct)?Math.max(2,Math.abs(x.surprisePct)/mx*100).toFixed(0):0}%"></i></td><td class="num">${bigUsd(x.revenueEstimate)}</td><td class="num">${bigUsd(x.revenueActual)}</td><td class="num ${cls(x.reaction&&x.reaction.chg)}" title="${x.reaction?esc(tl('session of','seduta del')+' '+x.reaction.session):''}">${x.reaction?pct(x.reaction.chg):'—'}</td></tr>`).join('');
+    const items={'ds:ERNS':d.status==='STALE'?S.STALE:d.status==='PARTIAL'?S.PARTIAL:S.LIVE};if(d.history.some(x=>x.reaction))items['ds:ERNS-r']=S.DERIVED;
+    out(nextB+(d.history.length?`<table class="pf"><thead><tr><th class="l">${tl('QUARTER','TRIMESTRE')}</th><th class="l">${tl('PERIOD END','FINE PERIODO')}</th><th class="l">${tl('REPORTED','PUBBLICATA')}</th><th>${tl('EPS EST.','EPS STIMA')}</th><th>EPS</th><th>${tl('SURPRISE','SORPRESA')}</th><th>%</th><th></th><th>${tl('REV. EST.','RICAVI STIMA')}</th><th>${tl('REVENUE','RICAVI')}</th><th>${tl('REACTION','REAZIONE')} ${chip(S.DERIVED,tl(d.reactionBasis,'chiusura della prima seduta dopo la trimestrale rispetto alla chiusura precedente (Alpaca consolidato) — DERIVED'))}</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty">${tl('No reported quarter from Finnhub.','Nessun trimestre pubblicato da Finnhub.')}</div>`)
+      +`<div class="src-line"><span>${tl('Finnhub: earnings calendar and the reported quarters (estimate, actual, surprise); revenue where the calendar has it; reaction from Alpaca daily closes','Finnhub: calendario delle trimestrali e trimestri pubblicati (stima, effettivo, sorpresa); ricavi dove il calendario li ha; reazione dalle chiusure giornaliere Alpaca')} · ${tl('read','letto')} ${fmtDT(d.fetchedAt)}</span> <a href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">Finnhub</a></div>`,items);}
+
+  const HOLD_ISSUER={IVV:'SPX',QQQ:'NDX',DIA:'DJI'};
+  function renderHold(body,win){const st=win.state;if(st.q==null)st.q='';const s=String(st.sym||'').toUpperCase();
+    const head=`<div class="wl-add"><input class="wl-in" data-k="hsym" value="${esc(s)}" maxlength="14" placeholder="SWDA, VWCE, IE00B4L5Y983, IVV, QQQ, DIA" aria-label="ETF" style="max-width:220px"><button class="wl-btn sh-go">${tl('HOLDINGS','COMPOSIZIONE')}</button><span class="k">${tl('in full: IVV, QQQ, DIA (issuer files) · UCITS ETFs: top 10, countries, sectors (justETF)','complete: IVV, QQQ, DIA (file degli emittenti) · ETF UCITS: prime 10, paesi, settori (justETF)')}</span></div>`;
+    const out=(html,items)=>{setProv(win,items);body.innerHTML=head+html;const i=body.querySelector('[data-k="hsym"]'),go=()=>{const v=i.value.trim().toUpperCase();if(SYMBOL_OK.test(v)||ISIN_RE.test(v)){st.sym=v;st.q='';paintWin(win);}};body.querySelector('.sh-go').onclick=go;i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};};
+    if(!s)return out(`<div class="empty">${tl('Type an ETF: a ticker or an ISIN.','Scrivi un ETF: ticker o ISIN.')}</div>`,{});
+    const u=HOLD_ISSUER[s];
+    if(u){const M=mapSt(u);spxGet('u','/api/spx/universe'+mapQ(u),false,u);if(u!=='SPX')spxGet('u','/api/spx/universe',false,'SPX');
+      if(!M.u&&!M.err.u)return out(`<div class="empty">${tl('Loading the issuer\'s file…','Caricamento del file dell\'emittente…')}</div>`,{'ds:HOLD':S.LOADING});
+      if(!M.u)return out(naB(tl('the issuer\'s holdings file','il file delle posizioni dell\'emittente'),M.err.u),{'ds:HOLD':S.NA});
+      const sec={};if(SPX.u&&Array.isArray(SPX.u.items))SPX.u.items.forEach(x=>{if(x.sector)sec[x.sym]=x.sector;});
+      const all=M.u.items.filter(x=>fin(x.weight)).slice().sort((a,b)=>b.weight-a.weight),q=st.q.trim().toUpperCase();
+      const secOf=x=>x.sector||sec[x.sym]||null,list=all.filter(x=>!q||x.sym.includes(q)||String(x.name||'').toUpperCase().includes(q)||String(secOf(x)||'').toUpperCase().includes(q));
+      const agg={};all.forEach(x=>{const k=secOf(x)||tl('Not in the S&P 500 (no GICS sector)','Fuori dall\'S&P 500 (senza settore GICS)');agg[k]=(agg[k]||0)+x.weight;});
+      const top10=all.slice(0,10).reduce((a,x)=>a+x.weight,0),mxW=all.length?all[0].weight:1;
+      const rows=list.map(x=>`<tr data-sym="${esc(x.sym)}" tabindex="0" role="button"><td class="k">${all.indexOf(x)+1}</td><td><b>${esc(x.sym)}</b></td><td class="l nm">${esc(x.name||'—')}</td><td class="l k">${esc(secOf(x)||'—')}</td><td class="num">${x.weight.toFixed(2)}%</td><td class="hold-bar"><i style="width:${Math.max(1,x.weight/mxW*100).toFixed(0)}%"></i></td></tr>`).join('');
+      out(`<div class="hold-kpi"><div><span class="k">${tl('HOLDINGS','POSIZIONI')}</span><b>${all.length}</b></div><div><span class="k">${tl('TOP 10 WEIGHT','PESO PRIME 10')}</span><b>${top10.toFixed(2)}%</b></div><div><span class="k">${tl('AS OF','AL')}</span><b>${M.u.holdingsAsOf?esc(fmtDay(M.u.holdingsAsOf)):'—'}</b></div></div>
+        <div class="ef-comp"><div><div class="yc-h">${tl('SECTORS','SETTORI')} ${chip(S.DERIVED,tl('sum of the holdings\' weights by GICS sector (the S&P 500 file\'s sectors)','somma dei pesi per settore GICS (i settori del file dell\'S&P 500)'))}</div>${efBars(Object.entries(agg).sort((a,b)=>b[1]-a[1]))}</div></div>
+        <div class="wl-add" style="margin-top:10px"><input class="sr-in" data-k="hq" placeholder="${tl('filter: ticker, name or sector','filtra: ticker, nome o settore')}" value="${esc(st.q)}" style="max-width:260px"><span class="k">${list.length} / ${all.length}</span></div>
+        <table class="pf"><thead><tr><th>#</th><th>${tl('SYMBOL','SIMBOLO')}</th><th class="l">${tl('NAME','NOME')}</th><th class="l">${tl('SECTOR','SETTORE')}</th><th>${tl('WEIGHT','PESO')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="src-line"><span>${esc(M.u.source||'')} · ${esc(M.u.weightBasis||'')}</span> <a href="${esc(M.u.sourceUrl||'#')}" target="_blank" rel="noopener">${tl('issuer','emittente')}</a></div>`,{'ds:HOLD':M.u.status==='STALE'?S.STALE:S.LIVE});
+      const hq=body.querySelector('[data-k="hq"]');hq.oninput=()=>{st.q=hq.value;clearTimeout(win._qt);win._qt=setTimeout(()=>liveRepaint(win),180);};
+      $$('tr[data-sym]',body).forEach(tr=>{const go=()=>openSecurity(tr.dataset.sym);tr.onclick=go;tr.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};});return;}
+    const r=efResolve(s);
+    if(!r){const U=efUni(),gone=U.err||(U.data&&!U.loading);return out(gone?naB(tl('the ETF list','la lista degli ETF'),U.err||'no_data'):`<div class="empty">${tl('Loading the ETF list…','Caricamento della lista degli ETF…')}</div>`,{'ds:HOLD':gone?S.NA:S.LOADING});}
+    if(!r.isin)return out(naB(r.us?tl(`holdings of ${s}: the issuer files read here are IVV, QQQ and DIA; justETF covers European-listed funds`,`composizione di ${s}: i file degli emittenti letti qui sono IVV, QQQ e DIA; justETF copre i fondi quotati in Europa`):tl(`${s} is not an ETF this terminal knows`,`${s} non è un ETF noto a questo terminale`),'no_data'),{'ds:HOLD':S.NA});
+    const P1=get7('/api/etf/profile?isin='+r.isin,600000,['HOLD']),d=P1.data,ref=d&&d.ref;
+    if(!d&&!P1.err)return out(`<div class="empty">${tl('Loading (a fund never read is read from justETF now)…','Caricamento (un fondo mai letto viene letto ora da justETF)…')}</div>`,{'ds:HOLD':S.LOADING});
+    if(!ref)return out(naB(tl('justETF reference data','dati anagrafici justETF'),(d&&d.refError)||P1.err||'no_data'),{'ds:HOLD':S.NA});
+    out(`<div class="ef-h"><div><div class="ef-name">${esc(ref.name||s)}</div><div class="k">ISIN ${esc(r.isin)}${ref.focus?' · '+esc(ref.focus):''}</div></div><div class="ef-act"><button class="sr-b h-efp">EFP</button></div></div>
+      <div class="hold-kpi"><div><span class="k">${tl('HOLDINGS','POSIZIONI')}</span><b>${fin(ref.holdingsTotal)?ref.holdingsTotal.toLocaleString('en-US'):'—'}</b></div><div><span class="k">${tl('TOP 10 WEIGHT','PESO PRIME 10')}</span><b>${fin(ref.top10Weight)?ref.top10Weight.toFixed(2)+'%':'—'}</b></div></div>
+      <div class="ef-comp"><div><div class="yc-h">${tl('TOP 10 HOLDINGS','PRIME 10 POSIZIONI')}</div>${efBars(ref.top10)}</div><div><div class="yc-h">${tl('COUNTRIES','PAESI')}</div>${efBars(efRest(ref.countries))}</div><div><div class="yc-h">${tl('SECTORS','SETTORI')}</div>${efBars(efRest(ref.sectors))}</div></div>
+      <div class="src-line">${chip(ref.status==='STALE'?S.STALE:S.LIVE)} <a href="${esc(ref.sourceUrl)}" target="_blank" rel="noopener">justETF</a> · ${tl('read','letto')} ${fmtDT(ref.fetchedAt)} · ${tl('as justETF\'s page lists them: the 10 largest holdings, the largest countries and sectors; the full list is not published there','come li elenca la pagina di justETF: le 10 posizioni maggiori, i paesi e i settori maggiori; la lista completa lì non è pubblicata')}</div>`,{'ds:HOLD':ref.status==='STALE'?S.STALE:S.LIVE});
+    body.querySelector('.h-efp').onclick=()=>openEfp(r.isin);}
+
   /* ---------- command line ---------- */
   const FUNCMAP={WIF:"WIF",WHATIF:"WIF",YAS:"YAS",YIELD:"YAS",BCALC:"YAS",PLAB:"PLAB",LAB:"PLAB",EFS:"EFS",ETFSCR:"EFS",SCREENETF:"EFS",EFP:"EFP",EFC:"EFC",EXPO:"EXPO",LOOK:"EXPO",BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW",YEAR:"YEAR",YR:"YEAR"};
-  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["UCITS","QUANT","QNT","MC","VAR","VOL","DIST","BETA","FACT","FACTOR","FACTORS","EF","SEAS","HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS","HIDE","PRIVACY"]));
-  const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP","MC","VAR","VOL","DIST","BETA","FACT","SEAS","QUANT","NOTE","NOTES"]);
+  const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["UCITS","QUANT","QNT","MC","VAR","VOL","DIST","BETA","FACT","FACTOR","FACTORS","EF","SEAS","HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS","HIDE","PRIVACY","FA","FIN","CN","HOLD","HOLDINGS"]));
+  const SYM_FUNCS=new Set(["DES","OMON","WS","BT","GP","MC","VAR","VOL","DIST","BETA","FACT","SEAS","QUANT","NOTE","NOTES","FA","FIN","CN","HOLD","HOLDINGS","ERN","EARN","EARNINGS"]);
   function applyFunc(f,ticker){
     if(f==="HELP"){toggleHelp(true);return;}
     if(f==="MENU"||f==="FN"||f==="FUNCTIONS"){toggleMenu(true);return;}
     if(f==="TOUR"){startTour();return;}
     if(f==="HIDE"||f==="PRIVACY"){setHide(!HIDE.on);return;}
     if(f==="NOTE"||f==="NOTES"){openNote(ticker||null);return;}
+    if(f==="FA"||f==="FIN"){openSym('FA',ticker||null);return;}
+    if(f==="CN"){openSym('CN',ticker||null);return;}
+    if(f==="HOLD"||f==="HOLDINGS"){openSym('HOLD',ticker||null);return;}
+    if((f==="ERN"||f==="EARN"||f==="EARNINGS")&&ticker){openSym('ERNS',ticker);return;}
     if(f==="FXM"){openMap('FX');return;}
     if(f==="UCITS"){openUcits();return;}
     if(f==="WS"){openWorkspace(ticker||defaultUsSym());return;}

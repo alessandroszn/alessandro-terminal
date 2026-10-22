@@ -346,6 +346,12 @@ function ffZip(name, text) {
   return Buffer.concat([lh, nb, data, ch, nb, end]);
 }
 const E2E_SETTLE = settlementCandidates(Date.now()).find((c) => c <= new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10));
+// SEC XBRL company concepts for FA (their format): five fiscal years ending late September, a 10-Q after the last one
+const faFlow = (vals, q) => ({ units: { USD: vals.map((v, i) => ({ start: `${2020 + i}-09-27`, end: `${2021 + i}-09-25`, val: v, form: "10-K", filed: `${2021 + i}-10-29`, fp: "FY" })).concat(q ? [{ start: "2025-09-28", end: "2026-06-27", val: q[0], form: "10-Q", filed: "2026-07-31", fp: "Q3" }, { start: "2024-09-29", end: "2025-06-28", val: q[1], form: "10-Q", filed: "2026-07-31", fp: "Q3" }, { start: "2026-03-29", end: "2026-06-27", val: q[2], form: "10-Q", filed: "2026-07-31", fp: "Q3" }] : []) } });
+const faInst = (vals) => ({ units: { USD: vals.map((v, i) => ({ end: `${2021 + i}-09-25`, val: v, form: "10-K", filed: `${2021 + i}-10-29`, fp: "FY" })) } });
+const SEC_FA = { RevenueFromContractWithCustomerExcludingAssessedTax: faFlow([300e9, 320e9, 340e9, 360e9, 400e9], [310e9, 290e9, 100e9]), CostOfGoodsAndServicesSold: faFlow([180e9, 190e9, 200e9, 210e9, 230e9]), GrossProfit: faFlow([120e9, 130e9, 140e9, 150e9, 170e9]),
+  OperatingIncomeLoss: faFlow([90e9, 100e9, 105e9, 110e9, 125e9]), NetIncomeLoss: faFlow([80e9, 90e9, 92e9, 95e9, 100e9], [80e9, 70e9, 25e9]), AssetsCurrent: faInst([130e9, 135e9, 140e9, 145e9, 150e9]), LiabilitiesCurrent: faInst([120e9, 150e9, 140e9, 150e9, 160e9]),
+  NetCashProvidedByUsedInOperatingActivities: faFlow([100e9, 110e9, 112e9, 115e9, 120e9]), PaymentsToAcquirePropertyPlantAndEquipment: faFlow([10e9, 11e9, 11e9, 12e9, 13e9]) };
 globalThis.fetch = async (u, init = {}) => {
   u = String(u);
   if (u.startsWith("https://quote.cnbc.com/")) { const syms = decodeURIComponent(/symbols=([^&]+)/.exec(u)[1]).split("|"); PV.cnbcAsked.push(syms); return new Response(JSON.stringify({ FormattedQuoteResult: { FormattedQuote: syms.map((s) => s === "ZZZZ" ? { symbol: s, code: 1 } : cnQuote(s)) } })); }
@@ -379,12 +385,18 @@ globalThis.fetch = async (u, init = {}) => {
     if (method === "getMe") return new Response(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, first_name: "Ale alerts", username: "ale_alerts_bot" } }));
     if (method === "getUpdates") return new Response(JSON.stringify({ ok: true, result: [{ update_id: 1, message: { message_id: 1, chat: { id: 4242, type: "private", first_name: "Alessandro" }, text: "/start" } }] }));
     return new Response(JSON.stringify({ ok: true, result: { message_id: 2 } })); }
+  // SEC EDGAR (ticker map, XBRL company concepts) and Finnhub (company news, reported quarters, earnings calendar): FA, CN, ERN
+  if (u === "https://www.sec.gov/files/company_tickers.json") return new Response(JSON.stringify({ 0: { cik_str: 320193, ticker: "AAPL", title: "Apple Inc." } }));
+  if (u.startsWith("https://data.sec.gov/api/xbrl/companyconcept/CIK0000320193/us-gaap/")) { const c = u.split("/us-gaap/")[1].replace(".json", ""), F = SEC_FA[c]; PV.secAsked = (PV.secAsked || 0) + 1; return F ? new Response(JSON.stringify(F)) : new Response("", { status: 404 }); }
+  if (u.startsWith("https://finnhub.io/api/v1/company-news")) return new Response(JSON.stringify([{ datetime: Math.floor(Date.now() / 1000) - 1800, headline: "Apple widens its chip line-up", source: "Reuters", url: "https://example.com/n1", related: "AAPL", summary: "publisher text" }, { datetime: Math.floor(Date.now() / 1000) - 3 * 86400, headline: "Suppliers report record orders", source: "MarketWatch", url: "https://example.com/n2", related: "AAPL" }]));
+  if (u.startsWith("https://finnhub.io/api/v1/stock/earnings")) return new Response(JSON.stringify([{ actual: 1.65, estimate: 1.6, period: "2026-06-30", quarter: 3, year: 2026, surprise: 0.05, surprisePercent: 3.125, symbol: "AAPL" }, { actual: 1.62, estimate: 1.65, period: "2026-03-31", quarter: 2, year: 2026, surprise: -0.03, surprisePercent: -1.8182, symbol: "AAPL" }]));
+  if (u.startsWith("https://finnhub.io/api/v1/calendar/earnings")) return new Response(JSON.stringify({ earningsCalendar: [{ date: "2026-07-30", hour: "amc", quarter: 3, year: 2026, epsActual: 1.65, epsEstimate: 1.6, revenueActual: 94e9, revenueEstimate: 92e9, symbol: "AAPL" }, { date: dShift(ET, 14), hour: "amc", quarter: 4, year: 2026, epsEstimate: 1.8, revenueEstimate: 101e9, symbol: "AAPL" }] }));
   return new Response("", { status: 404 });
 };
 const workerEnv = { ALLOWED_ORIGIN: ORIGIN, TELEGRAM_BOT_TOKEN: TG_TOKEN, BRIEFS: { get: async (k) => PV.kv.get(k) ?? null, put: async (k, v) => { PV.kv.set(k, v); }, delete: async (k) => { PV.kv.delete(k); } } };
-async function viaWorker(route, u) {
+async function viaWorker(route, u, envPlus = null) {
   const rq = route.request(), m = rq.method();
-  const r = await workerApp.fetch(new Request(u.href, { method: m, headers: { "content-type": rq.headers()["content-type"] || "", origin: ORIGIN }, body: m === "GET" || m === "HEAD" ? undefined : rq.postData() || undefined }), workerEnv, { waitUntil() {} });
+  const r = await workerApp.fetch(new Request(u.href, { method: m, headers: { "content-type": rq.headers()["content-type"] || "", origin: ORIGIN }, body: m === "GET" || m === "HEAD" ? undefined : rq.postData() || undefined }), envPlus ? { ...workerEnv, ...envPlus } : workerEnv, { waitUntil() {} });
   return route.fulfill({ status: r.status, contentType: "application/json", body: await r.text() });
 }
 
@@ -435,6 +447,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
     if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/bond/list" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (u.pathname === "/api/fa" || u.pathname === "/api/cn" || u.pathname === "/api/earnings/symbol")) return viaWorker(route, u, api.noFinnhub ? { SEC_CONTACT: "e2e@example.com" } : { SEC_CONTACT: "e2e@example.com", FINNHUB_KEY: "fh-e2e" });
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
     return route.abort();
@@ -894,7 +907,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,YEAR,HIDE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,HOLD,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,FA,CN,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,YEAR,HIDE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -1963,6 +1976,57 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[S] HIDE (Alt+P): every amount and quantity in the portfolio masked, percentages kept; the eye shows it, remembered; again shows them", /€\d/.test(shown) && /\b12\b/.test(shown) && !/[€$]\s?\d/.test(hidden) && /•••••/.test(hidden) && qtyCell === "•••••" && /\d+\.\d+%/.test(hidden) && eye.p === "true" && eye.ls === "1" && eye.blur && /€\d/.test(again) && (await page.evaluate(() => localStorage.getItem("at-hide"))) === "0", JSON.stringify({ hidden: hidden.slice(0, 500), qtyCell, eye }));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[S] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== T. a company and an ETF, as on Nico's terminal: FA (SEC filings), CN, ERN of one company (Finnhub), HOLD ===============
+{
+  // the ETF lists and one fund's justETF record as the Worker keeps them in KV (test inputs in their formats)
+  PV.kv.set("etf/universe", JSON.stringify({ asOf: "2026-10-21", fetchedAt: Date.now() - 3600_000, source: "Deutsche Börse — T7 (Xetra) All tradable instruments", sourceUrl: "https://www.cashmarket.deutsche-boerse.com/", rows: [["IE00BK5BQT80", "VANGUARD FTSE ALL-WLD U.ETF", "ETF", "Passive ETF", "A2PKXG", "VWCE:EUR"]] }));
+  PV.kv.set("etf/us", JSON.stringify({ fetchedAt: Date.now() - 3600_000, source: "Twelve Data — ETF list (reference data)", rows: [["SPY", "SPDR S&P 500 ETF Trust", "ARCX"]] }));
+  PV.kv.set("ref/je/IE00BK5BQT80", JSON.stringify({ ter: 0.19, fundSize: { value: 55100e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "23 July 2019", holdings: 3759,
+    name: "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", provider: "Vanguard", focus: "Equity, World", index: "FTSE All-World", top10: [["NVIDIA Corp.", 4.9, "US67066G1040"], ["Apple", 4.4, "US0378331005"]], top10Weight: 22.1, holdingsTotal: 3759,
+    countries: [["United States", 62.5], ["Japan", 5.9], ["Other", 31.6]], sectors: [["Technology", 27.4], ["Other", 72.6]], v: 3, fetchedAt: Date.now() - 86400_000 }));
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1200);
+  await cmd(page, "CLOSE"); await cmd(page, "AAPL FA"); await page.waitForTimeout(2500);
+  const fa = () => page.evaluate(() => { const w = document.querySelector('.win[data-type="FA"]'); if (!w) return null; const t = w.querySelector("table.fa-t"); return { title: w.querySelector(".w-title").textContent, pill: w.querySelector(".w-pv").textContent,
+    head: t ? [...t.tHead.rows[0].cells].map((c) => c.textContent.trim()) : [], rows: t ? [...t.tBodies[0].rows].map((r) => [...r.cells].map((c) => c.textContent.trim())) : [], text: w.querySelector(".win-body").innerText }; });
+  let f = await fa();
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/fa.png" });
+  const row = (x, re) => x.rows.find((r) => re.test(r[0])) || [];
+  ok("[T] AAPL FA: income statement from SEC filings — five fiscal years, TTM (DERIVED), YoY; margins DERIVED from the lines", f && f.title === "FINANCIALS · AAPL" && /^FY2021/.test(f.head[1]) && /^FY2025/.test(f.head[5]) && /^TTM/.test(f.head[6])
+    && row(f, /^Revenue$/).slice(1).join() === "$300.00B,$320.00B,$340.00B,$360.00B,$400.00B,$420.00B,+11.11%" && row(f, /^Gross margin/).slice(1, 6).join() === "40.0%,40.6%,41.2%,41.7%,42.5%" && row(f, /^Operating margin/)[5] === "31.3%"
+    && /^Research and development\s*N\/A — not in the company's filings/.test(row(f, /^Research/).join(" ")) && /SEC EDGAR XBRL/.test(f.text), JSON.stringify(f).slice(0, 900));
+  await page.click('.win[data-type="FA"] [data-fast="bs"]'); await page.waitForTimeout(2000); f = await fa();
+  ok("[T] FA balance sheet: year-end figures, current ratio DERIVED; a line not reported N/A", row(f, /^Current assets/).slice(1, 6).join() === "$130.00B,$135.00B,$140.00B,$145.00B,$150.00B" && row(f, /^Current ratio/)[1] === "1.08×" && /N\/A/.test(row(f, /^Total assets/).join(" ")), JSON.stringify(f.rows).slice(0, 600));
+  await page.click('.win[data-type="FA"] [data-fast="cf"]'); await page.waitForTimeout(2000); f = await fa();
+  ok("[T] FA cash flow: free cash flow and its margin DERIVED (operating cash flow − capex)", row(f, /^Free cash flow/)[5] === "$107.00B" && row(f, /^FCF margin/)[5] === "26.8%", JSON.stringify(f.rows).slice(0, 600));
+  await cmd(page, "AAPL CN"); await page.waitForTimeout(1200);
+  const cn = await page.evaluate(() => { const w = document.querySelector('.win[data-type="CN"]'); return { title: w.querySelector(".w-title").textContent, items: [...w.querySelectorAll(".cn-i")].map((a) => [a.querySelector(".cn-t").textContent, a.querySelector(".cn-s").textContent, a.querySelector(".cn-h").textContent, a.getAttribute("href"), a.target]), text: w.querySelector(".win-body").innerText }; });
+  ok("[T] AAPL CN: company news, newest first, linking to the publisher (no summary copied)", cn.title === "COMPANY NEWS · AAPL" && cn.items.length === 2 && cn.items[0][0] === "30 min ago" && cn.items[0][1] === "Reuters" && cn.items[0][3] === "https://example.com/n1" && cn.items[0][4] === "_blank" && !/publisher text/.test(cn.text) && /Finnhub company news, last 7 days/.test(cn.text), JSON.stringify(cn).slice(0, 500));
+  await cmd(page, "AAPL ERN"); await page.waitForTimeout(1200);
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/ern-cn.png" });
+  const er = await page.evaluate(() => { const w = document.querySelector('.win[data-type="ERNS"]'); return { tag: w.querySelector(".w-tag").textContent, title: w.querySelector(".w-title").textContent, next: w.querySelector(".ern-next")?.innerText || "", rows: [...w.querySelectorAll("tbody tr")].map((r) => [...r.cells].map((c) => c.textContent.trim())) }; });
+  ok("[T] AAPL ERN: the next report (in 14 days, estimates) and the last quarters with surprise; ERN alone stays the calendar", er.tag === "ERN" && er.title === "EARNINGS · AAPL" && /in 14 days/.test(er.next) && /\$1\.80/.test(er.next) && /\$101\.00B/.test(er.next)
+    && er.rows.length === 2 && er.rows[0][0] === "Q3 2026" && er.rows[0][4] === "$1.65" && er.rows[0][6] === "+3.13%" && er.rows[0][9] === "$94.00B" && er.rows[1][6] === "-1.82%", JSON.stringify(er).slice(0, 600));
+  await cmd(page, "IVV HOLD"); await page.waitForTimeout(1500);
+  const hv = await page.evaluate(() => { const w = document.querySelector('.win[data-type="HOLD"]'); return { title: w.querySelector(".w-title").textContent, n: w.querySelectorAll("tbody tr[data-sym]").length, first: w.querySelector("tbody tr[data-sym]")?.innerText || "", text: w.querySelector(".win-body").innerText }; });
+  ok("[T] IVV HOLD: every holding from the issuer's file, by weight, with sectors summed (DERIVED) and the source", hv.title === "HOLDINGS · IVV" && hv.n >= 5 && /^1\s+NVDA\s+NVIDIA\s+Information Technology\s+8\.60%/.test(hv.first) && /SECTORS/.test(hv.text) && /iShares Core S&P 500 ETF \(IVV\)/.test(hv.text), JSON.stringify(hv).slice(0, 500));
+  await page.fill('.win[data-type="HOLD"] [data-k="hsym"]', "SPY"); await page.press('.win[data-type="HOLD"] [data-k="hsym"]', "Enter"); await page.waitForTimeout(1500);
+  await page.waitForFunction(() => !/Loading/.test(document.querySelector('.win[data-type="HOLD"] .win-body').innerText), null, { timeout: 8000 }).catch(() => null);
+  const hs = await page.evaluate(() => document.querySelector('.win[data-type="HOLD"] .win-body').innerText);
+  ok("[T] HOLD of a U.S. ETF without an issuer file read here: N/A, nothing invented", /N\/A/.test(hs) && /IVV, QQQ and DIA/.test(hs), hs.slice(0, 300));
+  await page.evaluate(() => document.querySelector('.win[data-type="FA"] [data-shf="DES"]').click()); await page.waitForTimeout(800);
+  await page.fill('.win[data-type="HOLD"] [data-k="hsym"]', "VWCE"); await page.press('.win[data-type="HOLD"] [data-k="hsym"]', "Enter");
+  await page.waitForFunction(() => /TOP 10 HOLDINGS/.test(document.querySelector('.win[data-type="HOLD"] .win-body').innerText), null, { timeout: 8000 }).catch(() => null);
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/hold.png" });
+  const hu = await page.evaluate(() => document.querySelector('.win[data-type="HOLD"] .win-body').innerText);
+  ok("[T] VWCE HOLD (UCITS): justETF's top 10, countries and sectors, the number of holdings", /Vanguard FTSE All-World/.test(hu) && /3,759/.test(hu) && /22\.10%/.test(hu) && /NVIDIA Corp\.\s+4\.90%/.test(hu) && /United States\s+62\.50%/.test(hu) && /justETF/.test(hu), hu.slice(0, 600));
+  const des = await page.evaluate(() => !!document.querySelector('.win[data-type="DES"]') && [...document.querySelectorAll('.win[data-type="DES"] [data-shf]')].map((b) => b.textContent).join());
+  ok("[T] DES / FA / ERN / CN link to each other for the same company", des === "FA,ERN,CN", String(des));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[T] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

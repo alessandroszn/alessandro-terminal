@@ -218,7 +218,7 @@ export function sourcesStatus(env) {
   return [
     { id: "twelvedata", name: "Twelve Data", use: "quotes, intraday and daily history, market state", configured: !!env.TWELVEDATA_KEY },
     { id: "alpaca", name: "Alpaca", use: "U.S. consolidated daily bars, trades, crypto, options (indicative)", configured: !!(env.ALPACA_KEY_ID && env.ALPACA_SECRET_KEY) },
-    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN); backup quotes of U.S. stocks when Twelve Data and CNBC do not answer", configured: !!finnhubKey(env) },
+    { id: "finnhub", name: "Finnhub", use: "earnings calendar (ERN) and one company's earnings (AAPL ERN); company news (CN); backup quotes of U.S. stocks when Twelve Data and CNBC do not answer", configured: !!finnhubKey(env) },
     { id: "alphavantage", name: "Alpha Vantage", use: "last backup for quotes and the last 100 daily bars (U.S., Xetra, London, Toronto, FX) when Twelve Data, CNBC, Finnhub and Alpaca do not answer (approved 22 Oct 2026)", configured: !!env.ALPHAVANTAGE_KEY, note: env.ALPHAVANTAGE_KEY ? "free key: 25 requests a day, counted by the Worker" : "not set: add the Secret ALPHAVANTAGE_KEY (free key from alphavantage.co)" },
     { id: "stooq", name: "Stooq", use: "approved 22 Oct 2026 as a history backup — not used", configured: false, note: "since mid-2026 its downloads sit behind a JavaScript check (keys included), which also says automated access is not wanted" },
     { id: "eia", name: "U.S. EIA", use: "energy spot prices and weekly inventories (CMDTY)", configured: !!env.EIA_KEY },
@@ -228,7 +228,7 @@ export function sourcesStatus(env) {
     { id: "ecb-assets", name: "ECB list of eligible marketable assets", use: "a bond's terms — coupon, issue and maturity dates, currency, issuer — and the government bonds of a country to pick from (YAS, PLAB); never prices", configured: !!env.BRIEFS, note: "public file, no key; read a slice every 10 minutes once a new file is out (Monday to Friday, evening)" },
     { id: "xetra", name: "Deutsche Börse (Xetra)", use: "the list of every ETF / ETC / ETN tradable on Xetra (EFS)", configured: !!env.BRIEFS, note: "public file, no key; rebuilt when older than 6 days" },
     { id: "fred", name: "FRED (St. Louis Fed)", use: "U.S. Treasury curve, inflation expectations, credit spreads (YLD, BOND)", configured: !!env.FRED_KEY },
-    { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },
+    { id: "sec", name: "SEC EDGAR", use: "filings, company descriptions and fundamentals (DES), financial statements (FA)", configured: true, note: env.SEC_CONTACT ? "no key needed; contact set for SEC fair access" : "no key needed (SEC_CONTACT optional)" },
     { id: "telegram", name: "Telegram bot", use: "alerts sent to your chat (ALRT)", configured: !!tgToken(env), note: env.TELEGRAM_BOT_TOKEN && !tgToken(env) ? "TELEGRAM_BOT_TOKEN is set but does not look like a bot token" : undefined },
     { id: "ai", name: "Workers AI", use: "briefing editions", configured: !!env.AI },
     { id: "kv", name: "Workers KV", use: "briefings, portfolio, alerts, notes, boards, calendar archive", configured: !!env.BRIEFS },

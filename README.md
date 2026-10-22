@@ -291,6 +291,29 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## A company and an ETF, as on Nico's terminal: FA, CN, ERN of one company, HOLD (23 Oct 2026, no new provider)
+- `AAPL FA` (`FA AAPL`): financial statements from the company's own filings — SEC EDGAR XBRL company concepts
+  (`/api/fa?symbol=&c=<line>`, src/security.mjs; one line per request, two at a time from the page: SEC refuses bursts
+  and each concept file is parsed on its own within the free plan's CPU time). INCOME (revenue, cost of revenue, gross
+  profit, R&D, SG&A, operating income, pre-tax income, tax, net income, diluted EPS and shares), BALANCE SHEET (cash,
+  current assets, total assets, current liabilities, total liabilities, long-term debt, equity), CASH FLOW (operating,
+  capex, investing, financing, buybacks, dividends). Five fiscal years, each from the latest 10-K / 20-F that reports it
+  (restated figures replace the first ones; several us-gaap concepts per line, the newest leads and older ones fill the
+  years it lacks); then TTM for flows in dollars (year-to-date + last fiscal year − the same year-to-date a year
+  earlier, DERIVED) or the latest quarter-end for the balance sheet; YoY. Ratios DERIVED from the lines: gross,
+  operating and net margins, tax rate, current ratio, debt / equity, equity / assets, free cash flow, FCF margin, payout
+  / FCF. A line not tagged with a standard concept: N/A. Cached a day (Cache API, no KV writes).
+- `AAPL CN`: company news of the last 7 days (Finnhub company-news, `/api/cn`): time, publisher, headline linking to
+  the article; the publishers' summaries are not copied. Cached 15 minutes.
+- `AAPL ERN` (ERN alone stays the calendar): the next report (date, before / after the session, quarter, EPS and revenue
+  estimates) and the last reported quarters (Finnhub reported earnings: estimate, actual, surprise) joined to the
+  calendar's report dates (revenue where it has it) and, with Alpaca set, the price reaction of the session after the
+  report (DERIVED). `/api/earnings/symbol`, cached 6 hours.
+- `HOLD SWDA` / `IVV HOLD`: an ETF's holdings — IVV, QQQ and DIA in full from the issuers' daily files (the ones the heat
+  maps read), with sectors summed by GICS (DERIVED) and a filter; UCITS ETFs from justETF (top 10, countries, sectors,
+  number of holdings); any other ETF N/A.
+- DES, FA, ERN and CN link to each other for the same company.
+
 ## As on Nico's terminal: YEAR, privacy, keyboard, edges, "close what it opened" (23 Oct 2026, no new provider)
 - `YEAR`: how much of the year, quarter, month, week (ISO, from Monday) and day has gone, from the device clock in its
   own time zone (DERIVED), a countdown to each end that runs every second, and a dot per day of the year (today marked).
@@ -525,6 +548,7 @@ node test/factors.test.mjs      # FACT: the French library's ZIP / CSV, KV copy 
 node test/etf.test.mjs          # ETF section: Xetra / U.S. lists, justETF table and crawl, profile, compare, exposure, resolve
 node test/ucits.test.mjs        # UCITS list, CNBC lines (and CNBC's U.S. fallback refused), returns, justETF parser and cron
 node test/functions.test.mjs    # T07: central banks, spreads, EIA, earnings, SEC, options, alerts/notes/boards, status
+node test/security.test.mjs     # FA (SEC XBRL fiscal years, TTM, concepts merged), CN and one company's ERN (Finnhub)
 node test/nomock.test.mjs       # no mock / hard-coded market data in shipped files or the Worker
 node test/yields-world.test.mjs # more countries' yields: parsers, past curves, spreads, OECD monthly
 node test/rates-world.test.mjs  # market yields (CNBC), central banks compared (BIS), meeting calendars
