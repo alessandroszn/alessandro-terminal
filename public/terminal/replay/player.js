@@ -82,6 +82,8 @@
     if (url.pathname === "/api/health") return Promise.resolve(answer({ ok: true, recording: true }, 200));
     return recP.then(function () {
       var hit = method === "GET" ? fromRecording(url) : null;
+      // quotes are never recorded: answered in the shape /api/quote has, each symbol "not in this recording"
+      if (!hit && url.pathname === "/api/quote") { var errs = {}; String(url.searchParams.get("symbols") || "").split(",").filter(Boolean).forEach(function (sym) { errs[sym] = { error: "not_recorded", status: "N/A" }; }); return later(140, answer({ quotes: {}, errors: errs, meta: {} }, 404)); }
       // a short wait, as the network would take: the windows show their loading state first
       return later(140 + (url.pathname.length % 5) * 60, hit ? answer(hit.b, hit.s || 200) : answer({ error: "not_recorded", status: "N/A" }, 404));
     });
@@ -90,16 +92,19 @@
   // ---------- the script: commands typed in the command line ----------
   var L = function (en, it) { try { return window.I18N && window.I18N.lang() === "it" ? it : en; } catch (e) { return en; } };
   var STEPS = [
-    { cmd: "CB", hold: 7000, say: ["Central banks — policy rates of about 40 banks as the BIS compiles them, with their last move and next decision", "Banche centrali — tassi ufficiali di circa 40 banche come li raccoglie la BRI, con l'ultima mossa e la prossima decisione"] },
+    { cmd: "CB", hold: 4500, say: ["Central banks — policy rates of about 40 banks as the BIS compiles them, with their last move and next decision", "Banche centrali — tassi ufficiali di circa 40 banche come li raccoglie la BRI, con l'ultima mossa e la prossima decisione"] },
+    { click: "[data-cbv=\"HIST\"]", hold: 5500, say: ["…and their history since 2006, month by month (BIS)", "…e la loro storia dal 2006, mese per mese (BRI)"] },
     { cmd: "CURVE", hold: 7000, say: ["Yield curves — official government curves (U.S. Treasury, Bundesbank, Bank of England, Japan's Ministry of Finance)", "Curve dei rendimenti — curve ufficiali dei titoli di Stato (Tesoro USA, Bundesbank, Bank of England, Ministero delle Finanze giapponese)"] },
     { cmd: "BOND", hold: 7000, say: ["World government bonds — 2Y to 30Y from each official curve, changes and the spread over the Bund; TIPS and breakevens from FRED", "Titoli di Stato nel mondo — da 2 a 30 anni da ogni curva ufficiale, variazioni e spread sul Bund; TIPS e inflazione attesa da FRED"] },
     { cmd: "SPRD", hold: 1500, say: ["Spreads — any pair of yields; here the official 2s10s of the euro area (ECB) and of the United States (Federal Reserve)", "Spread — qualsiasi coppia di rendimenti; qui il 2s10s ufficiale dell'area euro (BCE) e degli Stati Uniti (Federal Reserve)"] },
     { click: "[data-spm=\"OFF\"]", hold: 6500 },
     { cmd: "COT", hold: 7000, say: ["Futures positioning — the CFTC's Commitments of Traders: speculators' net positions and their range", "Posizionamento sui futures — il Commitments of Traders della CFTC: posizioni nette degli speculatori e il loro intervallo"] },
     { cmd: "CAL", hold: 1500, say: ["Economic calendar — the U.S. official release schedules (BLS, BEA)", "Calendario economico — il calendario ufficiale delle pubblicazioni USA (BLS, BEA)"] },
-    { click: "[data-cv=\"us\"]", hold: 6500 },
-    { cmd: "TILE", hold: 4000, desk: true, say: ["Every window side by side — each one says where its data comes from and how fresh it is", "Tutte le finestre affiancate — ognuna dice da dove vengono i suoi dati e quanto sono recenti"] }
+    { click: "[data-cv=\"us\"]", hold: 6500 }
   ];
+  // the last words: what the private terminal also has (named only: its data is the owner's and licensed)
+  var END = ["End of the recording. The private terminal also has the portfolio (return, risk, benchmark), the portfolio lab, what-if, the bond calculator, quant tools and Telegram alerts — on the owner's own data, so not shown here. ↺ plays it again.",
+    "Fine della registrazione. Il terminale privato ha anche il portafoglio (rendimento, rischio, benchmark), il portfolio lab, il what-if, il calcolatore obbligazionario, gli strumenti quantitativi e gli alert su Telegram — sui dati del proprietario, quindi non mostrati qui. ↺ la riproduce di nuovo."];
   var state = { i: -1, paused: false, done: false, started: false };
   var post = function (m) { try { if (window.parent !== window) window.parent.postMessage(Object.assign({ az: "replay" }, m), location.origin); } catch (e) { /* no parent */ } };
   var sleep = function (ms) { return new Promise(function (res) { setTimeout(res, ms); }); };
@@ -114,23 +119,23 @@
     el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     el.classList.remove("rp-typing");
   }
+  // a computer's desk: the new window tiled with the others, four at most (the terminal's own layout, see its boot)
+  function arrange() { try { if (window.AZ_REPLAY.api && window.AZ_REPLAY.api.arrange) window.AZ_REPLAY.api.arrange(); } catch (e) { /* the layout stays as it is */ } }
   async function run() {
     if (state.started) return; state.started = true;
-    var phone = document.body.classList.contains("phone");
     if (!REC) await sleep(1200);
     for (var i = 0; i < STEPS.length; i++) {
       var s = STEPS[i]; state.i = i;
-      if (s.desk && phone) continue;
       await whilePaused();
       if (s.say) { state.said = i; caption(L(s.say[0], s.say[1])); }
-      if (s.cmd) await typeCmd(s.cmd);
+      if (s.cmd) { await typeCmd(s.cmd); arrange(); }
       if (s.click) { var b = document.querySelector(s.click); if (b) b.click(); }
       post({ step: i, of: STEPS.length });
       if (REC) await idle(25000); else await holdFor(s.hold);
     }
     state.done = true;
     if (REC) return save();
-    caption(L("End of the recording — ↺ plays it again. Type a function in the command line to look around.", "Fine della registrazione — ↺ la riproduce di nuovo. Scrivi una funzione nella riga di comando per esplorare."));
+    caption(L(END[0], END[1]));
     post({ end: true });
   }
 
@@ -187,7 +192,7 @@
       // the terminal's own EN / IT buttons: they repaint every window; then the banner and the caption in that language
       var b = document.querySelector('#cmdbar [data-lang="' + e.data.lang + '"]');
       if (b && window.I18N && window.I18N.lang() !== e.data.lang) b.click();
-      if (state.done) capText = L("End of the recording — ↺ plays it again. Type a function in the command line to look around.", "Fine della registrazione — ↺ la riproduce di nuovo. Scrivi una funzione nella riga di comando per esplorare.");
+      if (state.done) capText = L(END[0], END[1]);
       else if (state.said != null) capText = L(STEPS[state.said].say[0], STEPS[state.said].say[1]);
       else if (false) capText = L("End of the recording — ↺ plays it again. Type a function in the command line to look around.", "Fine della registrazione — ↺ la riproduce di nuovo. Scrivi una funzione nella riga di comando per esplorare.");
       if (!REC) paintBar();

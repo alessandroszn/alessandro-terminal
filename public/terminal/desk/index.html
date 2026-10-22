@@ -4493,7 +4493,10 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // the installable app: the interface is kept on the device by a service worker (never /api data)
     if('serviceWorker' in navigator&&location.protocol==='https:'&&location.pathname.startsWith('/terminal/desk'))navigator.serviceWorker.register('/terminal/sw.js',{scope:'/terminal/'}).catch(()=>{});
     // the replay: quotes and history go through the same provider path (answered from its recording, else N/A) but are not polled
-    if(RP){DATA.provider=Providers.twelvedata_proxy;if(typeof RP.ready==='function')RP.ready();return;}
+    if(RP){DATA.provider=Providers.twelvedata_proxy;
+      // the replay's desk on a computer: at most four windows, tiled; a fifth takes the place of the oldest (no pile-up)
+      RP.api={arrange(){if(isMobile())return;const live=wins.filter(w=>!w.min);if(live.length>4){const old=live.reduce((a,b)=>a.id<b.id?a:b),nw=live.reduce((a,b)=>a.id>b.id?a:b);wins.splice(wins.indexOf(nw),1);wins.splice(wins.indexOf(old),0,nw);closeWin(old,true);renderTaskbar();}tileAll();}};
+      if(typeof RP.ready==='function')RP.ready();return;}
     DATA.init();
     // the public replay's recording: renewed by itself when older than 3 days (a computer, this page in front)
     setTimeout(async()=>{if(isMobile()||document.hidden)return;const m=await rplMeta();if(RPL.loaded&&(!m||Date.now()-Date.parse(m.at)>3*86400000))rplRecord();},45000);}
