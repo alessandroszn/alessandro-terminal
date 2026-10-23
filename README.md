@@ -291,6 +291,16 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## Boards: editable, returns in another currency (23 Oct 2026, as on Nico's terminal)
+- ✎ in the title of a built-in board (FUT, CMDTY, FX, IDX, CRYPTO, ETF, UCITS, MKT): click rows to hide or show them,
+  DONE to finish; a group whose rows are all hidden goes too. Kept on the server (`PUT /api/user/bcfg`, KV `ud/bcfg`,
+  one write per change). Instruments of your own: BOARD.
+- RETURNS IN (FUT, CMDTY): USD, EUR, CHF, GBP or JPY. The contracts are priced in dollars; in another currency a
+  return = (1 + the dollar return) × (that currency per dollar now ÷ at the period's reference date) − 1: the reference
+  from CNBC's daily FX bar of the same period (`/api/cnbc/returns?syms=EUR=`), now from the live rate (Twelve Data); 1D
+  against the rate's previous close. DERIVED, the dates in each cell's tooltip; prices stay in dollars. The last
+  currency chosen is the default of the next board (`at-bccy`).
+
 ## Several portfolios: PORTS (23 Oct 2026, as on Nico's terminal)
 - `PORTS`: your portfolios (up to 10): the main one (KV `pf/tx`, as before) and others created here, each with its own
   transactions (`pf/tx/<id>`; names in `pf/list`). Each is valued at live quotes in EUR (DERIVED, as PF): value,

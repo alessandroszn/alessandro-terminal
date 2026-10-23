@@ -667,6 +667,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   .vt-msg{align-self:center;margin-left:8px;font-size:10px;color:var(--dim);white-space:nowrap}
   .pf-bar{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:0 0 8px}
   .pf tr.on td{background:#ffffff08}
+  /* ---- editable boards, returns in a currency ---- */
+  .win-body tr.b-hid{display:none}
+  .win-body tr.b-ed{cursor:pointer}
+  .win-body tr.b-off td{opacity:.35;text-decoration:line-through}
+  .b-edbar{display:flex;gap:8px;align-items:center;font-size:11px;margin:0 0 6px;padding:4px 8px;border:1px dashed var(--amber);border-radius:4px}
+  .w-bedit[aria-pressed="true"]{color:var(--amber)}
+  .bccy{display:inline-flex;align-items:center;gap:4px}
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -725,6 +732,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-row"><code>● colour</code><span>The dot left of a window's title links it by colour: windows of one colour follow one security (chart, DES, options, FA, ERN, CN); a list of that colour sends the row clicked to them; the colour's box in the top bar changes them all</span></div>
     <div class="help-row"><code>view tabs</code><span>Saved views as tabs under the top bar: click to open, + to save the desk as a new view, double-click to rename, right-click to delete; the view you leave is saved if its windows changed</span></div>
     <div class="help-row"><code>↻ 14:05 → 14:10</code><span>In a window's title: when its data was read and when it is read next (live quotes: the next pull)</span></div>
+    <div class="help-row"><code>✎ boards</code><span>The ✎ in a board's title (futures, commodities, currencies, indices, crypto, ETFs, UCITS, markets): click rows to hide or show them; kept on your server</span></div>
+    <div class="help-row"><code>RETURNS IN</code><span>Futures and commodities: the currency the returns are measured in (USD, EUR, CHF, GBP, JPY), from the dollar returns and the exchange rate (DERIVED); prices stay in dollars</span></div>
     <div class="help-row"><code>✕2</code><span>In a window's title: closes the windows opened from it (UNDO reopens them)</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
     <div class="help-row"><code>TILE</code><span>Arrange every open window in a grid</span></div>
@@ -932,7 +941,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     async usage(){if(document.hidden||Date.now()-this._usageAt<3600000)return;this._usageAt=Date.now();try{const j=await (await fetch(CONFIG.proxyBase+'/api/status?usage=1',{cache:'no-store'})).json();const td=j&&j.twelvedata;if(td&&td.day&&fin(td.day.used))this.day={used:td.day.used,limit:td.day.limit,at:Date.now()};updateGlobal();}catch(e){}},
     schedule(){clearTimeout(this._timer);this.nextAt=Date.now()+this.interval();rfAll();this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
     // symbols on screen: watchlist, the markets board when open, open security windows
-    needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&w.type==='MKT'))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='BRF'))BRIEF_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&(w.type==='PF'||w.type==='EXPO'||(w.type==='PLAB'&&w.state.tab==='buy')||(w.type==='QNT'&&w.state.tool==='fact'&&w.state.fsub==='pf'))))pfNeeded().forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PORTS'))portsNeeded().forEach(x=>{inst(x);s.add(x);});
+    needed(){const s=new Set(WATCH);wins.forEach(w=>{const p=!w.min&&(w.type==='FUT'||w.type==='CMDTY')&&w.state.ccy&&w.state.ccy!=='USD'?FX_PAIRS[w.state.ccy]:null;if(p){inst(p);s.add(p);}});if(wins.some(w=>!w.min&&w.type==='MKT'))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='BRF'))BRIEF_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&(w.type==='PF'||w.type==='EXPO'||(w.type==='PLAB'&&w.state.tab==='buy')||(w.type==='QNT'&&w.state.tool==='fact'&&w.state.fsub==='pf'))))pfNeeded().forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='PORTS'))portsNeeded().forEach(x=>{inst(x);s.add(x);});
       if(wins.some(w=>!w.min&&w.type==='FXB'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='CMDTY'))s.add('XAU/USD');
       wins.forEach(w=>{if(w.min)return;if(w.type==='BOARD'){const b=BRD.boards&&brdActive(w);if(b)b.syms.forEach(x=>{inst(x);s.add(x);});}if(w.type==='DES'&&w.state.sym){inst(w.state.sym);s.add(w.state.sym);}});
       wins.forEach(w=>{if(w.type==='GP'&&BY[w.state.ticker])s.add(w.state.ticker);});return [...s];},
@@ -2700,11 +2709,11 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   function cnReturns(rows){const R={},by={};rows.forEach(r=>(by[r.group]=by[r.group]||[]).push(r.sym));let loading=false;
     Object.values(by).forEach(syms=>{const x=cnRet(syms);if(x.loading&&!x.data)loading=true;if(x.data&&x.data.returns)Object.assign(R,x.data.returns);});return{R,loading};}
   const cnRetPct=(r,R,k)=>{const x=R[r.sym],c=x&&x.ref&&x.ref[k];return c&&fin(r.last)&&c[1]?(r.last/c[1]-1)*100:null;};
-  function cnRow(r,R,items,opt={}){const s=cnSt(r);items['cn:'+r.sym]=s;
+  function cnRow(r,R,items,opt={}){const s=cnSt(r),cv=opt.cv;items['cn:'+r.sym]=s;
     if(s===S.NA)return`<tr><td class="l">${esc(r.label)}</td><td class="k">—</td><td class="l na" colspan="${opt.cols||10}">N/A — ${esc(P.errorText(r.error||'no_data'))}</td><td>${chip(S.NA)}</td></tr>`;
     const x=R[r.sym],line=x&&x.line&&x.line.length>2?sparkSVG(x.line.concat(fin(r.last)?[r.last]:[]),(r.last>=x.line[0])?C.up:C.down):'';
-    const rc=k=>{const v=cnRetPct(r,R,k),c=x&&x.ref&&x.ref[k];return`<td class="num ${cls(v)}"${c?` title="${esc(tl('vs the daily bar of','rispetto alla barra giornaliera del')+' '+fmtDay(c[0])+': '+fpx(c[1]))}"`:''}>${pctN(v)}</td>`;};
-    return`<tr data-cn="${esc(r.sym)}" tabindex="0" role="button"${opt.sel===r.sym?' class="cb-sel"':''} title="${esc((r.name||r.label)+' · '+(r.venue||'')+' · '+tl('CNBC symbol','simbolo CNBC')+' '+r.sym)}"><td class="l"><b>${esc(r.label)}</b></td><td class="k">${esc(r.contract||'—')}</td><td class="num"><b>${fpx(r.last)}</b></td><td class="k">${esc(r.unit||'')}</td><td class="num ${cls(r.chgPct)}">${pctN(r.chgPct)}</td>${rc('1W')}${rc('1M')}${opt.short?'':rc('3M')}${rc('YTD')}${rc('1Y')}<td>${line}</td><td class="k">${fmtHM(new Date(r.time).toISOString())} <span class="k" title="${esc(r.realTime?tl('CNBC marks this quote real-time','CNBC indica la quotazione in tempo reale'):tl('CNBC marks this quote delayed (exchange rules)','CNBC indica la quotazione ritardata (regole della borsa)'))}">${r.realTime?'RT':tl('dly','rit.')}</span></td><td>${chip(s,tl('CNBC quote service','servizio quotazioni CNBC')+' · '+fmtDT(new Date(r.time).toISOString()))}</td></tr>`;}
+    const rc=k=>{const v0=cnRetPct(r,R,k),v=cv?cvPct(v0,cv.f(k)):v0,c=x&&x.ref&&x.ref[k],fr=cv?cv.refAt(k):null;return`<td class="num ${cls(v)}"${c?` title="${esc(tl('vs the daily bar of','rispetto alla barra giornaliera del')+' '+fmtDay(c[0])+': '+fpx(c[1])+(cv?' · '+cv.ccy+(fin(v0)?' · USD '+pctN(v0):'')+(fr?' · '+cv.pair+' '+fmtDay(fr[0])+': '+fr[1]:''):''))}"`:''}>${pctN(v)}</td>`;};
+    return`<tr data-cn="${esc(r.sym)}" tabindex="0" role="button"${opt.sel===r.sym?' class="cb-sel"':''} title="${esc((r.name||r.label)+' · '+(r.venue||'')+' · '+tl('CNBC symbol','simbolo CNBC')+' '+r.sym)}"><td class="l"><b>${esc(r.label)}</b></td><td class="k">${esc(r.contract||'—')}</td><td class="num"><b>${fpx(r.last)}</b></td><td class="k">${esc(r.unit||'')}</td>${(d1=>`<td class="num ${cls(d1)}">${pctN(d1)}</td>`)(cv?cvPct(r.chgPct,cv.f1):r.chgPct)}${rc('1W')}${rc('1M')}${opt.short?'':rc('3M')}${rc('YTD')}${rc('1Y')}<td>${line}</td><td class="k">${fmtHM(new Date(r.time).toISOString())} <span class="k" title="${esc(r.realTime?tl('CNBC marks this quote real-time','CNBC indica la quotazione in tempo reale'):tl('CNBC marks this quote delayed (exchange rules)','CNBC indica la quotazione ritardata (regole della borsa)'))}">${r.realTime?'RT':tl('dly','rit.')}</span></td><td>${chip(s,tl('CNBC quote service','servizio quotazioni CNBC')+' · '+fmtDT(new Date(r.time).toISOString()))}</td></tr>`;}
   const cnHead=(first,opt={})=>`<thead><tr><th class="l">${first}</th><th class="l">${tl('MONTH','MESE')}</th><th>${tl('LAST','ULTIMO')}</th><th class="l">${tl('UNIT','UNITÀ')}</th><th>${tl('CHG%','VAR.%')}</th><th>1W</th><th>1M</th>${opt.short?'':'<th>3M</th>'}<th>YTD</th><th>1Y</th><th>3M</th><th class="l">${tl('TIME','ORA')}</th><th>${tl('DATA','DATI')}</th></tr></thead>`;
   // a chart of one contract's daily bars (five years)
   function cnChart(win,box,sym,label){const H=get7('/api/cnbc/history?sym='+encodeURIComponent(sym),3600000,['FUT','CMDTY']),d=H.data;
@@ -2716,7 +2725,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!d||!Array.isArray(d.rows)){setProv(win,{'ds:FUT':e.err||d?S.NA:S.LOADING});body.innerHTML=e.err||d?naB(tl('futures quotes unavailable','quotazioni dei futures non disponibili'),(d&&d.error)||e.err):`<div class="empty">${tl('Loading futures…','Caricamento dei futures…')}</div>`;return;}
     const groups=d.groups||[...new Set(d.rows.map(r=>r.group))],rows=d.rows.filter(r=>st.g==='ALL'||r.group===st.g),{R,loading}=cnReturns(rows);
     if(!st.sym||!d.rows.some(r=>r.sym===st.sym))st.sym=rows[0]&&rows[0].sym;const sel=d.rows.find(r=>r.sym===st.sym);
-    let tb='',last=null;for(const r of rows){if(r.group!==last){tb+=`<tr class="grp"><td colspan="13">${esc(futG(r.group))}</td></tr>`;last=r.group;}tb+=cnRow(r,R,items,{sel:st.sym});}
+    let tb='',last=null;for(const r of rows){if(r.group!==last){tb+=`<tr class="grp"><td colspan="13">${esc(futG(r.group))}</td></tr>`;last=r.group;}tb+=cnRow(r,R,items,{sel:st.sym,cv:boardCv(win,items)});}
     const I=im.data&&Array.isArray(im.data.rows)?im.data.rows:null;
     const imp=I?`<table class="pf"><thead><tr><th class="l">${tl('CASH INDEX','INDICE A PRONTI')}</th><th>${tl('LAST PRINT','ULTIMO VALORE')}</th><th class="l">${tl('AT','ALLE')}</th><th class="l">${tl('FUTURES','FUTURES')}</th><th>${tl('NOW','ORA')}</th><th>${tl('AT THAT PRINT','A QUEL VALORE')}</th><th>${tl('IMPLIED MOVE','MOSSA IMPLICITA')}</th><th>${tl('IMPLIED LEVEL','LIVELLO IMPLICITO')}</th></tr></thead><tbody>${I.map(x=>{
         if(x.cashOpen)return`<tr><td class="l"><b>${esc(x.label)}</b></td><td class="num">${lvl(x.cashLast)}</td><td class="l k">${fmtHM(x.cashTime)}</td><td class="l k">${esc(x.contract||'')}</td><td class="num">${fpx(x.futLast)}</td><td colspan="3" class="l"><span class="up">${tl('cash market open','mercato a pronti aperto')}</span> · ${tl('today','oggi')} <span class="${cls(x.cashChgPct)}">${pctN(x.cashChgPct)}</span></td></tr>`;
@@ -2724,14 +2733,14 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         return`<tr><td class="l"><b>${esc(x.label)}</b></td><td class="num">${lvl(x.cashLast)}</td><td class="l k">${fmtDT(x.cashTime)}</td><td class="l k">${esc(x.contract||'')}</td><td class="num">${fpx(x.futLast)}</td><td class="num k" title="${esc(fmtDT(x.futAtCloseTime))}">${fpx(x.futAtClose)}</td><td class="num ${cls(x.pct)}"><b>${pctN(x.pct)}</b></td><td class="num">${lvl(x.level)}</td></tr>`;}).join('')}</tbody></table>`
       :im.err?naB(tl('implied open unavailable','apertura implicita non disponibile'),im.err):`<div class="k">${tl('loading…','caricamento…')}</div>`;
     items['fut:implied']=I?S.DERIVED:im.err?S.NA:S.LOADING;
-    body.innerHTML=`<div class="tfbar" style="margin-top:0">${tb7('fg',[['ALL',tl('ALL','TUTTI')]].concat(groups.map(g=>[g,futG(g)])),st.g)}</div>
+    body.innerHTML=`<div class="tfbar" style="margin-top:0">${tb7('fg',[['ALL',tl('ALL','TUTTI')]].concat(groups.map(g=>[g,futG(g)])),st.g)}<span class="w-sp"></span>${bccyBar(win)}</div>
       <div class="yc-h" style="margin-top:6px">${tl('WHERE THE CASH INDICES ARE SET TO OPEN','DOVE SONO ATTESI APRIRE GLI INDICI A PRONTI')} ${chip(S.DERIVED,'futures move since the cash index\'s last print')}</div>${imp}
       <div class="src-line">${tl('Implied move: the futures price now against the futures price at the minute of the cash index\'s last print (five-minute bars), applied to that print — DERIVED; it ignores the futures\' fair-value basis, so it is an indication, not a forecast.','Mossa implicita: il prezzo del future ora rispetto al prezzo del future nel minuto dell\'ultimo valore dell\'indice a pronti (barre da cinque minuti), applicata a quel valore — DERIVED; ignora la base di fair value, quindi è un\'indicazione, non una previsione.')}</div>
       <div class="corr-wrap" style="margin-top:8px"><table class="pf mkt">${cnHead(tl('CONTRACT','CONTRATTO'))}<tbody>${tb}</tbody></table></div>
       ${sel?`<div class="yc-h" style="margin-top:10px">${esc(sel.label.toUpperCase())} · ${tl('DAILY','GIORNALIERO')}${CNBC_CURVE_OF[sel.sym]?` <button class="sr-b go-crv" data-root="${CNBC_CURVE_OF[sel.sym]}">${tl('CURVE ▸','CURVA ▸')}</button>`:''}</div><div class="chart-box fut-box" style="height:220px"></div><div class="src-line fut-src"></div>`:''}
       <div class="src-line">${tl('Market data: CNBC quote service — CNBC\'s continuous front-month contract of each future, its contract month, last price and CNBC\'s time (RT = CNBC marks it real-time, dly = delayed as the exchange requires). Returns against CNBC\'s daily bars (DERIVED)','Dati di mercato: servizio quotazioni CNBC — il contratto continuo del primo mese di ogni future, il mese del contratto, l\'ultimo prezzo e l\'ora di CNBC (RT = in tempo reale per CNBC, rit. = ritardato come richiede la borsa). Rendimenti sulle barre giornaliere di CNBC (DERIVED)')}${loading?' · '+tl('loading returns…','caricamento rendimenti…'):''} · ${tl('fetched','aggiornato')} ${fmtTime(d.fetchedAt)} · ${tl('positioning','posizionamento')}: <button class="sr-b go-cot">COT</button></div>`;
     items['fut:calc']=S.DERIVED;setProv(win,items,'Futures: CNBC quote service (market data)');
-    $$('[data-fg]',body).forEach(b=>b.onclick=()=>{st.g=b.dataset.fg;paintWin(win);});
+    $$('[data-fg]',body).forEach(b=>b.onclick=()=>{st.g=b.dataset.fg;paintWin(win);});bindBccy(body,win);
     $$('tr[data-cn]',body).forEach(tr=>{tr.style.cursor='pointer';tr.onclick=()=>{st.sym=tr.dataset.cn;paintWin(win);};});
     const gc=body.querySelector('.go-crv');if(gc)gc.onclick=()=>{const w=openOrFocus('FCRV',{});w.state.root=gc.dataset.root;paintWin(w);};
     body.querySelector('.go-cot').onclick=()=>openOrFocus('COT',{});
@@ -2761,7 +2770,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     if(!fd)fut=f.err?`<tr><td colspan="13">${naB(tl('commodity futures unavailable','futures sulle materie prime non disponibili'),f.err)}</td></tr>`:`<tr><td colspan="13" class="k">${tl('Loading futures…','Caricamento dei futures…')}</td></tr>`;
     else if(!Array.isArray(fd.rows)){items['ds:cnbc']=S.NA;fut=`<tr><td colspan="13">${naB(tl('commodity futures unavailable','futures sulle materie prime non disponibili'),fd.error)}</td></tr>`;}
     else{const rows=fd.rows.filter(r=>CMDTY_GROUPS.includes(r.group)),{R}=cnReturns(rows);if(!st.sym||!rows.some(r=>r.sym===st.sym))st.sym='@CL.1';let last=null;
-      for(const r of rows){if(r.group!==last){fut+=`<tr class="grp"><td colspan="13">${esc(futG(r.group))} · ${tl('FUTURES (CNBC)','FUTURES (CNBC)')}</td></tr>`;last=r.group;}fut+=cnRow(r,R,items,{sel:st.sym});}}
+      for(const r of rows){if(r.group!==last){fut+=`<tr class="grp"><td colspan="13">${esc(futG(r.group))} · ${tl('FUTURES (CNBC)','FUTURES (CNBC)')}</td></tr>`;last=r.group;}fut+=cnRow(r,R,items,{sel:st.sym,cv:boardCv(win,items)});}}
     let energy='';
     if(!d&&!e.err)energy=`<tr><td colspan="13" class="k">${tl('Loading EIA prices…','Caricamento dei prezzi EIA…')}</td></tr>`;
     else if(!d||d.error){items['ds:eia']=S.NA;energy=`<tr><td colspan="13">${naB(tl('EIA prices unavailable','prezzi EIA non disponibili'),(d&&d.error)||e.err)}</td></tr>`;}
@@ -2770,12 +2779,12 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         `<tr><td class="l">${esc(x.name)}</td><td class="k">${tl('spot','spot')}</td><td class="num">${x.value.toFixed(x.unit==='$/gal'?3:2)}</td><td class="k">${esc(x.unit)}</td><td class="num ${cls(x.chg1)}">${pctN(x.chg1)}</td><td class="num ${cls(x.chg5)}">${pctN(x.chg5)}</td><td class="num ${cls(x.chg21)}">${pctN(x.chg21)}</td><td></td><td></td><td></td><td>${x.history&&x.history.length>2?sparkSVG(x.history.slice(-60).map(p=>p[1]),x.history[x.history.length-1][1]>=x.history[Math.max(0,x.history.length-60)][1]?C.up:C.down):''}</td><td class="k">${fmtDay(x.date)}</td><td>${chip(s2,'EIA · '+tl('price date','data del prezzo')+' '+x.date)}</td></tr>`).join('');}
     const gold=`<tr data-sym="XAU/USD" tabindex="0" role="button" title="${esc(instTitle(g))}"><td class="l">${tl('Gold (spot, vs USD)','Oro (spot, contro USD)')}</td><td class="k">spot</td><td class="num">${pxText(g)}</td><td class="k">$/oz</td><td class="num ${cls(g.chg)}">${pct(g.chg)}</td><td colspan="6"></td><td class="k">${qTime(g)}</td><td>${chip(items['XAU/USD'],instTitle(g))}</td></tr>`;
     const sel=fd&&Array.isArray(fd.rows)?fd.rows.find(r=>r.sym===st.sym):null,inv=cmdtyInv(items);
-    body.innerHTML=`<div class="corr-wrap"><table class="pf mkt">${cnHead(tl('COMMODITY','MATERIA PRIMA'))}<tbody>${fut}
+    body.innerHTML=`<div class="tfbar" style="margin-top:0"><span class="w-sp"></span>${bccyBar(win)}</div><div class="corr-wrap"><table class="pf mkt">${cnHead(tl('COMMODITY','MATERIA PRIMA'))}<tbody>${fut}
       <tr class="grp"><td colspan="13">${tl('ENERGY · U.S. EIA SPOT PRICES (OFFICIAL, DAILY, PUBLISHED WITH A LAG) — 1D / 1W / 1M OVER PUBLISHED DAYS','ENERGIA · PREZZI SPOT EIA USA (UFFICIALI, GIORNALIERI, PUBBLICATI CON RITARDO) — 1G / 1S / 1M SUI GIORNI PUBBLICATI')}</td></tr>${energy}<tr class="grp"><td colspan="13">${tl('GOLD SPOT · TWELVE DATA','ORO SPOT · TWELVE DATA')}</td></tr>${gold}</tbody></table></div>
       ${inv}
       ${sel?`<div class="yc-h" style="margin-top:10px">${esc(sel.label.toUpperCase())} · ${tl('DAILY','GIORNALIERO')}${CNBC_CURVE_OF[sel.sym]?` <button class="sr-b go-crv" data-root="${CNBC_CURVE_OF[sel.sym]}">${tl('CURVE ▸','CURVA ▸')}</button>`:''}</div><div class="chart-box cm-box" style="height:200px"></div><div class="src-line cm-src"></div>`:''}
       <div class="scr-count">${tl('Futures: CNBC quote service, front-month contract (market data, CNBC\'s time). Energy spot: EIA publishes daily prices about a week late; each row shows its price date. Changes DERIVED. Base metals and crops as IMF monthly averages: MKT. Curves by contract month: ','Futures: servizio quotazioni CNBC, primo contratto (dati di mercato, ora di CNBC). Energia spot: l\'EIA pubblica i prezzi giornalieri con circa una settimana di ritardo; ogni riga mostra la sua data. Variazioni DERIVED. Metalli di base e prodotti agricoli come medie mensili FMI: MKT. Curve per mese di contratto: ')}<button class="sr-b go-fcrv">FCRV</button>${d&&d.sourceUrl?` · <a href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">EIA Open Data</a>`:''}</div>`;
-    setProv(win,items,'Commodities: CNBC (futures), EIA (official spot, weekly inventories), Twelve Data (gold)');bindFocusRows(body);body.querySelector('.go-fcrv').onclick=()=>openOrFocus('FCRV',{});
+    setProv(win,items,'Commodities: CNBC (futures), EIA (official spot, weekly inventories), Twelve Data (gold)');bindFocusRows(body);bindBccy(body,win);body.querySelector('.go-fcrv').onclick=()=>openOrFocus('FCRV',{});
     $$('tr[data-cn]',body).forEach(tr=>{tr.style.cursor='pointer';tr.onclick=()=>{st.sym=tr.dataset.cn;paintWin(win);};});
     const gc=body.querySelector('.go-crv');if(gc)gc.onclick=()=>{const w=openOrFocus('FCRV',{});w.state.root=gc.dataset.root;paintWin(w);};
     const cb=body.querySelector('.cm-box');if(cb&&sel)body.querySelector('.cm-src').innerHTML=cnChart(win,cb,sel.sym,sel.label);}
@@ -4457,7 +4466,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- window manager ---------- */
   function isMobile(){return window.innerWidth<=880;}
   function paintWin(w){const def=WINTYPES[w.type],a=document.activeElement,fk=a&&w.bodyEl.contains(a)?(a.getAttribute('data-k')||a.getAttribute('name')):null;let caret=null;try{caret=a&&a.selectionStart;}catch(e){}
-    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();w._rf=null;const pw=PAINT_W;PAINT_W=w;try{def.render(w.bodyEl,w);}finally{PAINT_W=pw;}lwSweep(w);if(!phoneOn())requestAnimationFrame(()=>fitTables(w));w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);paintRf(w);updateGlobal();linkFollow(w);
+    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();w._rf=null;const pw=PAINT_W;PAINT_W=w;try{def.render(w.bodyEl,w);}finally{PAINT_W=pw;}lwSweep(w);if(!phoneOn())requestAnimationFrame(()=>fitTables(w));w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);paintRf(w);updateGlobal();linkFollow(w);if(BEDIT_TYPES.has(w.type))applyBoardEdit(w);
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
@@ -4510,13 +4519,15 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><button class="w-ctl w-link" type="button"></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-rf notranslate"></span><span class="w-sp"></span><button class="w-ctl w-kids notranslate" type="button" hidden></button><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-edge e" data-dir="e"></div><div class="w-edge s" data-dir="s"></div><div class="w-edge w" data-dir="w"></div><div class="w-edge sw" data-dir="sw"></div><div class="w-grip" title="Resize"></div>`;el.dataset.type=w.type;
+    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><button class="w-ctl w-link" type="button"></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-rf notranslate"></span><span class="w-sp"></span><button class="w-ctl w-bedit" type="button" hidden aria-pressed="false" title="Edit this board: hide or show rows" aria-label="Edit this board">✎</button><button class="w-ctl w-kids notranslate" type="button" hidden></button><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-edge e" data-dir="e"></div><div class="w-edge s" data-dir="s"></div><div class="w-edge w" data-dir="w"></div><div class="w-edge sw" data-dir="sw"></div><div class="w-grip" title="Resize"></div>`;el.dataset.type=w.type;
     deskEl.appendChild(el);w.el=el;if('ResizeObserver' in window){let fr=0;w._ro=new ResizeObserver(()=>{if(fr)return;fr=requestAnimationFrame(()=>{fr=0;fitTables(w);});});w._ro.observe(el);}w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     // privacy mode: amounts are masked as they are drawn (HIDE)
     if(HIDE_TYPES.has(w.type)&&'MutationObserver' in window){w._mo=new MutationObserver(()=>{if(HIDE.on)hideAmounts(w);});w._mo.observe(w.bodyEl,{childList:true,subtree:true,characterData:true});}
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
     el.querySelector('.w-kids').onclick=e=>{e.stopPropagation();closeKids(w);};
     el.querySelector('.w-link').onclick=e=>{e.stopPropagation();cycleLink(w);};
+    if(BEDIT_TYPES.has(w.type)){const eb=el.querySelector('.w-bedit');eb.hidden=false;eb.onclick=e=>{e.stopPropagation();toggleBedit(w);};
+      w.bodyEl.addEventListener('click',e=>{if(!w.state.bedit)return;const tr=e.target.closest('tbody tr'),k=tr&&rowKey(tr);if(!k)return;e.preventDefault();e.stopPropagation();toggleHidden(w.type,k);},true);}
     el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
     el.querySelector('.w-split').onclick=e=>{e.stopPropagation();splitFrom(w);};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
@@ -4957,6 +4968,46 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const ni=body.querySelector('.pt-name');if(ni)ni.onkeydown=async e=>{if(e.key==='Escape'){PFL.edit=null;return repaintTypes(['PORTS']);}if(e.key!=='Enter')return;e.preventDefault();const id=PFL.edit;PFL.edit=null;const r=await send7('PUT','/api/portfolio/list?pf='+encodeURIComponent(id),{name:ni.value.trim()});if(r.j&&r.j.portfolios){PFL.msg='';await pflLoad(true);}else{PFL.msg=r.err||'';}repaintTypes(['PORTS','PF','PFA']);};
     $$('[data-ptd]',body).forEach(b=>b.onclick=()=>{PFL.confirm=b.dataset.ptd;repaintTypes(['PORTS']);});
     $$('[data-pty]',body).forEach(b=>b.onclick=async()=>{const id=b.dataset.pty;PFL.confirm=null;const r=await send7('DELETE','/api/portfolio/list?pf='+encodeURIComponent(id));if(r.j&&r.j.portfolios){if(PF.pf===id)pfSwitch('main');await pflLoad(true);}else{PFL.msg=r.err||'';repaintTypes(['PORTS']);}});}
+
+  /* ---------- the currency a board's returns are measured in (FUT, CMDTY), as on Nico's terminal ----------
+     These contracts are priced in U.S. dollars. In another currency a return is (1 + the dollar return) × (that currency
+     per dollar now ÷ at the reference date) − 1: the reference from CNBC's daily FX bar of the same period, now from the
+     live rate (Twelve Data); 1D against the rate's previous close. DERIVED. Prices stay in dollars. The last currency
+     chosen is the default of the next board opened. */
+  const BCCY=['USD','EUR','CHF','GBP','JPY'];
+  const bccyDefault=()=>{try{const c=localStorage.getItem('at-bccy');return BCCY.includes(c)?c:'USD';}catch(e){return'USD';}};
+  function boardCv(win,items){const st=win.state;if(!BCCY.includes(st.ccy))st.ccy=bccyDefault();const c=st.ccy;if(c==='USD')return null;const pair=FX_PAIRS[c],t=inst(pair);if(!t.q&&!t.qErr&&!t._pending&&!t._planBlocked&&DATA.provider)DATA.fetchNow([pair]);
+    const inv=pair.startsWith(c+'/'),per=v=>fin(v)&&v>0?(inv?1/v:v):null,X=cnRet([FX_CN[c]]),R=X.data&&X.data.returns&&X.data.returns[FX_CN[c]],now=per(t.px),prev=per(t.prev);
+    if(items){items[pair]=instStatus(t);items['cv:'+c]=S.DERIVED;}
+    return{ccy:c,pair,f:k=>{const r=R&&R.ref&&R.ref[k],ref=r?per(r[1]):null;return fin(now)&&fin(ref)?now/ref:null;},refAt:k=>R&&R.ref&&R.ref[k]?R.ref[k]:null,f1:fin(now)&&fin(prev)?now/prev:null};}
+  const cvPct=(v,f)=>fin(v)&&fin(f)?((1+v/100)*f-1)*100:null;
+  const bccyBar=win=>`<span class="bccy" title="${tl('the currency the returns are measured in (DERIVED from the dollar returns and the exchange rate); prices stay in dollars','la valuta in cui si misurano i rendimenti (DERIVED dai rendimenti in dollari e dal cambio); i prezzi restano in dollari')}"><span class="k">${tl('RETURNS IN','RENDIMENTI IN')}</span> ${tb7('bccy',BCCY.map(c=>[c,c]),win.state.ccy||'USD')}</span>`;
+  function bindBccy(body,win){$$('[data-bccy]',body).forEach(b=>b.onclick=()=>{win.state.ccy=b.dataset.bccy;try{localStorage.setItem('at-bccy',win.state.ccy);}catch(e){}paintWin(win);});}
+
+  /* ---------- every board editable (as on Nico's terminal) ----------
+     ✎ in a board's title (futures, commodities, currencies, indices, crypto, ETFs, UCITS, markets): click rows to hide
+     or show them, DONE to finish. Hidden rows stay hidden on every device: saved privately on your server (one write per
+     change). Instruments of your own: BOARD. */
+  const BEDIT_TYPES=new Set(['FUT','CMDTY','FXB','IDX','CRYPTO','ETFB','UCITS','MKT']);
+  const BCFG={list:null,err:null,at:0,loading:false};
+  async function bcfgLoad(){if(BCFG.loading||BCFG.at)return;BCFG.loading=true;
+    try{const r=await fetch(CONFIG.proxyBase+'/api/user/bcfg',{cache:'no-store'});const j=await r.json();if(j&&Array.isArray(j.bcfg)){BCFG.list=j.bcfg;BCFG.err=null;}else BCFG.err=(j&&j.error)||'http '+r.status;}catch(e){BCFG.err='network';}
+    finally{BCFG.loading=false;BCFG.at=Date.now();wins.forEach(w=>{if(BEDIT_TYPES.has(w.type))applyBoardEdit(w);});}}
+  const bHidden=type=>{const x=BCFG.list&&BCFG.list.find(b=>b.type===type);return new Set(x?x.hide:[]);};
+  const rowKey=tr=>tr.dataset.cn||tr.dataset.sym||tr.dataset.ix||tr.dataset.uc||null;
+  function applyBoardEdit(w){if(!w.bodyEl||!BEDIT_TYPES.has(w.type))return;bcfgLoad();const hid=bHidden(w.type),ed=!!w.state.bedit;let n=0;
+    w.bodyEl.querySelectorAll('tbody tr').forEach(tr=>{const k=rowKey(tr);if(!k)return;const h=hid.has(k);if(h)n++;tr.classList.toggle('b-hid',h&&!ed);tr.classList.toggle('b-off',h&&ed);tr.classList.toggle('b-ed',ed);});
+    // a group's header row goes with its rows when all of them are hidden
+    w.bodyEl.querySelectorAll('tbody tr.grp').forEach(g=>{let x=g.nextElementSibling,any=false,all=true;while(x&&!x.classList.contains('grp')){if(rowKey(x)){any=true;if(!x.classList.contains('b-hid'))all=false;}x=x.nextElementSibling;}g.classList.toggle('b-hid',any&&all);});
+    let bar=w.bodyEl.querySelector(':scope > .b-edbar');
+    if(ed||n){if(!bar){bar=document.createElement('div');bar.className='b-edbar';w.bodyEl.prepend(bar);}
+      bar.innerHTML=ed?`<b>${tl('EDIT','MODIFICA')}</b><span>${tl('click a row to hide or show it','clic su una riga per nasconderla o mostrarla')} · ${n} ${tl('hidden','nascoste')}${BCFG.msg?' · '+esc(BCFG.msg):''}</span><span class="w-sp"></span><button class="sr-b b-tog">${tl('DONE','FATTO')}</button>`:`<span class="k">${n} ${n===1?tl('row hidden','riga nascosta'):tl('rows hidden','righe nascoste')}</span><span class="w-sp"></span><button class="sr-b b-tog">✎ ${tl('EDIT','MODIFICA')}</button>`;
+      bar.querySelector('.b-tog').onclick=()=>toggleBedit(w);}else if(bar)bar.remove();
+    const hb=w.el&&w.el.querySelector('.w-bedit');if(hb)hb.setAttribute('aria-pressed',String(ed));}
+  function toggleBedit(w){w.state.bedit=!w.state.bedit;applyBoardEdit(w);}
+  async function toggleHidden(type,k){const list=(BCFG.list||[]).map(x=>({type:x.type,hide:x.hide.slice()}));let b=list.find(x=>x.type===type);if(!b){b={type,hide:[]};list.push(b);}
+    b.hide=b.hide.includes(k)?b.hide.filter(x=>x!==k):b.hide.concat([k]);BCFG.list=list;BCFG.msg='';wins.forEach(w=>{if(w.type===type)applyBoardEdit(w);});
+    const r=await send7('PUT','/api/user/bcfg',{bcfg:list});if(r.j&&Array.isArray(r.j.bcfg))BCFG.list=r.j.bcfg;else BCFG.msg=tl('not saved: ','non salvato: ')+(r.err||'');wins.forEach(w=>{if(w.type===type)applyBoardEdit(w);});}
 
   /* ---------- command line ---------- */
   const FUNCMAP={WIF:"WIF",WHATIF:"WIF",YAS:"YAS",YIELD:"YAS",BCALC:"YAS",PLAB:"PLAB",LAB:"PLAB",EFS:"EFS",ETFSCR:"EFS",SCREENETF:"EFS",EFP:"EFP",EFC:"EFC",EXPO:"EXPO",LOOK:"EXPO",BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW",YEAR:"YEAR",YR:"YEAR"};

@@ -317,6 +317,11 @@ r = await call(`/api/user/views?id=${lid}`, J("PUT", { name: "MORNING" }), envU)
 const vr2 = await call("/api/user/views?id=nope", J("PUT", { name: "x" }), envU), vr3 = await call(`/api/user/views?id=${lid}`, J("PUT", { layout: [] }), envU);
 ok("views: a name another view has, an unknown view or an empty layout refused", r.status === 400 && vr2.status === 404 && vr3.status === 400);
 await call(`/api/user/views?id=${lid}`, { method: "DELETE" }, envU);
+r = await call("/api/user/bcfg", J("PUT", { bcfg: [{ type: "FUT", hide: ["@VX.1", "@VX.1", "@OJ.1"] }, { type: "IDX", hide: [] }] }), envU);
+ok("boards: the rows hidden in a built-in board are kept (duplicates and empty boards dropped)", r.status === 200 && JSON.stringify(r.j.bcfg) === JSON.stringify([{ type: "FUT", hide: ["@VX.1", "@OJ.1"] }]));
+r = await call("/api/user/bcfg", undefined, envU);
+const rb1 = await call("/api/user/bcfg", J("PUT", { bcfg: [{ type: "fut", hide: [] }] }), envU), rb2 = await call("/api/user/bcfg", J("PUT", { bcfg: [{ type: "FUT", hide: ["<b>"] }] }), envU);
+ok("boards: read back; a bad board type or row key refused", r.status === 200 && r.j.bcfg[0].hide.length === 2 && rb1.status === 400 && rb2.status === 400);
 r = await call(`/api/user/views?id=${vid}`, { method: "DELETE" }, envU);
 ok("views: delete", r.status === 200 && r.j.views.length === 0);
 r = await call("/api/user/alerts", undefined, { ...env, BRIEFS: undefined });

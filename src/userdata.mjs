@@ -18,7 +18,7 @@ import { fetchText, iso, cachedSource, cacheRead } from "./lib.mjs";
 import { validateAlert, alertCnbcSym, isActive, kindOf, tgToken, LIMITS_A, LOG_KEY } from "./alerts.mjs";
 import { loadCnbcRaw, cnbcIntlRec } from "./intl.mjs";
 
-export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views", plab: "ud/plab", wif: "ud/wif" };
+export const UD_KEYS = { alerts: "ud/alerts", notes: "ud/notes", board: "ud/board", views: "ud/views", bcfg: "ud/bcfg", plab: "ud/plab", wif: "ud/wif" };
 // quotes cost Twelve Data credits (8 a minute on the free plan): a board, like the watchlist, holds at most 12 symbols.
 // Alerts are checked on CNBC quotes (one request for all of them): at most 25 different symbols
 export const LIMITS = { alerts: LIMITS_A.alerts, alertSyms: LIMITS_A.alertSyms, notes: 300, boards: 20, boardSyms: 12, noteLen: 4000, views: 30, viewWins: 24, viewState: 4000, plab: 20, plabHoldings: 15, wif: 20, wifRows: 15 };
@@ -101,6 +101,21 @@ export function validateWif(b, today = new Date().toISOString().slice(0, 10)) {
   const bench = b.bench ? clean(b.bench, 24).toUpperCase() : ""; if (bench && !PLAB_ID_RE.test(bench)) return "bad benchmark";
   return { name, rows, bench: bench || null };
 }
+// the rows hidden in the built-in boards (✎ in a board's title): [{type: "FUT", hide: ["@VX.1", …]}, …]
+export function validateBcfg(b) {
+  const list = b && Array.isArray(b.bcfg) ? b.bcfg : null;
+  if (!list) return "bcfg[] required";
+  if (list.length > 20) return "at most 20 boards";
+  const out = [];
+  for (const x of list) {
+    const type = String((x && x.type) || ""); if (!/^[A-Z]{1,8}$/.test(type)) return "bad board type";
+    const hide = [...new Set((Array.isArray(x.hide) ? x.hide : []).map((k) => String(k)))];
+    if (hide.length > 200) return "at most 200 hidden rows per board";
+    if (hide.some((k) => !/^[A-Za-z0-9@.=:\/^_\- ]{1,32}$/.test(k))) return "bad row key";
+    if (hide.length && !out.some((o) => o.type === type)) out.push({ type, hide });
+  }
+  return out;
+}
 export function validateBoards(b) {
   const list = b && Array.isArray(b.boards) ? b.boards : null;
   if (!list) return "boards[] required";
@@ -128,6 +143,12 @@ export async function handleUserData(url, env, ctx, H, json, req) {
   if (origin && origin !== (env.ALLOWED_ORIGIN || url.origin)) return send({ error: "forbidden_origin" }, 403);
   const body = async () => { if (!/^application\/json/i.test(req.headers.get("content-type") || "")) return { e: send({ error: "bad_request", message: "JSON body required" }, 415) }; try { return { b: await req.json() }; } catch { return { e: send({ error: "bad_request", message: "invalid JSON" }, 400) }; } };
   const id = url.searchParams.get("id") || "";
+  if (kind === "bcfg") {
+    if (method !== "PUT" || sub) return send({ error: "method_not_allowed" }, 405);
+    const p = await body(); if (p.e) return p.e;
+    const v = validateBcfg(p.b); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
+    await save(env, kind, v); return send({ bcfg: v });
+  }
   if (kind === "board") {
     if (method !== "PUT" || sub) return send({ error: "method_not_allowed" }, 405);
     const p = await body(); if (p.e) return p.e;

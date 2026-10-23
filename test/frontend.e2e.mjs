@@ -446,7 +446,7 @@ async function openTerminal(api, html = htmlFast, init = null) {
     if (u.origin === ORIGIN && u.pathname === "/api/yields/history") return send(api.yieldsHistory ? api.yieldsHistory(u) : yieldsHistory(u));
     if (u.origin === ORIGIN && u.pathname === "/api/yields" && u.searchParams.get("ids") && !api.yieldsRaw) return send(api.yieldsIds ? api.yieldsIds(u) : yieldsIds(u));
     if (u.origin === ORIGIN && ["/api/yields", "/api/calendar", "/api/news", "/api/briefing", "/api/headlines"].includes(u.pathname)) return send(api.ext(u.pathname.slice(5), u));
-    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/bond/list" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views"))) return viaWorker(route, u);
+    if (u.origin === ORIGIN && (/^\/api\/(cnbc|nasdaq|alerts|finra|etf)\//.test(u.pathname) || u.pathname === "/api/factors" || u.pathname.startsWith("/api/plab/") || u.pathname.startsWith("/api/user/plab") || u.pathname.startsWith("/api/user/wif") || u.pathname === "/api/bond/ref" || u.pathname === "/api/bond/list" || u.pathname === "/api/reddit" || u.pathname === "/api/alerts" || u.pathname.startsWith("/api/user/alerts") || u.pathname.startsWith("/api/user/views") || u.pathname.startsWith("/api/user/bcfg"))) return viaWorker(route, u);
     if (u.origin === ORIGIN && (u.pathname === "/api/fa" || u.pathname === "/api/cn" || u.pathname === "/api/earnings/symbol")) return viaWorker(route, u, api.noFinnhub ? { SEC_CONTACT: "e2e@example.com" } : { SEC_CONTACT: "e2e@example.com", FINNHUB_KEY: "fh-e2e" });
     if (u.origin === ORIGIN && /^\/api\/(cb|sprd|energy|earnings|des|options|user|status|bonds|cot)(\/|$)/.test(u.pathname)) { let b = null; try { b = JSON.parse(route.request().postData() || "null"); } catch {} return send(t07Api(u, route.request().method(), b, t7)); }
     if (u.hostname.endsWith("fonts.googleapis.com") || u.hostname.endsWith("fonts.gstatic.com")) return route.fulfill({ body: "" });
@@ -2110,6 +2110,37 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[V] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   PV.kv.delete("pf/tx"); PV.kv.delete("pf/list");
+  await page.close();
+}
+
+// =============== W. boards as on Nico's terminal: rows hidden with ✎ (kept on the server), returns measured in another currency ===============
+{
+  PV.kv.delete("ud/bcfg");
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1200);
+  await cmd(page, "CLOSE"); await cmd(page, "FUT"); await page.waitForTimeout(2500);
+  const rows = () => page.evaluate(() => [...document.querySelectorAll('.win[data-type="FUT"] tbody tr[data-cn]')].filter((tr) => getComputedStyle(tr).display !== "none").map((tr) => tr.dataset.cn));
+  const before = await rows();
+  await page.click('.win[data-type="FUT"] .w-bedit'); await page.waitForTimeout(200);
+  await page.click('.win[data-type="FUT"] tr[data-cn="@VX.1"]'); await page.waitForTimeout(800);
+  const ed = await page.evaluate(() => ({ off: document.querySelector('.win[data-type="FUT"] tr[data-cn="@VX.1"]').classList.contains("b-off"), bar: document.querySelector('.win[data-type="FUT"] .b-edbar').innerText }));
+  await page.click('.win[data-type="FUT"] .b-tog'); await page.waitForTimeout(300);
+  const after = await rows();
+  ok("[W] ✎ on a board: a row clicked is hidden (struck through while editing, gone after DONE), kept on the server", before.includes("@VX.1") && ed.off && /1 hidden/.test(ed.bar) && !after.includes("@VX.1") && after.length === before.length - 1 && JSON.parse(PV.kv.get("ud/bcfg"))[0].hide[0] === "@VX.1", JSON.stringify({ ed, n: [before.length, after.length] }));
+  // returns in EUR
+  const cell = () => page.evaluate(() => { const tr = document.querySelector('.win[data-type="FUT"] tr[data-cn="@CL.1"]'), c = [...tr.cells]; return { w1: c[5].textContent, t: c[5].title }; });
+  const usd = await cell();
+  await page.click('.win[data-type="FUT"] [data-bccy="EUR"]'); await page.waitForTimeout(2500);
+  const eur = await cell();
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/fut-eur.png" });
+  const fx = await page.evaluate(async () => { const j = await (await fetch("/api/cnbc/returns?syms=EUR%3D")).json(); return j.returns["EUR="].ref["1W"]; });
+  const exp = ((1 + parseFloat(usd.w1) / 100) * (fx[1] / 1.12601) - 1) * 100; // euros per dollar: 1 / EUR/USD, now (Twelve Data) and a week ago (CNBC)
+  ok("[W] RETURNS IN EUR: the dollar return × the change in euros per dollar (CNBC's daily FX bar of the period, the live rate now), DERIVED; remembered", Math.abs(parseFloat(eur.w1) - exp) < 0.011 && eur.w1 !== usd.w1 && /EUR/.test(eur.t) && (await page.evaluate(() => localStorage.getItem("at-bccy"))) === "EUR", JSON.stringify({ usd, eur, fx, exp }));
+  await page.reload(); await page.waitForTimeout(1500); await cmd(page, "CLOSE"); await cmd(page, "FUT"); await page.waitForTimeout(2500);
+  ok("[W] …opened again: the row still hidden, the returns in EUR", !(await rows()).includes("@VX.1") && (await page.evaluate(() => document.querySelector('.win[data-type="FUT"] [data-bccy="EUR"]').getAttribute("aria-pressed"))) === "true");
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[W] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  PV.kv.delete("ud/bcfg");
   await page.close();
 }
 
