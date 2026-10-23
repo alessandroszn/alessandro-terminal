@@ -291,6 +291,16 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## Several portfolios: PORTS (23 Oct 2026, as on Nico's terminal)
+- `PORTS`: your portfolios (up to 10): the main one (KV `pf/tx`, as before) and others created here, each with its own
+  transactions (`pf/tx/<id>`; names in `pf/list`). Each is valued at live quotes in EUR (DERIVED, as PF): value,
+  today's change, holdings, transactions, and their total; OPEN puts one in view, ✎ renames, ✕ deletes it with its
+  trades (asked first; not the main one). API: `GET|POST|PUT|DELETE /api/portfolio/list`, and `?pf=<id>` on
+  `/api/portfolio` and `/api/portfolio/tx`.
+- The portfolio in view is the one PF, its analytics (PFA), the look-through (EXPO) and the lab's buy plan show; tabs at
+  the top of PF switch it (remembered in the browser, `at-pf`). Drift alerts (ALRT) keep watching the main one.
+- Privacy mode (HIDE) masks PORTS's amounts too.
+
 ## As on Nico's terminal: colour-linked windows, views as tabs, refresh times (23 Oct 2026)
 - The dot left of a window's title gives it a colour (click: amber, blue, green, pink, none). Windows of one colour follow
   one security: changing it in one of them (GP, DES, OMON, FA, ERN, CN), or typing it in the colour's box in the top

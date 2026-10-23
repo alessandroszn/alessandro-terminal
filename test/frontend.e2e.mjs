@@ -907,7 +907,7 @@ const OK_API = {
   await page.waitForFunction(() => /^● LIVE/.test(document.querySelector("#dataBadge")?.textContent || ""), null, { timeout: 15000 });
   await page.click("#fnMenuBtn"); await page.waitForTimeout(250);
   const menu = await page.evaluate(() => ({ on: document.querySelector("#fnmenu").classList.contains("on"), cats: [...document.querySelectorAll(".fm-col h4")].map((h) => h.textContent).join("|"), codes: [...document.querySelectorAll(".fm-i code")].map((c) => c.textContent).join(","), na: [...document.querySelectorAll(".fm-i")].filter((b) => b.querySelector(".fm-na")).map((b) => b.dataset.fn).join() }));
-  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,HOLD,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,FA,CN,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,YEAR,HIDE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
+  ok("[H] menu: six categories with their codes, N/A marked where there is no source", menu.on && menu.cats === "MARKETS|ETF|RATES & MACRO|ANALYSIS|MY STUFF|LAYOUT" && menu.codes.startsWith("IDX,EQ,FX,CMDTY,CRYPTO,FUT,COT,BOARD,WL,HEAT,MOV,SCR,RDT,MKT,EXCH,BRIEF,NEWS,EFS,EFP,EFC,HOLD,EXPO,UCITS,ETF,YLD,CURVE,BOND,YAS,SPRD,CB,CAL,ERN,FXM,FCRV,DES,FA,CN,OMON,WS,COMP,PERF,CROSS,CORR,BT,MC,VAR,VOL,DIST,BETA,FACT,EF,SEAS,PORT,PORTS,PFA,PLAB,WIF,ALRT,NOTE,SYS,SET,VIEW,CLOSE,UNDO,TILE,SPLIT,YEAR,HIDE,TOUR,HELP") && menu.na === "", JSON.stringify(menu));
   await page.fill("#fnmenu .fm-in", "option"); await page.waitForTimeout(150);
   if (SHOTS) await page.screenshot({ path: SHOTS + "/t07-menu.png" });
   ok("[H] menu: typing filters by code or name", (await page.$$eval(".fm-i code", (c) => c.map((x) => x.textContent).join())) === "OMON");
@@ -2079,6 +2079,37 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[U] reopening the page brings back the view you were in", rl.on === "Rates desk" && rl.types === "CB", JSON.stringify(rl));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[U] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== V. several portfolios (PORTS), as on Nico's terminal — through the real Worker code and its KV ===============
+{
+  PV.kv.delete("pf/tx"); PV.kv.delete("pf/list");
+  const { page, errors } = await openTerminal({ ...OK_API, pre: async (route, u) => { if (u.origin === ORIGIN && u.pathname.startsWith("/api/portfolio")) { await viaWorker(route, u); return true; } return false; } });
+  await page.waitForTimeout(1200);
+  const trade = async (sym, qty, price) => { await page.fill('.win[data-type="PF"] .pf-form input[name="sym"]', sym); await page.click('.win[data-type="PF"] .pf-chk'); await page.waitForTimeout(800);
+    await page.fill('.win[data-type="PF"] .pf-form input[name="qty"]', String(qty)); await page.fill('.win[data-type="PF"] .pf-form input[name="price"]', String(price)); await page.fill('.win[data-type="PF"] .pf-form input[name="date"]', "2026-10-01"); await page.click('.win[data-type="PF"] .pf-form button[type="submit"]'); await page.waitForTimeout(1500); };
+  await cmd(page, "CLOSE"); await cmd(page, "PF"); await page.waitForTimeout(800); await trade("AAPL", 10, 200);
+  await cmd(page, "PORTS"); await page.waitForTimeout(1500);
+  const ports = () => page.evaluate(() => { const w = document.querySelector('.win[data-type="PORTS"]'); return { title: w.querySelector(".w-title").textContent, rows: [...w.querySelectorAll("tbody tr")].map((r) => r.innerText.replace(/\s+/g, " ").trim()), foot: w.querySelector("tfoot")?.innerText.replace(/\s+/g, " ").trim() || "" }; });
+  let pt = await ports();
+  ok("[V] PORTS: your portfolios valued at live quotes in EUR (the main one with AAPL: 10 × $250 at EUR/USD 1.12601)", pt.title === "PORTFOLIOS" && pt.rows.length === 1 && /^Main main · in view 1 1 €2,220\.23/.test(pt.rows[0]), JSON.stringify(pt));
+  await page.fill('.pt-f input[name="name"]', "Kids"); await page.click('.pt-f button[type="submit"]'); await page.waitForTimeout(2000);
+  const pfT = () => page.evaluate(() => { const w = document.querySelector('.win[data-type="PF"]'); return { title: w.querySelector(".w-title").textContent, text: w.querySelector(".win-body").innerText, tabs: [...w.querySelectorAll("[data-pfid]")].map((b) => (b.getAttribute("aria-pressed") === "true" ? "*" : "") + b.textContent).join("|") }; });
+  let pf = await pfT();
+  ok("[V] a new portfolio: created, put in view (PF shows it, empty; its tab pressed)", pf.title === "PORTFOLIO · Kids · EUR" && /Your portfolio is empty/.test(pf.text) && pf.tabs === "Main|*Kids", JSON.stringify({ t: pf.title, tabs: pf.tabs }));
+  await trade("MSFT", 2, 400); pf = await pfT();
+  pt = await ports();
+  ok("[V] a trade goes to the portfolio in view only; PORTS: both, each valued, and their total", /MSFT/.test(pf.text) && !/AAPL/.test(pf.text.split("TRANSACTIONS")[0]) && pt.rows.length === 2 && /^Kids · in view 1 1 €/.test(pt.rows[1]) && /^ALL €[\d,.]+/.test(pt.foot) && JSON.parse(PV.kv.get("pf/tx")).length === 1 && PV.kv.get("pf/list").includes("Kids"), JSON.stringify(pt));
+  await page.click('.win[data-type="PF"] [data-pfid="main"]'); await page.waitForTimeout(1500); pf = await pfT();
+  ok("[V] the tabs in PF switch the portfolio in view", pf.title === "PORTFOLIO · Main · EUR" && /AAPL/.test(pf.text) && pf.tabs === "*Main|Kids", JSON.stringify({ t: pf.title, tabs: pf.tabs }));
+  await page.evaluate(() => document.querySelector('.win[data-type="PORTS"] [data-ptd]').click()); await page.waitForTimeout(300);
+  await page.evaluate(() => document.querySelector('.win[data-type="PORTS"] [data-pty]').click()); await page.waitForTimeout(1500);
+  pt = await ports();
+  ok("[V] a portfolio deleted with its trades (asked first); the main one cannot be", pt.rows.length === 1 && !(await page.$('.win[data-type="PORTS"] [data-ptd]')) && !PV.kv.get("pf/list").includes("Kids"), JSON.stringify(pt));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[V] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  PV.kv.delete("pf/tx"); PV.kv.delete("pf/list");
   await page.close();
 }
 

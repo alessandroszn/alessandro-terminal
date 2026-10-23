@@ -158,6 +158,25 @@ ok("portfolio: deleting the buy that a later sale needs → 409 (history stays c
 const sellId = JSON.parse(kv.get("pf/tx"))[1].id;
 r = await call(`/api/portfolio/tx?id=${sellId}`, { method: "DELETE" }, envP);
 ok("portfolio: delete a transaction", r.status === 200 && r.j.transactions.length === 1 && r.j.positions[0].qty === 10);
+// ---------- several portfolios (PORTS) ----------
+const put = (b) => ({ ...json(b), method: "PUT" });
+r = await call("/api/portfolio/list", undefined, envP);
+ok("PORTS: the main portfolio alone at first, with its holdings (quantity per symbol and currency)", r.status === 200 && r.j.portfolios.length === 1 && r.j.portfolios[0].id === "main" && JSON.stringify(r.j.portfolios[0].holdings) === JSON.stringify([["AAPL", "USD", 10]]));
+r = await call("/api/portfolio/list", json({ name: "Kids" }), envP);
+const kid = r.j.added;
+ok("PORTS: a new portfolio (its own id; the list kept in KV pf/list)", r.status === 201 && /^[a-f0-9-]{36}$/.test(kid) && JSON.parse(kv.get("pf/list")).length === 2);
+r = await call(`/api/portfolio/tx?pf=${kid}`, json({ side: "BUY", sym: "MSFT", qty: 3, price: 400, ccy: "USD", date: "2026-10-01" }), envP);
+ok("PORTS: a trade in that portfolio is stored apart (pf/tx/<id>); the main one untouched", r.status === 201 && r.j.portfolio.name === "Kids" && r.j.positions[0].sym === "MSFT" && JSON.parse(kv.get("pf/tx/" + kid)).length === 1 && JSON.parse(kv.get("pf/tx")).length === 1);
+r = await call(`/api/portfolio?pf=${kid}`, undefined, envP);
+const r0 = await call("/api/portfolio", undefined, envP);
+ok("PORTS: each portfolio read on its own; without ?pf the main one", r.j.positions.length === 1 && r.j.positions[0].sym === "MSFT" && r0.j.positions[0].sym === "AAPL");
+r = await call(`/api/portfolio/list?pf=${kid}`, put({ name: "Children" }), envP);
+const rDup = await call("/api/portfolio/list", json({ name: "children" }), envP), rMain = await call("/api/portfolio/list?pf=main", { method: "DELETE", headers: { origin: "https://alessandrozanichelli.com" } }, envP);
+ok("PORTS: renamed; a name already used (any case) refused; the main one cannot be deleted", r.status === 200 && r.j.portfolios[1].name === "Children" && rDup.status === 400 && rMain.status === 400);
+r = await call("/api/portfolio?pf=nope", undefined, envP);
+ok("PORTS: an unknown portfolio → 404", r.status === 404);
+r = await call(`/api/portfolio/list?pf=${kid}`, { method: "DELETE", headers: { origin: "https://alessandrozanichelli.com" } }, envP);
+ok("PORTS: delete a portfolio and its transactions", r.status === 200 && r.j.portfolios.length === 1 && kv.get("pf/tx/" + kid) == null);
 r = await call("/api/portfolio", undefined, { ...env, BRIEFS: undefined });
 ok("portfolio: no storage → 503 N/A", r.status === 503 && r.j.status === "N/A");
 

@@ -2,14 +2,19 @@
 //   GET    /api/portfolio              transactions + positions derived from them
 //   POST   /api/portfolio/tx           add a transaction  (JSON: date, side BUY|SELL, sym, qty, price, ccy, fees?, note?)
 //   DELETE /api/portfolio/tx?id=…      remove a transaction
-// Stored in Workers KV (binding BRIEFS, key pf/tx) behind Cloudflare Access: private to the owner.
+//   (each takes ?pf=<id> for another portfolio; without it: the main one)
+//   GET|POST|PUT|DELETE /api/portfolio/list   several portfolios (PORTS, 23 Oct 2026, as on Nico's terminal): their
+//                                      names and holdings; create {name}, rename ?pf= {name}, delete ?pf= (not the main one)
+// Stored in Workers KV (binding BRIEFS) behind Cloudflare Access: private to the owner. The main portfolio keeps its key
+// pf/tx; the others pf/tx/<id>; the names pf/list.
 // Positions use the average-cost method. Costs are in the listing's currency and in EUR at the ECB
 // euro reference rate of the trade date (last published rate on or before it; ECB Data Portal, EXR).
 // Market value is computed by the page from live quotes (Twelve Data) — never stored, never estimated.
 import { fetchText, cachedSource, parseCsv, iso } from "./lib.mjs";
 
 export const BASE_CCY = "EUR";
-const KEY = "pf/tx", MAX_TX = 2000;
+const KEY = "pf/tx", MAX_TX = 2000, LIST_KEY = "pf/list", MAX_PF = 10, PF_ID_RE = /^[a-z0-9-]{6,40}$/;
+const txKey = (pf) => (!pf || pf === "main" ? KEY : `pf/tx/${pf}`);
 // minor units some venues quote in → major currency and factor
 const MINOR = { GBp: ["GBP", 0.01], GBX: ["GBP", 0.01], ZAc: ["ZAR", 0.01], ILA: ["ILS", 0.01] };
 export const majorCcy = (c) => (MINOR[c] ? MINOR[c][0] : c);
@@ -98,7 +103,12 @@ export function buildPositions(txs, series) {
 }
 
 // ---------- storage ----------
-async function loadTx(env) { try { const t = await env.BRIEFS.get(KEY); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
+async function loadTx(env, pf) { try { const t = await env.BRIEFS.get(txKey(pf)); const a = t ? JSON.parse(t) : []; return Array.isArray(a) ? a : []; } catch { return []; } }
+const MAIN = { id: "main", name: "Main" };
+export async function loadPfList(env) {
+  try { const t = await env.BRIEFS.get(LIST_KEY), a = t ? JSON.parse(t) : null; if (Array.isArray(a) && a.some((x) => x.id === "main")) return a; } catch {}
+  return [MAIN];
+}
 
 async function view(origin, env, ctx, txs) {
   const ccys = [...new Set(txs.map((t) => majorCcy(t.ccy)).filter((c) => c !== "EUR"))].sort();
@@ -124,7 +134,38 @@ export async function handlePortfolio(url, env, ctx, H, json, req) {
   const send = (body, status = 200) => { const r = json(body, H, status); r.headers.set("cache-control", "no-store"); return r; };
   if (!env.BRIEFS) return send({ error: "storage_not_configured", status: "N/A" }, 503);
   const sub = url.pathname.replace(/^\/api\/portfolio\/?/, ""), method = req ? req.method : "GET";
-  if (sub === "" && method === "GET") return send(await view(url.origin, env, ctx, await loadTx(env)));
+  // which portfolio: ?pf=<id> (one of the list), else the main one
+  const pfQ = String(url.searchParams.get("pf") || "main"), list = sub === "fx" ? null : await loadPfList(env), pfItem = list ? list.find((x) => x.id === pfQ) : null;
+  if (list && !pfItem && !(sub === "list" && method === "POST")) return send({ error: "not_found", message: "no portfolio with that id" }, 404);
+  const pf = pfItem ? pfItem.id : "main", tag = pfItem ? { portfolio: { id: pfItem.id, name: pfItem.name } } : {};
+  if (sub === "" && method === "GET") return send({ ...(await view(url.origin, env, ctx, await loadTx(env, pf))), ...tag });
+  if (sub === "list") {
+    if (method === "GET") {
+      // each portfolio with its open holdings (quantity per symbol and currency): the page values them at live quotes
+      const out = [];
+      for (const x of list) { const tx = await loadTx(env, x.id), b = buildPositions(tx, null); out.push({ id: x.id, name: x.name, created: x.created || null, txCount: tx.length, holdings: (b.positions || []).filter((q) => q.open).map((q) => [q.sym, q.ccy, q.qty]) }); }
+      return send({ portfolios: out, max: MAX_PF });
+    }
+    const origin = req.headers.get("origin");
+    if (origin && origin !== (env.ALLOWED_ORIGIN || url.origin)) return send({ error: "forbidden_origin" }, 403);
+    if (method === "DELETE") {
+      if (pf === "main") return send({ error: "bad_request", message: "the main portfolio cannot be deleted" }, 400);
+      const next = list.filter((x) => x.id !== pf);
+      await env.BRIEFS.put(LIST_KEY, JSON.stringify(next)); await env.BRIEFS.delete(txKey(pf));
+      return send({ removed: pf, portfolios: next });
+    }
+    if (method !== "POST" && method !== "PUT") return send({ error: "method_not_allowed" }, 405);
+    if (!/^application\/json/i.test(req.headers.get("content-type") || "")) return send({ error: "bad_request", message: "JSON body required" }, 415);
+    let b = null; try { b = await req.json(); } catch { return send({ error: "bad_request", message: "invalid JSON" }, 400); }
+    const name = String((b && b.name) || "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 40);
+    if (!name) return send({ error: "bad_request", message: "a name is required" }, 400);
+    const other = method === "PUT" ? pf : null;
+    if (list.some((x) => x.id !== other && x.name.toLowerCase() === name.toLowerCase())) return send({ error: "bad_request", message: "another portfolio has that name" }, 400);
+    if (method === "PUT") { const next = list.map((x) => (x.id === pf ? { ...x, name } : x)); await env.BRIEFS.put(LIST_KEY, JSON.stringify(next)); return send({ portfolios: next }); }
+    if (list.length >= MAX_PF) return send({ error: "bad_request", message: `limit of ${MAX_PF} portfolios reached` }, 400);
+    const item = { id: crypto.randomUUID(), name, created: iso(Date.now()) }, next = [...list, item];
+    await env.BRIEFS.put(LIST_KEY, JSON.stringify(next)); return send({ added: item.id, portfolios: next }, 201);
+  }
   // the ECB daily rates the analytics value each day with (the portfolio's currencies and the benchmark's), from a date
   if (sub === "fx" && method === "GET") {
     const ccys = [...new Set(String(url.searchParams.get("ccys") || "").split(",").map((c) => majorCcy(c.trim())).filter((c) => /^[A-Z]{3}$/.test(c) && c !== "EUR"))].sort().slice(0, 12);
@@ -146,21 +187,21 @@ export async function handlePortfolio(url, env, ctx, H, json, req) {
     const today = new Date(Date.now() + 14 * 3600_000).toISOString().slice(0, 10); // latest time zone's date: a trade made today anywhere
     const v = validateTx(body, today);
     if (typeof v === "string") return send({ error: "bad_request", message: v }, 400);
-    const txs = await loadTx(env);
+    const txs = await loadTx(env, pf);
     if (txs.length >= MAX_TX) return send({ error: "bad_request", message: `limit of ${MAX_TX} transactions reached` }, 400);
     const tx = { id: crypto.randomUUID(), ...v, created: Date.now() };
     const check = buildPositions([...txs, tx], null);
     if (check.error) return send({ error: "invalid_transaction", message: check.error }, 409);
-    await env.BRIEFS.put(KEY, JSON.stringify([...txs, tx]));
-    return send({ added: tx.id, ...(await view(url.origin, env, ctx, [...txs, tx])) }, 201);
+    await env.BRIEFS.put(txKey(pf), JSON.stringify([...txs, tx]));
+    return send({ added: tx.id, ...(await view(url.origin, env, ctx, [...txs, tx])), ...tag }, 201);
   }
   if (method === "DELETE") {
-    const id = url.searchParams.get("id") || "", txs = await loadTx(env), rest = txs.filter((t) => t.id !== id);
+    const id = url.searchParams.get("id") || "", txs = await loadTx(env, pf), rest = txs.filter((t) => t.id !== id);
     if (rest.length === txs.length) return send({ error: "not_found" }, 404);
     const check = buildPositions(rest, null);
     if (check.error) return send({ error: "invalid_transaction", message: `removing it would leave a sale without the shares: ${check.error}` }, 409);
-    await env.BRIEFS.put(KEY, JSON.stringify(rest));
-    return send({ removed: id, ...(await view(url.origin, env, ctx, rest)) });
+    await env.BRIEFS.put(txKey(pf), JSON.stringify(rest));
+    return send({ removed: id, ...(await view(url.origin, env, ctx, rest)), ...tag });
   }
   return send({ error: "method_not_allowed" }, 405);
 }
