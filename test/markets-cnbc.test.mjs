@@ -3,7 +3,7 @@
 //   node test/markets-cnbc.test.mjs
 import { app as worker } from "../src/worker.mjs";
 import { FUTURES, CURVES, cnbcNum, cnbcTime, contractOf, parseCnbcQuote, parseCnbcBars, dailyCloses, referenceCloses, impliedOpen, inSession, isAllowed } from "../src/cnbc.mjs";
-import { parseNqCalendar, parseNqScreener, parseNqMovers, nqText, nqNum, NQ_HEADERS } from "../src/nasdaq.mjs";
+import { parseNqCalendar, nqDayVotes, parseNqScreener, parseNqMovers, nqText, nqNum, NQ_HEADERS } from "../src/nasdaq.mjs";
 import { parseApe } from "../src/reddit.mjs";
 import { PRESS, BRIEF_PRESS } from "../src/press.mjs";
 
@@ -33,7 +33,12 @@ ok("implied open: nothing while the cash market is open; no bar → error, no nu
 // ---------- Nasdaq parsing ----------
 ok("Nasdaq blanks are not values", nqText("&nbsp;") === null && nqText(" nbsp;") === null && nqText(" ") === null && nqNum("$170.21") === 170.21 && nqNum("-1.234%") === -1.234 && nqNum("1,234") === 1234);
 const cal = parseNqCalendar({ data: { rows: [{ gmt: "12:30", country: "United States", eventName: "CPI (MoM)", actual: "0.4", consensus: "0.3", previous: "0.2" }, { gmt: "02:00", country: "Euro Zone", eventName: "ECB's Elderson Speaks", actual: "&nbsp;", consensus: " ", previous: " " }, { gmt: "", country: "", eventName: "" }] } }, "2026-10-15");
-ok("calendar: GMT time on the date, actual / consensus / previous; empty rows dropped", cal.length === 2 && cal[0].at === "2026-10-15T12:30:00.000Z" && cal[0].actual === "0.4" && cal[1].actual === null);
+ok("calendar: Nasdaq's times are New York time (EDT in October) → UTC; actual / consensus / previous; empty rows dropped", cal.length === 2 && cal[0].at === "2026-10-15T16:30:00.000Z" && cal[0].date === "2026-10-15" && cal[0].time === "16:30" && cal[0].timeET === "12:30" && cal[0].dateET === "2026-10-15" && cal[0].actual === "0.4" && cal[1].actual === null && cal[1].at === "2026-10-15T06:00:00.000Z", JSON.stringify(cal));
+const calW = parseNqCalendar({ data: { rows: [{ gmt: "08:30", country: "United States", eventName: "Initial Jobless Claims" }, { gmt: "19:30", country: "Japan", eventName: "National CPI" }, { gmt: "24H", country: "Japan", eventName: "Bank Holiday" }] } }, "2026-12-03");
+ok("calendar: EST in December (+5h); an evening release in New York lands on the next UTC day; 24H = all day, no time", calW[0].at === "2026-12-03T13:30:00.000Z" && calW[1].at === "2026-12-04T00:30:00.000Z" && calW[1].date === "2026-12-04" && calW[1].dateET === "2026-12-03" && calW[2].at === null && calW[2].allDay === true, JSON.stringify(calW));
+const jc = { data: { rows: [{ gmt: "08:30", country: "United States", eventName: "Initial Jobless Claims" }, { gmt: "10:30", country: "United States", eventName: "Natural Gas Storage" }, { gmt: "08:30", country: "Canada", eventName: "Initial Jobless Claims" }] } };
+const fr = { data: { rows: ["U.S. Baker Hughes Oil Rig Count", "CFTC Gold speculative net positions", "CFTC Corn speculative net positions", "CFTC Copper speculative net positions"].map((e) => ({ gmt: "13:00", country: "United States", eventName: e })) } };
+ok("calendar: the weekly U.S. releases tell which day an answer holds (jobless claims on Thursday, rig count and CFTC on Friday, each counted once)", nqDayVotes(jc, "2026-10-23") === -2 && nqDayVotes(jc, "2026-10-22") === 2 && nqDayVotes({ data: { rows: [] } }, "2026-10-24") === 0 && nqDayVotes(fr, "2026-10-24") === -2 && nqDayVotes(fr, "2026-10-23") === 2);
 const scr = parseNqScreener({ data: { rows: [{ symbol: "AAPL", name: "Apple Inc. Common Stock", lastsale: "$250.10", pctchange: "-1.2%", volume: "50000000", marketCap: "3800000000000.00", sector: "Technology", industry: "Computer Manufacturing", country: "United States", ipoyear: "1980" }, { symbol: "bad sym", name: "x" }] } });
 ok("screener: compact rows, invalid symbols dropped", scr.length === 1 && scr[0][0] === "AAPL" && scr[0][2] === 250.1 && scr[0][3] === -1.2 && scr[0][5] === 3.8e12 && scr[0][6] === "Technology" && scr[0][9] === 1980);
 const mv = parseNqMovers({ data: { STOCKS: { MostAdvanced: { dataAsOf: "Data as of Oct 20, 2026", table: { headers: { lastSalePrice: "Last", lastSaleChange: "Change", change: "% Change" }, rows: [{ symbol: "XYZ", name: "XYZ Corp", lastSalePrice: "$1.50", lastSaleChange: "+0.50", change: "+50%" }] } }, Empty: { table: { rows: [] } } } } });
@@ -81,7 +86,8 @@ ok("/api/cnbc/implied: after the U.S. close, the futures' move since the bar end
 r = await call("/api/cnbc/history?sym=AAPL");
 ok("/api/cnbc/history: only listed symbols (no open proxy)", r.status === 400);
 r = await call("/api/nasdaq/calendar?from=2026-10-19&to=2026-10-30");
-ok("/api/nasdaq/calendar: one request per day, at most 8 days, sent with a browser agent", r.status === 200 && calls.filter((c) => c.u.includes("economicevents")).length === 8 && r.j.rows.length === 8 && calls.filter((c) => c.u.includes("api.nasdaq.com")).every((c) => /Mozilla/.test(c.ua)));
+{ const asked = calls.filter((c) => c.u.includes("economicevents")).map((c) => /date=([\d-]+)/.exec(c.u)[1]).sort();
+ok("/api/nasdaq/calendar: one request per New York day (asked as the next date: Nasdaq's shift), at most 8 days, sent with a browser agent; rows kept on the UTC days asked", r.status === 200 && asked.length === 8 && asked[0] === "2026-10-19" && asked[7] === "2026-10-26" && r.j.rows.length === 7 && r.j.rows.every((x) => x.date >= "2026-10-19" && x.at.endsWith("T16:30:00.000Z")) && calls.filter((c) => c.u.includes("api.nasdaq.com")).every((c) => /Mozilla/.test(c.ua)), asked.join() + " " + (r.j.rows || []).length); }
 r = await call("/api/nasdaq/calendar?from=bad");
 ok("/api/nasdaq/calendar: bad dates → 400", r.status === 400);
 r = await call("/api/nasdaq/screener?ex=nyse");
@@ -93,6 +99,18 @@ ok("/api/nasdaq/movers: the lists Nasdaq publishes", r.status === 200 && r.j.lis
 r = await call("/api/reddit?filter=wallstreetbets");
 ok("/api/reddit: mentions with the 24-hour comparison; unknown filter → 400", r.status === 200 && r.j.rows[0].ticker === "NVDA" && r.j.rows[0].mentions24h === 80 && (await call("/api/reddit?filter=x")).status === 400);
 Date.now = realNow;
+
+// the day an answer holds: today's shift (date=D → the day before), and the case Nasdaq fixes it (date=D → D)
+{ const saved = globalThis.fetch, asked = [];
+  const answer = (holds) => ({ data: { rows: [{ gmt: "08:30", country: "United States", eventName: ({ 4: "Initial Jobless Claims", 5: "U.S. Baker Hughes Oil Rig Count" })[new Date(holds + "T12:00:00Z").getUTCDay()] || "Housing Starts", actual: "1" }, { gmt: "15:30", country: "United States", eventName: "CFTC Gold speculative net positions" }, { gmt: "15:30", country: "United States", eventName: "CFTC Corn speculative net positions" }].filter((r) => !r.eventName.startsWith("CFTC") || new Date(holds + "T12:00:00Z").getUTCDay() === 5) } });
+  const { nqDay } = await import("../src/nasdaq.mjs");
+  globalThis.fetch = async (u) => { const d = /date=([\d-]+)/.exec(String(u))[1]; asked.push(d); return new Response(JSON.stringify(answer(new Date(Date.parse(d + "T12:00:00Z") - 864e5).toISOString().slice(0, 10)))); };
+  const a = await nqDay("2026-10-22");
+  ok("nqDay: Thursday asked as date=Friday (the shift), one request, 08:30 New York → 12:30 UTC", asked.join() === "2026-10-23" && a.data.length === 1 && a.data[0].event === "Initial Jobless Claims" && a.data[0].at === "2026-10-22T12:30:00.000Z", asked.join() + JSON.stringify(a));
+  asked.length = 0; globalThis.fetch = async (u) => { const d = /date=([\d-]+)/.exec(String(u))[1]; asked.push(d); return new Response(JSON.stringify(answer(d))); };
+  const b = await nqDay("2026-10-22");
+  ok("nqDay: if Nasdaq fixes the shift (the answer holds the date asked), the day is asked as itself", asked.join() === "2026-10-23,2026-10-22" && b.data[0].event === "Initial Jobless Claims" && b.data[0].dateET === "2026-10-22", asked.join() + JSON.stringify(b));
+  globalThis.fetch = saved; }
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

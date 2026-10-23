@@ -16,6 +16,7 @@ import { getSecMap, secHeadersFor } from "./news.mjs";
 import { pickFact } from "./company.mjs";
 import { FINNHUB, finnhubKey, reaction } from "./earnings.mjs";
 import { alpacaConfigured, alpacaDailyBars } from "./spx.mjs";
+import { NQ_HEADERS } from "./nasdaq.mjs";
 
 const SYM_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 const DAY = 86400000;
@@ -88,11 +89,14 @@ export function faRecent(j, unit, kind, lastEnd) {
 // several concepts for one line (companies change tags over time): the one with the newest year leads, the others fill
 // the years it does not have
 export function faMerge(parts, n = 5) {
-  const ok = parts.filter((p) => p.years.length).sort((a, b) => (a.years[0].end < b.years[0].end ? 1 : -1));
-  if (!ok.length) return null;
   // the same fiscal year in two concepts may end a few days apart (52/53-week years): within 10 days is the same year
-  const lead = ok[0], years = lead.years.slice(), same = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) <= 10 * DAY;
-  for (const p of ok.slice(1)) for (const y of p.years) if (y.end < lead.years[0].end && !years.some((x) => same(x.end, y.end))) years.push({ ...y, concept: p.concept });
+  const same = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) <= 10 * DAY;
+  const ok = parts.filter((p) => p.years.length);
+  if (!ok.length) return null;
+  // the concept with the latest year leads; on the same latest year, the one listed first (the line's main concept)
+  const last = ok.reduce((m, p) => (p.years[0].end > m ? p.years[0].end : m), ""), lead = ok.find((p) => same(p.years[0].end, last));
+  const years = lead.years.slice();
+  for (const p of ok.filter((x) => x !== lead)) for (const y of p.years) if (y.end < lead.years[0].end && !years.some((x) => same(x.end, y.end))) years.push({ ...y, concept: p.concept });
   years.sort((a, b) => (a.end < b.end ? 1 : -1));
   return { concept: lead.concept, years: years.slice(0, n), recent: lead.recent };
 }
@@ -113,7 +117,7 @@ export async function handleFa(url, env, ctx, H, json) {
   if (!id) return send({ symbol: sym, name: c.name, cik: c.cik, lines: Object.entries(FA_LINES).map(([k, L]) => ({ id: k, st: L.st, label: L.label, unit: L.unit, kind: L.kind })), source: "SEC EDGAR XBRL (company filings)", sourceUrl, status: "LIVE" });
   const L = FA_LINES[id];
   if (!L) return send({ error: "bad_request", message: `c must be one of ${Object.keys(FA_LINES).join(",")}` }, 400);
-  const r = await cachedSource({ origin: url.origin, key: `fa/v1/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 60_000,
+  const r = await cachedSource({ origin: url.origin, key: `fa/v2/${c.cik}/${id}`, ttlMs: 24 * 3600_000, staleMaxMs: 30 * 86400_000, ctx, failTtlMs: 60_000,
     load: async () => {
       const parts = []; let err = null;
       for (const concept of L.concepts) { // one after another: SEC refuses bursts
@@ -162,6 +166,44 @@ export async function handleCompanyNews(url, env, ctx, H, json) {
 const hourOf = (h) => (h === "bmo" ? "before open" : h === "amc" ? "after close" : h === "dmh" ? "during market" : null);
 // the reported quarters (Finnhub /stock/earnings) joined to the calendar's report dates (same fiscal quarter); the next
 // report: the first calendar date from today
+// Nasdaq's earnings surprise table (the four latest reported quarters): fiscal quarter end and the date reported —
+// fills the report dates Finnhub's calendar no longer lists (its free calendar keeps only recent and coming reports)
+export const NQ_SURPRISE = (s) => `https://api.nasdaq.com/api/company/${encodeURIComponent(s)}/earnings-surprise`;
+export const NQ_SURPRISE_PAGE = (s) => `https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(s.toLowerCase())}/earnings`;
+const MONTHS = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+export function parseNqSurprise(j) {
+  const t = j && j.data && j.data.earningsSurpriseTable, rows = t && Array.isArray(t.rows) ? t.rows : [];
+  return rows.map((r) => {
+    const q = /^([A-Z][a-z]{2})\s+(\d{4})$/.exec(String(r.fiscalQtrEnd || "").trim()), d = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(r.dateReported || "").trim());
+    if (!q || !MONTHS[q[1]] || !d) return null;
+    return { fq: Number(q[2]) * 12 + MONTHS[q[1]] - 1, date: `${d[3]}-${d[1].padStart(2, "0")}-${d[2].padStart(2, "0")}`, eps: num(r.eps) };
+  }).filter(Boolean);
+}
+// a reported quarter without a date: the Nasdaq quarter whose fiscal end is up to two months before Finnhub's period (or one
+// after; Finnhub rounds fiscal quarters to calendar ones: Costco's August quarter is its "September"), the same EPS when
+// both are known;
+// only an unambiguous match, each Nasdaq quarter used once
+export function fillReportDates(history, nq) {
+  const used = new Set();
+  for (const x of history) {
+    if (x.date || !/^\d{4}-\d{2}/.test(x.period || "")) continue;
+    const pm = Number(x.period.slice(0, 4)) * 12 + Number(x.period.slice(5, 7)) - 1;
+    const near = nq.filter((r) => !used.has(r) && pm - r.fq >= -1 && pm - r.fq <= 2);
+    const epsOk = near.filter((r) => r.eps != null && x.epsActual != null && Math.abs(r.eps - x.epsActual) < 0.006);
+    const pick = epsOk.length === 1 ? epsOk[0] : near.length === 1 && (near[0].eps == null || x.epsActual == null || epsOk.length) ? near[0] : null;
+    if (pick) { used.add(pick); x.date = pick.date; x.dateSource = "Nasdaq"; }
+  }
+  return history;
+}
+// the hour of a report is not known: the move from the close before the report date to the close of the session after it
+// (whether it came before the open or after the close, the reaction is inside these two sessions)
+export function reactionSpan(bars, date) {
+  if (!bars || bars.length < 2) return null;
+  let i0 = -1; for (let i = 0; i < bars.length && bars[i][0] < date; i++) i0 = i;
+  const i1 = bars.findIndex(([d]) => d > date);
+  if (i0 < 0 || i1 < 0) return null;
+  return { session: bars[i1][0], from: bars[i0][0], chg: (bars[i1][1] / bars[i0][1] - 1) * 100, span: true };
+}
 export function normalizeEarnSym(hist, cal, today) {
   const rows = (Array.isArray(cal && cal.earningsCalendar) ? cal.earningsCalendar : []).filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date || ""));
   const q = (e) => (e.quarter != null && e.year != null ? `Q${e.quarter} ${e.year}` : null);
@@ -180,24 +222,26 @@ export async function handleEarnSym(url, env, ctx, H, json) {
   if (!SYM_RE.test(sym)) return send({ error: "bad_request", message: "a U.S. ticker" }, 400);
   if (!finnhubKey(env)) return send({ error: "finnhub_not_configured", status: "N/A", message: "Finnhub API key not set in the Worker (FINNHUB_KEY)" }, 503);
   const today = easternDate(new Date());
-  const r = await cachedSource({ origin: url.origin, key: `ern/sym/${sym}/${today}`, ttlMs: 6 * 3600_000, staleMaxMs: 3 * 86400_000, ctx, failTtlMs: 5 * 60_000,
+  const r = await cachedSource({ origin: url.origin, key: `ern/sym/v2/${sym}/${today}`, ttlMs: 6 * 3600_000, staleMaxMs: 3 * 86400_000, ctx, failTtlMs: 5 * 60_000,
     load: async () => {
       const h = { "X-Finnhub-Token": finnhubKey(env), accept: "application/json" };
-      const [a, b] = await Promise.all([fetchText(`${FINNHUB}/stock/earnings?${new URLSearchParams({ symbol: sym })}`, { timeoutMs: 12000, headers: h }),
-        fetchText(`${FINNHUB}/calendar/earnings?${new URLSearchParams({ symbol: sym, from: addDays(today, -400), to: addDays(today, 120) })}`, { timeoutMs: 12000, headers: h })]);
+      const [a, b, c] = await Promise.all([fetchText(`${FINNHUB}/stock/earnings?${new URLSearchParams({ symbol: sym })}`, { timeoutMs: 12000, headers: h }),
+        fetchText(`${FINNHUB}/calendar/earnings?${new URLSearchParams({ symbol: sym, from: addDays(today, -400), to: addDays(today, 120) })}`, { timeoutMs: 12000, headers: h }),
+        fetchText(NQ_SURPRISE(sym), { timeoutMs: 12000, headers: NQ_HEADERS })]);
       if (a.err && b.err) return { err: a.http === 401 || b.http === 401 ? "provider_auth" : a.err };
       let hist = null, cal = null; try { hist = a.err ? null : JSON.parse(a.text); } catch {} try { cal = b.err ? null : JSON.parse(b.text); } catch {}
       if (!Array.isArray(hist) && !(cal && Array.isArray(cal.earningsCalendar))) return { err: "provider_error" };
       const d = normalizeEarnSym(hist, cal, today);
       if (!d.next && !d.history.length) return { err: "no_data" };
+      if (!c.err && d.history.some((x) => !x.date)) { try { fillReportDates(d.history, parseNqSurprise(JSON.parse(c.text))); } catch { /* no dates from Nasdaq */ } }
       // the session after each report (Alpaca consolidated closes), DERIVED
       const dated = d.history.filter((x) => x.date);
       if (dated.length && alpacaConfigured(env)) {
         const bars = await alpacaDailyBars(env, [sym], addDays(dated[dated.length - 1].date, -10), new Date(Date.now() - 16 * 60_000).toISOString());
-        if (bars.data && bars.data[sym]) for (const x of dated) { const re = reaction(bars.data[sym], x.date, x.hour); if (re) x.reaction = re; }
+        if (bars.data && bars.data[sym]) for (const x of dated) { const re = x.hour ? reaction(bars.data[sym], x.date, x.hour) : reactionSpan(bars.data[sym], x.date); if (re) x.reaction = re; }
       }
       return { data: { ...d, partial: !!(a.err || b.err) } };
     } });
   if (!r.data) return send({ symbol: sym, error: r.err, status: "N/A" }, r.err === "no_data" ? 404 : r.err === "rate_limited" ? 429 : 502);
-  return send({ symbol: sym, today, ...r.data, source: "Finnhub (earnings calendar and reported quarters)", sourceUrl: "https://finnhub.io/docs/api/company-earnings", reactionBasis: "close of the first session after the report vs the close before (Alpaca consolidated) — DERIVED", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : r.data.partial ? "PARTIAL" : "LIVE" });
+  return send({ symbol: sym, today, ...r.data, source: "Finnhub (earnings calendar and reported quarters)", sourceUrl: "https://finnhub.io/docs/api/company-earnings", ...(r.data.history.some((x) => x.dateSource === "Nasdaq") ? { datesSource: "Nasdaq (earnings surprise: date reported)", datesUrl: NQ_SURPRISE_PAGE(sym) } : {}), reactionBasis: "close of the first session after the report vs the close before (Alpaca consolidated); when the hour of the report is not known, from the close before the report date to the close of the session after it — DERIVED", fetchedAt: iso(r.fetchedAt), status: r.cache === "STALE" ? "STALE" : r.data.partial ? "PARTIAL" : "LIVE" });
 }

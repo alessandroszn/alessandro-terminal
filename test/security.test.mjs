@@ -2,7 +2,7 @@
 // Provider responses are test fixtures in the providers' formats; nothing here is shown in the terminal.
 //   node test/security.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { faAnnual, faRecent, faMerge, normalizeCompanyNews, normalizeEarnSym, FA_LINES } from "../src/security.mjs";
+import { faAnnual, faRecent, faMerge, normalizeCompanyNews, normalizeEarnSym, FA_LINES, parseNqSurprise, fillReportDates, reactionSpan } from "../src/security.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"}  ${label}${cond ? "" : "  " + extra}`); cond ? pass++ : fail++; };
@@ -45,6 +45,11 @@ ok("FA balance sheet: instants at the fiscal year-end only (52/53-week years kep
 const OLD = { units: { USD: [flow("2016-09-25", "2017-09-30", 229234e6, "10-K", "2017-11-03"), flow("2017-10-01", "2018-09-29", 265595e6, "10-K", "2018-11-05"), flow("2022-10-01", "2023-09-30", 1, "10-K", "2023-11-03")] } };
 const mg = faMerge([{ concept: "us-gaap:Revenues", years: faAnnual(OLD, "USD", "flow", 9), recent: null }, { concept: "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax", years: yrs.slice(0, 3), recent: rec }]);
 ok("FA: several concepts — the newest leads, an older one fills the years it lacks (never the same year twice)", mg.concept === "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax" && mg.years.length === 5 && mg.years[3].end === "2018-09-29" && mg.years[3].concept === "us-gaap:Revenues" && !mg.years.some((y) => y.value === 1) && mg.recent === rec, JSON.stringify(mg.years));
+{ const y = (end, v) => ({ end, fy: Number(end.slice(0, 4)), val: v, form: "10-K", filed: end });
+  const tie = faMerge([{ concept: "us-gaap:CashAndCashEquivalentsAtCarryingValue", years: [y("2025-09-27", 30), y("2024-09-28", 29)], recent: null }, { concept: "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents", years: [y("2025-09-27", 36), y("2024-09-28", 35), y("2023-09-30", 34)], recent: null }]);
+  ok("FA: the same latest year in two concepts → the one listed first leads (cash, not cash with restricted cash); older years filled from the other, marked", tie.concept === "us-gaap:CashAndCashEquivalentsAtCarryingValue" && tie.years[0].val === 30 && tie.years.length === 3 && tie.years[2].concept === "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents", JSON.stringify(tie));
+  const rev = faMerge([{ concept: "a", years: [y("2024-09-28", 1)], recent: null }, { concept: "b", years: [y("2025-09-27", 2)], recent: null }]);
+  ok("FA: a later year in another concept → that concept leads (the company changed concept)", rev.concept === "b" && rev.years[0].val === 2 && rev.years[1].concept === "a"); }
 ok("FA: no figures at all → nothing", faMerge([{ concept: "x", years: [], recent: null }]) === null && faAnnual({ units: {} }, "USD", "flow").length === 0);
 ok("FA: 24 lines in three statements, from us-gaap concepts only", Object.keys(FA_LINES).length === 24 && ["is", "bs", "cf"].every((s) => Object.values(FA_LINES).some((l) => l.st === s)));
 
@@ -62,7 +67,12 @@ globalThis.fetch = async (u, o = {}) => {
     { category: "company", datetime: 0, headline: "no time", url: "https://example.com/d" }, { datetime: 1792000000, headline: "no link", url: "javascript:x" }]));
   if (u.startsWith("https://finnhub.io/api/v1/stock/earnings")) return new Response(JSON.stringify([
     { actual: 1.65, estimate: 1.6, period: "2026-06-30", quarter: 3, year: 2026, surprise: 0.05, surprisePercent: 3.125, symbol: "AAPL" },
-    { actual: 1.62, estimate: 1.65, period: "2026-03-31", quarter: 2, year: 2026, surprise: -0.03, surprisePercent: -1.8182, symbol: "AAPL" }]));
+    { actual: 1.62, estimate: 1.65, period: "2026-03-31", quarter: 2, year: 2026, surprise: -0.03, surprisePercent: -1.8182, symbol: "AAPL" },
+    { actual: 2.84, estimate: 2.65, period: "2025-12-31", quarter: 1, year: 2026, surprise: 0.19, surprisePercent: 7.17, symbol: "AAPL" }]));
+  if (u.startsWith("https://api.nasdaq.com/api/company/AAPL/earnings-surprise")) return new Response(JSON.stringify({ data: { symbol: "AAPL", earningsSurpriseTable: { rows: [
+    { fiscalQtrEnd: "Jun 2026", dateReported: "7/30/2026", eps: 1.65, consensusForecast: "1.60", percentageSurprise: "3.13" },
+    { fiscalQtrEnd: "Mar 2026", dateReported: "4/30/2026", eps: 1.62, consensusForecast: "1.65", percentageSurprise: "-1.82" },
+    { fiscalQtrEnd: "Dec 2025", dateReported: "1/29/2026", eps: 2.84, consensusForecast: "2.65", percentageSurprise: "7.17" }] } } }));
   if (u.startsWith("https://finnhub.io/api/v1/calendar/earnings")) return new Response(JSON.stringify({ earningsCalendar: [
     { date: "2026-07-30", hour: "amc", quarter: 3, year: 2026, epsActual: 1.65, epsEstimate: 1.6, revenueActual: 100e9, revenueEstimate: 98e9, symbol: "AAPL" },
     { date: "2026-04-30", hour: "amc", quarter: 2, year: 2026, epsActual: 1.62, epsEstimate: 1.65, symbol: "AAPL" },
@@ -95,8 +105,18 @@ ok("/api/cn: the key only in the X-Finnhub-Token header, never in the URL or the
 ok("normalizeCompanyNews: nothing usable → empty", normalizeCompanyNews(null).length === 0 && normalizeCompanyNews([{ headline: "x" }]).length === 0);
 // ---------- ERN for one company ----------
 r = await call("/api/earnings/symbol?symbol=AAPL", envF);
-ok("/api/earnings/symbol: the next report and the reported quarters (estimate, actual, surprise, report date)", r.status === 200 && r.j.next.date === "2099-01-29" && r.j.next.epsEstimate === 2.4 && r.j.next.hour === "after close" && r.j.history.length === 2 && r.j.history[0].quarter === "Q3 2026" && r.j.history[0].surprisePct === 3.125 && r.j.history[0].date === "2026-07-30" && r.j.history[0].revenueActual === 100e9 && r.j.status === "LIVE", r.text.slice(0, 400));
+ok("/api/earnings/symbol: the next report and the reported quarters (estimate, actual, surprise, report date)", r.status === 200 && r.j.next.date === "2099-01-29" && r.j.next.epsEstimate === 2.4 && r.j.next.hour === "after close" && r.j.history.length === 3 && r.j.history[0].quarter === "Q3 2026" && r.j.history[0].surprisePct === 3.125 && r.j.history[0].date === "2026-07-30" && r.j.history[0].revenueActual === 100e9 && r.j.status === "LIVE", r.text.slice(0, 400));
 ok("/api/earnings/symbol: without Alpaca no price reaction (nothing invented)", r.j.history.every((x) => !("reaction" in x)));
+ok("/api/earnings/symbol: a quarter Finnhub's calendar no longer lists → its report date from Nasdaq (hour unknown), said in the answer; asked like a browser", r.j.history[2].date === "2026-01-29" && r.j.history[2].dateSource === "Nasdaq" && r.j.history[2].hour === null && r.j.history[0].dateSource === undefined && /Nasdaq/.test(r.j.datesSource) && /nasdaq\.com/.test(r.j.datesUrl) && asked.some((a) => a.u.includes("earnings-surprise") && /Mozilla/.test(a.h["user-agent"] || "")), r.text.slice(0, 600));
+{ const nq = parseNqSurprise({ data: { earningsSurpriseTable: { rows: [{ fiscalQtrEnd: "Aug 2026", dateReported: "9/24/2026", eps: 6.6 }, { fiscalQtrEnd: "May 2026", dateReported: "5/28/2026", eps: 4.93 }, { fiscalQtrEnd: "bad", dateReported: "x" }] } } });
+  ok("parseNqSurprise: fiscal quarter and the date reported; bad rows dropped", nq.length === 2 && nq[0].date === "2026-09-24" && nq[0].eps === 6.6);
+  const h = fillReportDates([{ period: "2026-09-30", epsActual: 6.6, date: null }, { period: "2026-06-30", epsActual: 4.93, date: null }, { period: "2026-03-31", epsActual: 4.58, date: null }], nq);
+  ok("fillReportDates: a fiscal quarter that Finnhub rounds to the calendar one (Costco's August → September), matched by EPS; no match → no date", h[0].date === "2026-09-24" && h[1].date === "2026-05-28" && h[2].date === null, JSON.stringify(h));
+  const amb = fillReportDates([{ period: "2026-06-30", epsActual: 1, date: null }], parseNqSurprise({ data: { earningsSurpriseTable: { rows: [{ fiscalQtrEnd: "Jun 2026", dateReported: "7/30/2026", eps: 2 }] } } }));
+  ok("fillReportDates: the only quarter near but with another EPS → no date (nothing guessed)", amb[0].date === null);
+  const bars = [["2026-07-28", 100], ["2026-07-29", 101], ["2026-07-30", 102], ["2026-07-31", 99.96]];
+  const rs = reactionSpan(bars, "2026-07-30");
+  ok("reactionSpan: hour unknown → close before the report date to the close of the session after it", rs.from === "2026-07-29" && rs.session === "2026-07-31" && Math.abs(rs.chg - (99.96 / 101 - 1) * 100) < 1e-9 && rs.span === true && reactionSpan(bars, "2026-07-31") === null); }
 const ne = normalizeEarnSym([], { earningsCalendar: [{ date: "2026-01-01", quarter: 1, year: 2026 }] }, "2026-10-23");
 ok("normalizeEarnSym: no future date → no next report", ne.next === null && ne.history.length === 0);
 r = await call("/api/earnings/symbol?symbol=bad sym", envF);

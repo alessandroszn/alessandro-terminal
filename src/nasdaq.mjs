@@ -6,7 +6,7 @@
 //   GET /api/nasdaq/movers                                   most active, gainers, losers (the lists Nasdaq publishes)
 //   GET /api/nasdaq/company?sym=AAPL                         analysts (mean rating, price targets and their history, EPS
 //                                                            forecasts) and institutional holders (13F) as Nasdaq publishes them
-import { fetchText, cachedSource, iso } from "./lib.mjs";
+import { fetchText, cachedSource, iso, easternToUtc } from "./lib.mjs";
 
 const BUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 export const NQ_HEADERS = { "user-agent": BUA, accept: "application/json, text/plain, */*", "accept-language": "en-US,en;q=0.9", origin: "https://www.nasdaq.com", referer: "https://www.nasdaq.com/" };
@@ -26,24 +26,53 @@ const SRC = (k) => ({ source: "Nasdaq", sourceUrl: NQ_PAGE[k] });
 export const nqText = (v) => { const t = String(v == null ? "" : v).replace(/&nbsp;|nbsp;/gi, " ").trim(); return t === "" || t === "-" || t === "N/A" ? null : t; };
 export const nqNum = (v) => { const t = nqText(v); if (t == null) return null; const n = Number(t.replace(/[$,%\s]/g, "")); return Number.isFinite(n) ? n : null; };
 
-// one day of the economic calendar: "gmt" is the release time in GMT on that date
-export function parseNqCalendar(j, date) {
-  const rows = j && j.data && Array.isArray(j.data.rows) ? j.data.rows : [];
+// One day of the economic calendar. Checked 23 Oct 2026: the API answers date=D with the U.S.-Eastern day BEFORE D
+// (date=2026-10-23 → Thursday 22: jobless claims 08:30, natural gas storage 10:30, Japan CPI 19:30), and its "gmt" column
+// is in fact New York time ("24H" = all day). So the Eastern day D is asked as date=D+1 and each time converted from
+// New York time (EST/EDT) to UTC. The weekly U.S. releases that keep a fixed weekday say which day an answer holds: if
+// they ever show the asked day itself (Nasdaq fixed the shift), the day is asked as date=D instead.
+const DAY = 86400_000;
+export const addDay = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * DAY).toISOString().slice(0, 10);
+// (as Nasdaq listed them, 23 Oct 2026; 1 = Monday … 5 = Friday)
+const NQ_WEEKDAY = { "3-Month Bill Auction": 1, "6-Month Bill Auction": 1, "Redbook": 2, "API Weekly Crude Oil Stock": 2, "MBA Mortgage Applications": 3, "Crude Oil Inventories": 3,
+  "Initial Jobless Claims": 4, "Continuing Jobless Claims": 4, "Natural Gas Storage": 4, "U.S. Baker Hughes Oil Rig Count": 5, "U.S. Baker Hughes Total Rig Count": 5, CFTC: 5 };
+// > 0: the answer to date=asked holds the asked day; < 0: the day before; 0: nothing to tell (each release counted once)
+export function nqDayVotes(j, asked) {
+  const rows = j && j.data && Array.isArray(j.data.rows) ? j.data.rows : [], wd = (d) => new Date(d + "T12:00:00Z").getUTCDay();
+  const same = wd(asked), before = wd(addDay(asked, -1)), seen = new Set();
+  let v = 0;
+  for (const r of rows) {
+    if (String(r.country || "").trim() !== "United States") continue;
+    const name = String(r.eventName || "").trim(), k = /^CFTC .+ speculative net positions$/.test(name) ? "CFTC" : name, w = NQ_WEEKDAY[k];
+    if (w == null || seen.has(k)) continue; seen.add(k);
+    if (w === same) v++; else if (w === before) v--;
+  }
+  return v;
+}
+// the rows of the Eastern day `day`: at (UTC), date / time (UTC, as the Forex Factory events), dateET / timeET as published
+export function parseNqCalendar(j, day) {
+  const rows = j && j.data && Array.isArray(j.data.rows) ? j.data.rows : [], [y, mo, d] = day.split("-").map(Number);
   return rows.map((r) => {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(String(r.gmt || "").trim());
-    const t = m ? Date.parse(`${date}T${m[1].padStart(2, "0")}:${m[2]}:00Z`) : null;
-    return { date, time: m ? `${m[1].padStart(2, "0")}:${m[2]}` : null, at: t ? iso(t) : null, country: nqText(r.country), event: nqText(r.eventName), actual: nqText(r.actual), consensus: nqText(r.consensus), previous: nqText(r.previous) };
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(r.gmt || "").trim()), ok = m && +m[1] < 24 && +m[2] < 60;
+    const u = ok ? iso(easternToUtc(y, mo, d, +m[1], +m[2])) : null;
+    return { date: u ? u.slice(0, 10) : day, time: u ? u.slice(11, 16) : null, at: u, dateET: day, timeET: ok ? `${m[1].padStart(2, "0")}:${m[2]}` : null, allDay: !ok,
+      country: nqText(r.country), event: nqText(r.eventName), actual: nqText(r.actual), consensus: nqText(r.consensus), previous: nqText(r.previous) };
   }).filter((r) => r.event && r.country);
 }
-const DAY = 86400_000;
+async function nqAsk(asked) {
+  const f = await fetchText(NQ_CAL(asked), { timeoutMs: 12000, headers: NQ_HEADERS });
+  if (f.err) return { err: f.err };
+  try { return { j: JSON.parse(f.text) }; } catch { return { err: "provider_error" }; }
+}
+// one Eastern day, uncached (the alerts' check); calDay below caches it
+export async function nqDay(day) {
+  let r = await nqAsk(addDay(day, 1)); if (r.err) return r;
+  if (nqDayVotes(r.j, addDay(day, 1)) > 0) { r = await nqAsk(day); if (r.err) return r; if (nqDayVotes(r.j, day) < 0) return { err: "day_mismatch" }; }
+  return { data: parseNqCalendar(r.j, day) };
+}
 export async function calDay(origin, ctx, date, now) {
-  const past = Date.parse(date + "T23:59:59Z") < now - DAY;
-  return cachedSource({ origin, key: `nq/cal/${date}`, ttlMs: past ? 12 * 3600_000 : 10 * 60_000, staleMaxMs: 7 * DAY, failTtlMs: 5 * 60_000, ctx, load: async () => {
-    const f = await fetchText(NQ_CAL(date), { timeoutMs: 12000, headers: NQ_HEADERS });
-    if (f.err) return { err: f.err };
-    let j; try { j = JSON.parse(f.text); } catch { return { err: "provider_error" }; }
-    return { data: parseNqCalendar(j, date) };
-  } });
+  const past = Date.parse(addDay(date, 1) + "T06:00:00Z") < now - DAY;
+  return cachedSource({ origin, key: `nq/cal/v2/${date}`, ttlMs: past ? 12 * 3600_000 : 10 * 60_000, staleMaxMs: 7 * DAY, failTtlMs: 5 * 60_000, ctx, load: () => nqDay(date) });
 }
 
 // the screener file: [symbol, name, last, change %, volume, market cap, sector, industry, country, IPO year]
@@ -106,11 +135,12 @@ export async function handleNasdaq(url, env, ctx, H, json) {
     const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && Number.isFinite(Date.parse(d + "T00:00:00Z"));
     const today = new Date(now).toISOString().slice(0, 10), from = url.searchParams.get("from") || today, to = url.searchParams.get("to") || from;
     if (!ok(from) || !ok(to) || to < from) return send({ error: "bad_request", message: "from / to: YYYY-MM-DD" }, 400);
-    const days = []; for (let t = Date.parse(from + "T00:00:00Z"); t <= Date.parse(to + "T00:00:00Z") && days.length < 8; t += DAY) days.push(new Date(t).toISOString().slice(0, 10));
+    // from / to are UTC days: their releases fall in the Eastern days from − 1 … to
+    const days = []; for (let d = addDay(from, -1); d <= to && days.length < 8; d = addDay(d, 1)) days.push(d);
     const res = await Promise.all(days.map((d) => calDay(url.origin, ctx, d, now)));
     const rows = [], errors = {};
-    days.forEach((d, i) => { if (res[i].data) rows.push(...res[i].data); else errors[d] = res[i].err; });
-    return send({ rows, errors, ...SRC("calendar"), basis: "actual, consensus and previous as Nasdaq publishes them; release time in GMT", status: rows.length ? "LIVE" : "N/A" }, rows.length || !Object.keys(errors).length ? 200 : 502);
+    days.forEach((d, i) => { if (res[i].data) rows.push(...res[i].data.filter((r) => r.date >= from && r.date <= to)); else errors[d] = res[i].err; });
+    return send({ rows, errors, ...SRC("calendar"), basis: "actual, consensus and previous as Nasdaq publishes them; Nasdaq's times are New York time, converted to UTC (at, date, time)", status: rows.length ? "LIVE" : "N/A" }, rows.length || !Object.keys(errors).length ? 200 : 502);
   }
   if (p === "/api/nasdaq/screener") {
     const ex = String(url.searchParams.get("ex") || "").toLowerCase();

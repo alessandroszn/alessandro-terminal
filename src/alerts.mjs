@@ -21,10 +21,10 @@
 // The bot token is a Worker secret (TELEGRAM_BOT_TOKEN): it is only ever placed in the request URL to api.telegram.org —
 // never returned, logged or stored. KV writes are limited (free plan, 1,000 a day): a check writes only when an alert fires,
 // plus one heartbeat an hour.
-import { iso, fetchText } from "./lib.mjs";
+import { iso } from "./lib.mjs";
 import { loadCnbcQuotes, FUTURES } from "./cnbc.mjs";
 import { INDICES, INDEX_CNBC } from "./indices.mjs";
-import { NQ_CAL, NQ_HEADERS, parseNqCalendar } from "./nasdaq.mjs";
+import { nqDay, addDay } from "./nasdaq.mjs";
 import { cnbcCodeFor } from "./intl.mjs";
 import { computeDrift, loadDriftInputs } from "./drift.mjs";
 
@@ -301,12 +301,11 @@ export function chatsOf(updates) {
 
 // ---------- data for a check ----------
 async function loadReleases(now) {
-  const d = new Date(now), days = [d.toISOString().slice(0, 10)];
-  if (d.getUTCHours() < 2) days.unshift(new Date(now - 86400_000).toISOString().slice(0, 10)); // late figures of the previous day
-  const res = await Promise.all(days.map((day) => fetchText(NQ_CAL(day), { timeoutMs: 12000, headers: NQ_HEADERS }).then((f) => {
-    if (f.err) return { err: f.err };
-    try { return { data: parseNqCalendar(JSON.parse(f.text), day) }; } catch { return { err: "provider_error" }; }
-  })));
+  // Nasdaq's calendar is by New York day: today's there, and in the first hours the previous day's late figures
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit" }).formatToParts(new Date(now)).map((x) => [x.type, x.value]));
+  const today = `${p.year}-${p.month}-${p.day}`, days = [today];
+  if (Number(p.hour) % 24 < 2) days.unshift(addDay(today, -1));
+  const res = await Promise.all(days.map((day) => nqDay(day)));
   const rows = res.flatMap((r) => r.data || []);
   return rows.length || res.some((r) => r.data) ? { data: rows } : { err: res[0].err };
 }
