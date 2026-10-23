@@ -4,7 +4,8 @@
 //   POST             /api/user/alerts/rearm?id a fired price alert watches again
 //   GET|POST|PUT|DELETE /api/user/notes        notes {text, sym?}
 //   GET|PUT          /api/user/board           custom boards [{id, name, syms[]}]
-//   GET|POST|DELETE  /api/user/views           saved layouts [{id, name, desk:{w,h}, layout:[{type, state, x, y, w, h, min}], saved}]
+//   GET|POST|PUT|DELETE  /api/user/views       saved layouts [{id, name, desk:{w,h}, layout:[{type, state, x, y, w, h, min, link?}], saved}]
+//                                              (PUT ?id=: rename {name} or save its windows again {layout, desk})
 //                                              (a name saved again replaces that view)
 //   GET|POST|DELETE  /api/user/plab            portfolio lab: portfolios to test [{id, name, holdings:[{id, w}], settings, saved}]
 //                                              (target weights in %, adding up to 100; POST with an existing id replaces it)
@@ -49,7 +50,8 @@ export function validateView(b) {
     if (js.length > LIMITS.viewState) return `window state too large (${type})`;
     const x = num(w.x), y = num(w.y), ww = num(w.w), h = num(w.h);
     if ([x, y, ww, h].some((v) => v == null || v < -100 || v > 20000)) return "bad window position";
-    layout.push({ type, state: JSON.parse(js), x, y, w: ww, h, min: !!w.min });
+    const link = [1, 2, 3, 4].includes(Number(w.link)) ? Number(w.link) : null; // colour-linked windows (1–4), as on Nico's terminal
+    layout.push({ type, state: JSON.parse(js), x, y, w: ww, h, min: !!w.min, ...(link ? { link } : {}) });
   }
   const dw = num(b.desk && b.desk.w), dh = num(b.desk && b.desk.h);
   return { name, layout, desk: dw && dh ? { w: dw, h: dh } : null };
@@ -140,6 +142,19 @@ export async function handleUserData(url, env, ctx, H, json, req) {
     const item = { id: same ? same.id : crypto.randomUUID(), ...v, saved: iso(Date.now()) };
     const next = same ? list.map((x) => (x.id === same.id ? item : x)) : [...list, item];
     await save(env, kind, next); return send({ saved: item.id, replaced: !!same, views: next }, same ? 200 : 201);
+  }
+  // a view renamed ({name}) or its windows saved again ({layout, desk}: the tabs save the view you leave)
+  if (kind === "views" && method === "PUT" && !sub) {
+    const p = await body(); if (p.e) return p.e;
+    const list = await load(env, kind), item = list.find((x) => x.id === id);
+    if (!item) return send({ error: "not_found" }, 404);
+    const b = p.b || {}, name = b.name != null ? clean(b.name, 40) : item.name;
+    if (!name) return send({ error: "bad_request", message: "a name is required" }, 400);
+    if (list.some((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) return send({ error: "bad_request", message: "another view has that name" }, 400);
+    let upd = { name };
+    if (b.layout != null) { const v = validateView({ name, layout: b.layout, desk: b.desk }); if (typeof v === "string") return send({ error: "bad_request", message: v }, 400); upd = v; }
+    Object.assign(item, upd, { saved: iso(Date.now()) });
+    await save(env, kind, list); return send({ saved: id, views: list });
   }
   if (kind === "wif" && method === "POST" && !sub) {
     const p = await body(); if (p.e) return p.e;

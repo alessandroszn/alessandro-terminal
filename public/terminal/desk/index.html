@@ -642,6 +642,29 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   .ern-bar i.up{background:var(--up)}
   .ern-bar i.down{background:var(--down)}
   @container (max-width:620px){.cn-i{grid-template-columns:auto minmax(0,1fr)}.cn-h{grid-column:1/-1}}
+  /* ---- colour-linked windows, view tabs, refresh times ---- */
+  .w-link{width:11px;height:11px;min-width:11px;border-radius:50%;border:1px solid var(--line-2);padding:0;background:transparent;flex:0 0 auto;cursor:pointer}
+  .w-link:hover{border-color:var(--fg);background:transparent}
+  .win.linked{border-color:var(--lc)}
+  .win.linked .win-head{box-shadow:inset 0 2px 0 var(--lc)}
+  .win.linked .w-link{background:var(--lc);border-color:var(--lc)}
+  body.phone .w-link{display:none}
+  .w-rf{color:var(--dim);font-size:9.5px;letter-spacing:.04em;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;font-variant-numeric:tabular-nums}
+  .tb-win.linked{box-shadow:inset 0 -2px 0 var(--lc)}
+  .lnk-box{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--lc);border-radius:3px;padding:0 5px;height:22px;flex:0 0 auto}
+  .lnk-box i{width:8px;height:8px;border-radius:50%;background:var(--lc);flex:0 0 auto}
+  .lnk-box input{width:78px;background:none;border:0;color:var(--fg);font:inherit;font-size:11px;letter-spacing:.06em;text-transform:uppercase;outline:none;padding:0}
+  .lnk-box input.err{color:var(--down)}
+  #vtabs{display:flex;align-items:stretch;gap:2px;padding:0 8px;height:24px;background:var(--panel-2);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;flex:0 0 auto}
+  #vtabs[hidden]{display:none}
+  #vtabs::-webkit-scrollbar{display:none}
+  .vt{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);font:inherit;font-size:10.5px;letter-spacing:.08em;padding:0 10px;cursor:pointer;white-space:nowrap}
+  .vt:hover{color:var(--fg)}
+  .vt.on{color:var(--fg);border-bottom-color:var(--amber)}
+  .vt-add{color:var(--amber);font-weight:700}
+  .vt-in{font:inherit;font-size:10.5px;background:var(--bg);color:var(--fg);border:1px solid var(--amber);padding:0 6px;margin:2px 0;width:150px}
+  .vt-del{color:var(--down);margin-left:8px;font-weight:700}
+  .vt-msg{align-self:center;margin-left:8px;font-size:10px;color:var(--dim);white-space:nowrap}
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -661,6 +684,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     </div>
   </div>
 
+  <div id="vtabs" role="tablist" aria-label="Saved views" hidden></div>
   <div id="netbar" role="status" aria-live="polite"></div>
   <div id="desk" aria-label="Workspace"></div>
 
@@ -696,6 +720,9 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     <div class="help-grp">WINDOWS</div>
     <div class="help-row"><code>drag title</code><span>Move a window: dropped in a corner it takes that quarter, at the top it fills the desk, at a side half of it; hold Alt (Option) to drop it where it is</span></div>
     <div class="help-row"><code>edges</code><span>Drag the right, bottom or left edge, or the corner grip, to resize a window</span></div>
+    <div class="help-row"><code>● colour</code><span>The dot left of a window's title links it by colour: windows of one colour follow one security (chart, DES, options, FA, ERN, CN); a list of that colour sends the row clicked to them; the colour's box in the top bar changes them all</span></div>
+    <div class="help-row"><code>view tabs</code><span>Saved views as tabs under the top bar: click to open, + to save the desk as a new view, double-click to rename, right-click to delete; the view you leave is saved if its windows changed</span></div>
+    <div class="help-row"><code>↻ 14:05 → 14:10</code><span>In a window's title: when its data was read and when it is read next (live quotes: the next pull)</span></div>
     <div class="help-row"><code>✕2</code><span>In a window's title: closes the windows opened from it (UNDO reopens them)</span></div>
     <div class="help-row"><code>double-click</code><span>Maximise / restore a window (title bar)</span></div>
     <div class="help-row"><code>TILE</code><span>Arrange every open window in a grid</span></div>
@@ -900,7 +927,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       if(this.limitUntil>Date.now())return Math.max(base,this.limitUntil-Date.now()+60000);return this.saver()?base*3:base;},
     saver(){const d=this.day;return!!(d&&d.limit&&d.used/d.limit>=0.8);},
     async usage(){if(document.hidden||Date.now()-this._usageAt<3600000)return;this._usageAt=Date.now();try{const j=await (await fetch(CONFIG.proxyBase+'/api/status?usage=1',{cache:'no-store'})).json();const td=j&&j.twelvedata;if(td&&td.day&&fin(td.day.used))this.day={used:td.day.used,limit:td.day.limit,at:Date.now()};updateGlobal();}catch(e){}},
-    schedule(){clearTimeout(this._timer);this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
+    schedule(){clearTimeout(this._timer);this.nextAt=Date.now()+this.interval();rfAll();this._timer=setTimeout(()=>{if(document.hidden)return this.schedule();this.refresh();},this.interval());},
     // symbols on screen: watchlist, the markets board when open, open security windows
     needed(){const s=new Set(WATCH);if(wins.some(w=>!w.min&&w.type==='MKT'))MARKET_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='BRF'))BRIEF_SYMS.forEach(x=>s.add(x));if(wins.some(w=>!w.min&&w.type==='MAP'&&w.state.u==='FX'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&(w.type==='PF'||w.type==='EXPO'||(w.type==='PLAB'&&w.state.tab==='buy')||(w.type==='QNT'&&w.state.tool==='fact'&&w.state.fsub==='pf'))))pfNeeded().forEach(x=>{inst(x);s.add(x);});
       if(wins.some(w=>!w.min&&w.type==='FXB'))Object.values(FX_PAIRS).forEach(x=>{inst(x);s.add(x);});if(wins.some(w=>!w.min&&w.type==='CMDTY'))s.add('XAU/USD');
@@ -921,7 +948,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       // the U.S. open: quotes fetched while closed are refreshed as soon as the exchange status says New York is open
       const ny=EXT.exchanges.data&&Array.isArray(EXT.exchanges.data.exchanges)?EXT.exchanges.data.exchanges.find(x=>x.code==='XNYS'):null;
       if(ny&&exchNow(ny,Date.now()).open&&UNI.some(t=>t.q&&t.q.marketOpen===false)&&Date.now()-(this.lastPull||0)>120000)this.refresh();
-      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='EQ')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='CRYPTO')spxEnsure(w.state.metric||'1D','CRYPTO');if(!w.min&&w.type==='ETFB'&&w.state.univ!=='UCITS')spxEnsure(w.state.metric||'1D','ETF');if(!w.min&&w._load)w._load();if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});},
+      wins.forEach(w=>{if(!w.min&&EXT_WIN[w.type])loadExt(EXT_WIN[w.type]);if(!w.min&&w.type==='MAP')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='EQ')spxEnsure(w.state.metric||'1D',w.state.u||'SPX');if(!w.min&&w.type==='CRYPTO')spxEnsure(w.state.metric||'1D','CRYPTO');if(!w.min&&w.type==='ETFB'&&w.state.univ!=='UCITS')spxEnsure(w.state.metric||'1D','ETF');if(!w.min&&w._load)w._load();if(!w.min&&w.type==='BRF')brfIndex(w.state.period||'daily');});rfDue();},
     _enqueue(fn){this._q=this._q.then(async()=>{await Budget.take(1);return fn();});},
     _repaintFor(sym){wins.forEach(w=>{if(!w.min&&((w.type==='GP'&&w.state.ticker===sym)||w.type==='COMP'||w.type==='CORR'||w.type==='WL'))liveRepaint(w);});updateGlobal();},
     ensureSeries(sym){if(!isLiveSym(sym)||!this.provider)return;const t=BY[sym];if(!t||t._planBlocked||t._real||t._loading||Date.now()<(t._histRetryAt||0))return;t._loading=true;
@@ -2128,7 +2155,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     w.max=false;w.el.classList.remove('ismax');w.x=x;w.y=bw.y;w.w=Math.min(w.w,dw-x);w.h=Math.min(w.h,dh-w.y);applyRect(w);bringFront(w);requestAnimationFrame(()=>reflowWin(w));}
   // "open all as a view": the briefing on the left, its windows on the right; the previous layout is kept and comes back with one click
   const VIEW={prev:null};
-  function snapLayout(){return wins.map(w=>({type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h,min:w.min}));}
+  function snapLayout(){return wins.map(w=>Object.assign({type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h,min:w.min},w.link?{link:w.link}:{}));}
   function brfOpenView(b,bw){const list=(b.windows||[]).slice(0,8);if(isMobile()){list.forEach(brfOpenWindow);return;}
     if(!VIEW.prev)VIEW.prev=snapLayout();
     wins.slice().forEach(w=>{if(w!==bw)closeWin(w,true);});
@@ -2539,7 +2566,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const X7={};
   function repaintTypes(types){wins.forEach(w=>{if(!w.min&&(!types||types.includes(w.type)))liveRepaint(w);});updateGlobal();}
   // every window type that asked for a path is repainted when it arrives
-  function get7(path,ttl,types){const e=X7[path]||(X7[path]={});e.types=[...new Set([...(e.types||[]),...(types||[])])];if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:ttl)))return e;e.loading=true;
+  function get7(path,ttl,types){const e=X7[path]||(X7[path]={});e.types=[...new Set([...(e.types||[]),...(types||[])])];rfNote(e,ttl);if(e.loading||(e.at&&Date.now()-e.at<(e.err?60000:ttl)))return e;e.loading=true;
     fetch(CONFIG.proxyBase+path,{cache:'no-store'}).then(async r=>{let j=null;try{j=await r.json();}catch(x){}if(!j)throw new Error('http '+r.status);e.data=j;e.err=j.error||null;})
       .catch(()=>{e.err='network';}).finally(()=>{e.loading=false;e.at=Date.now();repaintTypes(e.types.length?e.types:undefined);});
     return e;}
@@ -3874,11 +3901,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   const VWS={list:null,err:null,at:0,loading:false,msg:'',confirm:null,name:''};
   async function viewsLoad(force){if(VWS.loading||(!force&&VWS.at&&Date.now()-VWS.at<300000))return;VWS.loading=true;
     try{const r=await fetch(CONFIG.proxyBase+'/api/user/views',{cache:'no-store'});const j=await r.json();if(j&&Array.isArray(j.views)){VWS.list=j.views;VWS.err=null;}else VWS.err=(j&&j.error)||'http '+r.status;}catch(e){VWS.err='network';}
-    finally{VWS.loading=false;VWS.at=Date.now();repaintTypes(['VIEW']);}}
+    finally{VWS.loading=false;VWS.at=Date.now();repaintTypes(['VIEW']);vtBoot();renderVtabs();}}
+  // at start: back to the view you were in (its windows as you left them)
+  function vtBoot(){if(VT.booted)return;VT.booted=true;const v=VT.active&&VWS.list&&VWS.list.find(x=>x.id===VT.active);if(v&&!window.AZ_REPLAY&&!isMobile())viewOpen(v);}
   // open a saved layout: the windows open now are closed (UNDO brings them back); positions scale to this desk
-  function viewOpen(v){OPENER=null;const dw=deskEl.clientWidth,dh=deskEl.clientHeight,sx=v.desk&&v.desk.w?dw/v.desk.w:1,sy=v.desk&&v.desk.h?dh/v.desk.h:1;closeAll();
-    v.layout.forEach(s=>{if(!WINTYPES[s.type])return;if(s.type==='GP'&&s.state&&s.state.ticker)inst(s.state.ticker);const w=openWindow(s.type,s.state||{});if(!isMobile()){Object.assign(w,{x:Math.round(s.x*sx),y:Math.round(s.y*sy),w:Math.max(260,Math.round(s.w*sx)),h:Math.max(160,Math.round(s.h*sy))});applyRect(w);}if(s.min)toggleMin(w);requestAnimationFrame(()=>reflowWin(w));});
-    renderTaskbar();updateGlobal();}
+  function viewOpen(v){OPENER=null;vtSaveActive();const dw=deskEl.clientWidth,dh=deskEl.clientHeight,sx=v.desk&&v.desk.w?dw/v.desk.w:1,sy=v.desk&&v.desk.h?dh/v.desk.h:1;closeAll();
+    v.layout.forEach(s=>{if(!WINTYPES[s.type])return;if(s.type==='GP'&&s.state&&s.state.ticker)inst(s.state.ticker);const w=openWindow(s.type,s.state||{});if(s.link){w.link=s.link;paintLink(w);w._lsym=symOf(w);}if(!isMobile()){Object.assign(w,{x:Math.round(s.x*sx),y:Math.round(s.y*sy),w:Math.max(260,Math.round(s.w*sx)),h:Math.max(160,Math.round(s.h*sy))});applyRect(w);}if(s.min)toggleMin(w);requestAnimationFrame(()=>reflowWin(w));});
+    renderTaskbar();updateGlobal();if(VWS.list&&VWS.list.some(x=>x.id===v.id))vtSetActive(v.id);}
   function renderViews(body,win){viewsLoad();setProv(win,{'ds:VIEW':VWS.list?S.LIVE:VWS.err?S.NA:S.LOADING});
     if(!VWS.list&&!VWS.err){body.innerHTML=`<div class="empty">${tl('Loading your saved views…','Caricamento delle viste salvate…')}</div>`;return;}
     if(!VWS.list){body.innerHTML=naB(tl('saved views unavailable','viste salvate non disponibili'),VWS.err);return;}
@@ -4424,7 +4453,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- window manager ---------- */
   function isMobile(){return window.innerWidth<=880;}
   function paintWin(w){const def=WINTYPES[w.type],a=document.activeElement,fk=a&&w.bodyEl.contains(a)?(a.getAttribute('data-k')||a.getAttribute('name')):null;let caret=null;try{caret=a&&a.selectionStart;}catch(e){}
-    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();def.render(w.bodyEl,w);lwSweep(w);if(!phoneOn())requestAnimationFrame(()=>fitTables(w));w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);updateGlobal();
+    w.bodyEl.style.padding='';w.bodyEl.style.display='';w.bodyEl.style.flexDirection='';w.bodyEl.innerHTML='';w.provItems=null;w._draw=null;w._load=null;w._lwUsed=new Set();w._rf=null;const pw=PAINT_W;PAINT_W=w;try{def.render(w.bodyEl,w);}finally{PAINT_W=pw;}lwSweep(w);if(!phoneOn())requestAnimationFrame(()=>fitTables(w));w.titleEl.textContent=def.title(w);w.tagEl.textContent=def.tag;renderWinProv(w);paintRf(w);updateGlobal();linkFollow(w);
     // the field being typed in stays focused across repaints (quotes and data arriving)
     if(fk){const el=w.bodyEl.querySelector(`[data-k="${fk}"]`)||w.bodyEl.querySelector(`[name="${fk}"]`);if(el&&document.activeElement!==el){el.focus();try{if(caret!=null)el.setSelectionRange(caret,caret);}catch(e){}}}}
   function applyRect(w){if(isMobile())return;const el=w.el;el.style.left=w.x+'px';el.style.top=w.y+'px';el.style.width=w.w+'px';el.style.height=w.h+'px';}
@@ -4477,12 +4506,13 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     $$('.ws-x',box).forEach(b=>b.onclick=()=>{const w=wins.find(x=>x.id===+b.dataset.x);if(w)closeWin(w);});
     $$('[data-a]',box).forEach(b=>b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeAll();else if(a==='undo')undoClose();else if(a==='reload')location.reload();else if(a==='help'){toggleWinSheet(false);toggleHelp(true);}});}
   function createWinEl(w){const el=document.createElement('div');el.className='win';el.dataset.id=w.id;el.style.zIndex=w.z;
-    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-sp"></span><button class="w-ctl w-kids notranslate" type="button" hidden></button><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-edge e" data-dir="e"></div><div class="w-edge s" data-dir="s"></div><div class="w-edge w" data-dir="w"></div><div class="w-edge sw" data-dir="sw"></div><div class="w-grip" title="Resize"></div>`;el.dataset.type=w.type;
+    el.innerHTML=`<div class="win-head"><button class="w-ctl w-back notranslate" type="button" aria-label="Back" hidden></button><button class="w-ctl w-link" type="button"></button><span class="w-tag notranslate"></span><span class="w-title"></span><span class="w-pv"></span><span class="w-rf notranslate"></span><span class="w-sp"></span><button class="w-ctl w-kids notranslate" type="button" hidden></button><button class="w-ctl w-split" title="Split screen with the previous window" aria-label="Split screen">◫</button><button class="w-ctl w-min" title="Minimise" aria-label="Minimise">▁</button><button class="w-ctl w-max" title="Maximise" aria-label="Maximise">▢</button><button class="w-ctl w-close" title="Close" aria-label="Close">✕</button></div><div class="win-body"></div><div class="w-edge e" data-dir="e"></div><div class="w-edge s" data-dir="s"></div><div class="w-edge w" data-dir="w"></div><div class="w-edge sw" data-dir="sw"></div><div class="w-grip" title="Resize"></div>`;el.dataset.type=w.type;
     deskEl.appendChild(el);w.el=el;if('ResizeObserver' in window){let fr=0;w._ro=new ResizeObserver(()=>{if(fr)return;fr=requestAnimationFrame(()=>{fr=0;fitTables(w);});});w._ro.observe(el);}w.titleEl=el.querySelector('.w-title');w.tagEl=el.querySelector('.w-tag');w.pvEl=el.querySelector('.w-pv');w.bodyEl=el.querySelector('.win-body');
     // privacy mode: amounts are masked as they are drawn (HIDE)
     if(HIDE_TYPES.has(w.type)&&'MutationObserver' in window){w._mo=new MutationObserver(()=>{if(HIDE.on)hideAmounts(w);});w._mo.observe(w.bodyEl,{childList:true,subtree:true,characterData:true});}
     el.querySelector('.w-close').onclick=e=>{e.stopPropagation();closeWin(w);};
     el.querySelector('.w-kids').onclick=e=>{e.stopPropagation();closeKids(w);};
+    el.querySelector('.w-link').onclick=e=>{e.stopPropagation();cycleLink(w);};
     el.querySelector('.w-back').onclick=e=>{e.stopPropagation();phoneBack();};
     el.querySelector('.w-split').onclick=e=>{e.stopPropagation();splitFrom(w);};
     el.querySelector('.w-min').onclick=e=>{e.stopPropagation();toggleMin(w);};
@@ -4491,21 +4521,22 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const head=el.querySelector('.win-head');head.addEventListener('pointerdown',e=>startDrag(w,e,head));head.addEventListener('dblclick',()=>toggleMax(w));
     el.querySelector('.w-grip').addEventListener('pointerdown',e=>startResize(w,e,'se'));
     $$('.w-edge',el).forEach(g=>g.addEventListener('pointerdown',e=>startResize(w,e,g.dataset.dir)));
-    applyRect(w);}
+    applyRect(w);paintLink(w);}
   function openWindow(type,state){const def=WINTYPES[type];const w={id:winSeq++,type,state:Object.assign({},state),min:false,max:false,w:def.w,h:def.h,x:0,y:0,z:++zTop};
     const n=wins.length;const dw=deskEl?deskEl.clientWidth:1000,dh=deskEl?deskEl.clientHeight:600;
     w.w=Math.min(w.w,Math.max(260,dw-20));w.h=Math.min(w.h,Math.max(170,dh-20));
     w.x=Math.min(24+(n%6)*30,Math.max(0,dw-w.w));w.y=Math.min(16+(n%6)*26,Math.max(0,dh-w.h));
     if(OPENER&&Date.now()-OPENER.t<5000&&wins.some(x=>x.id===OPENER.id))w.parent=OPENER.id;
+    if(w.parent!=null){const p=wins.find(x=>x.id===w.parent);if(p&&p.link)w.link=p.link;}
     wins.push(w);createWinEl(w);paintWin(w);bringFront(w);renderTaskbar();return w;}
   function defaultState(type){if(type==='GP')return{ticker:'NVDA',tf:'6M'};if(type==='SCR')return{ex:'ALL',sector:'ALL',cap:'ALL',dir:'ALL',country:'ALL',sort:'cap',query:''};if(type==='COMP')return{sel:['NVDA','MSFT','AAPL'],mode:'rebase',tf:'6M'};if(type==='MAP')return{u:'SPX',metric:'1D',size:'weight',view:'map'};if(type==='EQ')return{u:'SPX',metric:'1D',sort:'weight',sec:'ALL',q:''};if(type==='CRYPTO')return{metric:'1D',sort:'dv'};if(type==='ETFB')return{metric:'1D',grp:'ALL',sort:'class'};if(type==='CRV')return{mode:'countries',sel:['US','DE','UK','JP']};return{};}
-  function openOrFocus(type,state){if(type==='GP'){const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
+  function openOrFocus(type,state){if(type==='GP'){const lr=linkRoute(state.ticker);if(lr)return lr;const ex=wins.find(w=>w.type==='GP'&&w.state.ticker===state.ticker);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow('GP',state);}
     const ex=wins.find(w=>w.type===type);if(ex){if(ex.min)toggleMin(ex);bringFront(ex);return ex;}return openWindow(type,state||defaultState(type));}
-  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);if(w._ro){w._ro.disconnect();w._ro=null;}if(w._mo){w._mo.disconnect();w._mo=null;}const snap={id:w.id,parent:w.parent,type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
+  function closeWin(w,batch){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();if(SPLIT.pending===w.id)splitPendingOff();lwDrop(w);if(w._ro){w._ro.disconnect();w._ro=null;}if(w._mo){w._mo.disconnect();w._mo=null;}const snap={id:w.id,parent:w.parent,link:w.link||null,type:w.type,state:JSON.parse(JSON.stringify(w.state)),x:w.x,y:w.y,w:w.w,h:w.h};if(w.el)w.el.remove();wins=wins.filter(x=>x!==w);if(!batch){closedStack.push(snap);renderTaskbar();}updateGlobal();return snap;}
   function closeAll(){splitEnd();splitPendingOff();if(!wins.length)return;const snaps=wins.slice().map(w=>closeWin(w,true));closedStack.push(snaps);renderTaskbar();}
   // reopened windows keep who opened whom (the ids are new)
   function undoClose(){const item=closedStack.pop();if(!item)return;OPENER=null;const arr=Array.isArray(item)?item:[item],map={};
-    arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);if(s.id!=null){map[s.id]=w.id;wins.forEach(x=>{if(x.parent===s.id)x.parent=w.id;});}});
+    arr.forEach(s=>{const w=openWindow(s.type,s.state);w.x=s.x;w.y=s.y;w.w=s.w;w.h=s.h;applyRect(w);if(s.link){w.link=s.link;paintLink(w);w._lsym=symOf(w);}if(s.id!=null){map[s.id]=w.id;wins.forEach(x=>{if(x.parent===s.id)x.parent=w.id;});}});
     arr.forEach(s=>{const w=wins.find(x=>x.id===map[s.id]);if(!w||s.parent==null)return;const p=map[s.parent]!=null?map[s.parent]:s.parent;if(wins.some(x=>x.id===p))w.parent=p;});renderTaskbar();}
   function toggleMin(w){if(!SPLIT.busy&&(SPLIT.l===w.id||SPLIT.r===w.id))splitEnd();w.min=!w.min;w.el.classList.toggle('ismin',w.min);if(!w.min){requestAnimationFrame(()=>reflowWin(w));}renderTaskbar();updateGlobal();}
   function toggleMax(w){if(SPLIT.l===w.id||SPLIT.r===w.id)splitEnd();w.max=!w.max;w.el.classList.toggle('ismax',w.max);if(!w.max)applyRect(w);requestAnimationFrame(()=>reflowWin(w));}
@@ -4602,10 +4633,11 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     // (☰ FUNCTIONS lives in the dock at the bottom; here only the window tools, as icons)
     [['◫','tb-split'+(splitOn()?' on':''),tl('Split screen: the window in front and the previous one side by side (again: swap them) · Alt+← / Alt+→','Schermo diviso: la finestra davanti e la precedente affiancate (di nuovo: le scambia) · Alt+← / Alt+→'),()=>splitScreen()],['▦','tb-tile',tl('Tile the windows','Affianca le finestre'),tileAll],['✕','tb-close',tl('Close all windows','Chiudi tutte le finestre'),closeAll],['↩','tb-undo',tl('Reopen the windows just closed','Riapri le finestre appena chiuse'),undoClose]].forEach(([lbl,cl,t,fn])=>{const b=document.createElement('button');b.type='button';b.className='sys-btn ico '+cl;b.textContent=lbl;b.title=t;b.setAttribute('aria-label',t);b.onclick=fn;bar.appendChild(b);});
     if(VIEW.prev){const b=document.createElement('button');b.className='sys-btn view-back';b.textContent=tl('↩ MY LAYOUT','↩ IL MIO LAYOUT');b.title=tl('close the briefing view and bring back your windows','chiudi la vista del briefing e riapri le tue finestre');b.onclick=restoreLayout;bar.appendChild(b);}
+    linkBoxes(bar);
     const sep=document.createElement('span');sep.className='tb-sep';bar.appendChild(sep);
     if(!wins.length){const e=document.createElement('span');e.className='tb-empty';e.textContent='no windows — open one from the bar below';bar.appendChild(e);tabsOvf();return;}
     wins.forEach(w=>{const c=document.createElement('button');c.className='tb-win'+(w.id===activeId?' active':'')+(w.min?' ismin':'');c.dataset.id=w.id;
-      c.innerHTML=`<i></i>${WINTYPES[w.type].tag}${w.type==='GP'?' '+w.state.ticker:''}`;
+      c.innerHTML=`<i></i>${WINTYPES[w.type].tag}${w.type==='GP'?' '+w.state.ticker:''}`;if(w.link){c.classList.add('linked');c.style.setProperty('--lc',LINK_COL[w.link-1]);}
       c.onclick=()=>{if(w.min)toggleMin(w);bringFront(w);};
       bar.appendChild(c);});
     const a=bar.querySelector('.tb-win.active');if(a&&(a.offsetLeft<bar.scrollLeft||a.offsetLeft+a.offsetWidth>bar.scrollLeft+bar.clientWidth))bar.scrollLeft=a.offsetLeft-bar.clientWidth/2;tabsOvf();}
@@ -4813,6 +4845,76 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
       <div class="src-line">${chip(ref.status==='STALE'?S.STALE:S.LIVE)} <a href="${esc(ref.sourceUrl)}" target="_blank" rel="noopener">justETF</a> · ${tl('read','letto')} ${fmtDT(ref.fetchedAt)} · ${tl('as justETF\'s page lists them: the 10 largest holdings, the largest countries and sectors; the full list is not published there','come li elenca la pagina di justETF: le 10 posizioni maggiori, i paesi e i settori maggiori; la lista completa lì non è pubblicata')}</div>`,{'ds:HOLD':ref.status==='STALE'?S.STALE:S.LIVE});
     body.querySelector('.h-efp').onclick=()=>openEfp(r.isin);}
 
+  /* ---------- colour-linked windows (as on Nico's terminal) ----------
+     The dot at the left of a window's title gives it a colour (click: the next one — amber, blue, green, pink, none).
+     Windows of one colour follow one security: changing it in one of them, or in the colour's box in the top bar,
+     changes it in all of them (chart, DES, options, FA, ERN, CN). A list of the same colour (watchlist, movers, an
+     index's members, holdings…) sends the row clicked to them instead of opening another chart. A window opened from a
+     coloured one takes its colour. Colours are kept in saved views. */
+  const LINK_COL=['#ffa028','#4ea1ff','#36c48e','#e86aa6'],LINK_NAME=()=>[tl('amber','ambra'),tl('blue','blu'),tl('green','verde'),tl('pink','rosa')];
+  const LINK_SYM={GP:'ticker',DES:'sym',OMON:'sym',FA:'sym',CN:'sym',ERNS:'sym'};
+  let LINKING=false;
+  const symOf=w=>LINK_SYM[w.type]?w.state[LINK_SYM[w.type]]||null:null;
+  function groupSym(link,except){const g=wins.filter(x=>x!==except&&x.link===link&&symOf(x)).sort((a,b)=>b.z-a.z)[0];return g?symOf(g):null;}
+  function setWinSym(w,sym){if(!LINK_SYM[w.type])return;w._lsym=sym;if(symOf(w)===sym)return;
+    if(w.type==='GP'){w.state.ticker=sym;const t=inst(sym);if(!t.q&&!t._pending&&!t._planBlocked&&DATA.provider)DATA.fetchNow([sym]);}else{w.state.sym=sym;w.state.exp=null;w.state.msg='';}paintWin(w);}
+  function setGroupSym(link,sym){LINKING=true;try{wins.forEach(x=>{if(x.link===link)setWinSym(x,sym);});}finally{LINKING=false;}renderTaskbar();}
+  // after a repaint: a coloured window whose security changed takes the windows of its colour with it
+  function linkFollow(w){if(LINKING||!w.link||!LINK_SYM[w.type])return;const s=symOf(w);if(!s||s===w._lsym)return;w._lsym=s;if(wins.some(x=>x!==w&&x.link===w.link&&LINK_SYM[x.type]&&symOf(x)!==s))setGroupSym(w.link,s);}
+  // a row clicked in a coloured window: the security goes to that colour's windows (null: none of them shows a security)
+  function linkRoute(sym){const o=OPENER&&Date.now()-OPENER.t<5000?wins.find(x=>x.id===OPENER.id&&x.link):null;if(!o)return null;
+    const g=wins.filter(x=>x.link===o.link&&LINK_SYM[x.type]&&x!==o);if(!g.length)return null;setGroupSym(o.link,sym);const gp=g.find(x=>x.type==='GP')||g[0];if(gp.min)toggleMin(gp);bringFront(gp);return gp;}
+  function paintLink(w){if(!w.el)return;const b=w.el.querySelector('.w-link'),c=w.link?LINK_COL[w.link-1]:null;w.el.classList.toggle('linked',!!c);if(c)w.el.style.setProperty('--lc',c);else w.el.style.removeProperty('--lc');
+    if(b){b.title=c?tl(`Linked (${LINK_NAME()[w.link-1]}): the windows of this colour follow one security — click for the next colour`,`Collegata (${LINK_NAME()[w.link-1]}): le finestre di questo colore seguono un titolo — clic per il colore successivo`):tl('Link by colour: the windows of one colour follow one security (click)','Collega per colore: le finestre di un colore seguono un titolo (clic)');b.setAttribute('aria-label',b.title);}}
+  function cycleLink(w){w.link=w.link>=LINK_COL.length?null:(w.link||0)+1;paintLink(w);if(w.link&&LINK_SYM[w.type]){const s=groupSym(w.link,w);if(s)setWinSym(w,s);else w._lsym=symOf(w);}renderTaskbar();}
+  // the colours in use, each with its security, in the top bar: type a ticker there and every window of that colour follows
+  function linkBoxes(bar){[...new Set(wins.filter(w=>w.link).map(w=>w.link))].sort().forEach(l=>{const box=document.createElement('span');box.className='lnk-box';box.style.setProperty('--lc',LINK_COL[l-1]);
+    box.innerHTML=`<i aria-hidden="true"></i><input value="${esc(groupSym(l)||'')}" maxlength="20" spellcheck="false" autocomplete="off" aria-label="${esc(tl('Security of the','Titolo delle finestre')+' '+LINK_NAME()[l-1]+tl(' windows',''))}" title="${esc(tl('The security of the '+LINK_NAME()[l-1]+' windows: type a ticker and press Enter','Il titolo delle finestre '+LINK_NAME()[l-1]+': scrivi un ticker e premi Invio'))}">`;
+    const i=box.querySelector('input');i.onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const v=i.value.trim().toUpperCase();if(!SYMBOL_OK.test(v)){i.classList.add('err');return;}
+      if(wins.some(x=>x.link===l&&LINK_SYM[x.type]))setGroupSym(l,v);else{OPENER=null;const g=openWindow('GP',{ticker:v,tf:'6M'});g.link=l;paintLink(g);g._lsym=v;const t=inst(v);if(!t.q&&DATA.provider)DATA.fetchNow([v]);renderTaskbar();}};
+    bar.appendChild(box);});}
+
+  /* ---------- saved views as tabs (as on Nico's terminal) ----------
+     The views saved with VIEW are tabs under the top bar: click one to open it; + saves the windows on the desk as a new
+     view; double-click renames; right-click deletes (asked first). The view you are in is saved when you leave it —
+     another tab, or the page hidden — if its windows changed: one write to your server's store each time. */
+  const VT={active:(()=>{try{return localStorage.getItem('at-view')||null;}catch(e){return null;}})(),edit:null,del:null,base:null,msg:''};
+  const layoutKey=()=>JSON.stringify(snapLayout().filter(x=>x.type!=='VIEW'));
+  function vtSetActive(id){VT.active=id||null;try{if(id)localStorage.setItem('at-view',id);else localStorage.removeItem('at-view');}catch(e){}VT.base=layoutKey();renderVtabs();}
+  function vtSaveActive(keepalive){const v=VT.active&&VWS.list&&VWS.list.find(x=>x.id===VT.active);if(!v||VT.base==null)return;const k=layoutKey();if(k===VT.base)return;
+    const layout=snapLayout().filter(x=>x.type!=='VIEW');if(!layout.length)return;VT.base=k;
+    const p=fetch(CONFIG.proxyBase+'/api/user/views?id='+encodeURIComponent(v.id),{method:'PUT',keepalive:!!keepalive,cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify({layout,desk:{w:deskEl.clientWidth,h:deskEl.clientHeight}})});
+    if(!keepalive)p.then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.views)){VWS.list=j.views;renderVtabs();repaintTypes(['VIEW']);}}).catch(()=>{});}
+  function renderVtabs(){const bar=$('#vtabs');if(!bar)return;if(isMobile()||VWS.loading&&!VWS.list){bar.hidden=isMobile();return;}bar.hidden=false;
+    const L=VWS.list||[];if(VT.active&&VWS.list&&!L.some(v=>v.id===VT.active))VT.active=null;
+    const inp=(id,val)=>`<input class="vt-in" data-id="${esc(id)}" value="${esc(val)}" maxlength="40" aria-label="${tl('name of the view','nome della vista')}">`;
+    bar.innerHTML=L.map(v=>VT.edit===v.id?inp(v.id,v.name):`<button type="button" role="tab" aria-selected="${v.id===VT.active}" class="vt${v.id===VT.active?' on':''}" data-id="${esc(v.id)}" title="${esc(v.name+' · '+v.layout.length+' '+tl('windows · double-click: rename · right-click: delete','finestre · doppio clic: rinomina · clic destro: elimina'))}">${esc(v.name)}${VT.del===v.id?`<b class="vt-del" data-del="${esc(v.id)}">${tl('delete?','eliminare?')} ✓</b>`:''}</button>`).join('')
+      +(VT.edit==='+'?inp('+',tl('View','Vista')+' '+(L.length+1)):`<button type="button" class="vt vt-add" title="${tl('Save the windows on the desk as a new view','Salva le finestre sul desk come nuova vista')}">+${L.length?'':' '+tl('SAVE THIS LAYOUT AS A VIEW','SALVA QUESTO LAYOUT COME VISTA')}</button>`)
+      +(VWS.err?`<span class="vt-msg">${tl('views','viste')}: N/A — ${esc(P.errorText(VWS.err))}</span>`:VT.msg?`<span class="vt-msg">${esc(VT.msg)}</span>`:'');
+    $$('.vt[data-id]',bar).forEach(b=>{const v=L.find(x=>x.id===b.dataset.id);b.onclick=e=>{if(e.target.closest('.vt-del'))return;if(VT.del){VT.del=null;renderVtabs();return;}if(v&&v.id!==VT.active)viewOpen(v);};
+      b.ondblclick=()=>{VT.edit=b.dataset.id;VT.del=null;renderVtabs();};b.oncontextmenu=e=>{e.preventDefault();VT.del=VT.del===b.dataset.id?null:b.dataset.id;renderVtabs();};});
+    $$('.vt-del',bar).forEach(d=>d.onclick=async e=>{e.stopPropagation();const id=d.dataset.del;VT.del=null;const r=await send7('DELETE','/api/user/views?id='+encodeURIComponent(id));if(r.j&&r.j.views){VWS.list=r.j.views;if(VT.active===id)vtSetActive(null);}else VT.msg=r.err||'';renderVtabs();repaintTypes(['VIEW']);});
+    const add=bar.querySelector('.vt-add');if(add)add.onclick=()=>{VT.edit='+';VT.del=null;VT.msg='';renderVtabs();};
+    const i=bar.querySelector('.vt-in');if(i){i.focus();i.select();let done=false;const end=()=>{if(done)return;done=true;VT.edit=null;renderVtabs();};
+      i.onkeydown=async e=>{if(e.key==='Escape'){e.preventDefault();end();return;}if(e.key!=='Enter')return;e.preventDefault();const name=i.value.trim();if(!name)return;done=true;const id=i.dataset.id;VT.edit=null;
+        if(id==='+'){const layout=snapLayout().filter(x=>x.type!=='VIEW');if(!layout.length){VT.msg=tl('Open some windows first','Prima apri qualche finestra');renderVtabs();return;}
+          const r=await send7('POST','/api/user/views',{name,layout,desk:{w:deskEl.clientWidth,h:deskEl.clientHeight}});if(r.j&&r.j.views){VWS.list=r.j.views;VT.msg='';vtSetActive(r.j.saved);}else{VT.msg=tl('Not saved: ','Non salvata: ')+(r.err||'');renderVtabs();}}
+        else{const r=await send7('PUT','/api/user/views?id='+encodeURIComponent(id),{name});if(r.j&&r.j.views){VWS.list=r.j.views;VT.msg='';}else VT.msg=tl('Not renamed: ','Non rinominata: ')+(r.err||'');renderVtabs();}repaintTypes(['VIEW']);};
+      i.onblur=()=>setTimeout(end,120);}}
+
+  /* ---------- last and next refresh in each window's title (as on Nico's terminal) ----------
+     From what the window reads: its data's time (the latest answer it used) and when it is read again — the shortest
+     cache time of those answers, or the next quote pull for windows on live quotes. A window whose time has come is
+     redrawn by the sweep (every 30 s), which reads its data again. */
+  let PAINT_W=null;
+  function rfNote(e,ttl){const w=PAINT_W;if(!w)return;const r=w._rf||(w._rf={at:0,next:Infinity});if(e.at)r.at=Math.max(r.at,e.at);r.next=Math.min(r.next,e.at?e.at+(e.err?60000:ttl):Date.now()+30000);}
+  function paintRf(w){const el=w.el&&w.el.querySelector('.w-rf');if(!el)return;const q=w.provItems&&Object.keys(w.provItems).some(k=>BY[k]&&BY[k].q);let at=w._rf?w._rf.at:0,nx=w._rf&&isFinite(w._rf.next)?w._rf.next:null;
+    if(q&&DATA.lastPull){at=Math.max(at,DATA.lastPull);if(DATA.nextAt)nx=nx==null?DATA.nextAt:Math.min(nx,DATA.nextAt);}
+    if(!at){el.textContent='';el.title='';return;}const hm=t=>new Date(t).toLocaleTimeString(I18N.locale(),{hour:'2-digit',minute:'2-digit'});
+    el.textContent='↻ '+hm(at)+(nx&&nx>Date.now()?' → '+hm(nx):'');el.title=tl('Data read','Dati letti')+' '+fmtDT(new Date(at).toISOString())+(nx?' · '+tl('next read','prossima lettura')+' '+(nx>Date.now()?fmtDT(new Date(nx).toISOString()):tl('now','ora')):'')+(q?' · '+tl('live quotes every','quotazioni live ogni')+' '+Math.round(DATA.interval()/1000)+' s':'');}
+  function rfAll(){wins.forEach(paintRf);}
+  function rfDue(){const now=Date.now();wins.forEach(w=>{if(!w.min&&w._rf&&isFinite(w._rf.next)&&w._rf.next<=now&&!document.hidden)liveRepaint(w);else paintRf(w);});}
+
   /* ---------- command line ---------- */
   const FUNCMAP={WIF:"WIF",WHATIF:"WIF",YAS:"YAS",YIELD:"YAS",BCALC:"YAS",PLAB:"PLAB",LAB:"PLAB",EFS:"EFS",ETFSCR:"EFS",SCREENETF:"EFS",EFP:"EFP",EFC:"EFC",EXPO:"EXPO",LOOK:"EXPO",BOND:"BOND",BONDS:"BOND",GOVT:"BOND",COT:"COT",ETF:"ETFB",ETFS:"ETFB",EQ:"EQ",EQUITIES:"EQ",FX:"FXB",FXB:"FXB",CURRENCIES:"FXB",CMDTY:"CMDTY",COMDTY:"CMDTY",CRYPTO:"CRYPTO",FUT:"FUT",FUTURES:"FUT",BOARD:"BOARD",RDT:"RDT",REDDIT:"RDT",CURVE:"CRV",CURVES:"CRV",SPRD:"SPRD",SPREAD:"SPRD",CB:"CB",ERN:"ERN",EARN:"ERN",EARNINGS:"ERN",FCRV:"FCRV",DES:"DES",OMON:"OMON",OPTIONS:"OMON",CROSS:"CROSS",BT:"BT",BACKTEST:"BT",ALRT:"ALRT",ALERT:"ALRT",ALERTS:"ALRT",NOTE:"NOTE",NOTES:"NOTE",SYS:"SYS",STATUS:"SYS",WLH:"HEAT",PF:"PF",PORT:"PF",PFA:"PFA",PA:"PFA",RISK:"PFA",PORTFOLIO:"PF",EXCH:"EXCH",OPEN:"EXCH",HOURS:"EXCH",SRCH:"SRCH",SEARCH:"SRCH",FIND:"SRCH",MAP:"MAP",SPX:"MAP",HMAP:"MAP",HEAT:"MAP",MOV:"MOV",SCR:"SCR",COMP:"COMP",PERF:"COMP",CORR:"CORR",WL:"WL",WATCH:"WL",MKT:"MKT",MARKETS:"MKT",IDX:"IDX",INDICES:"IDX",YLD:"YLD",YIELDS:"YLD",CURV:"YLD",CAL:"CAL",CALENDAR:"CAL",N:"N",NEWS:"N",BRF:"BRF",BRIEF:"BRF",BRIEFING:"BRF",SET:"SET",SETTINGS:"SET",VIEW:"VIEW",VIEWS:"VIEW",LAYOUTS:"VIEW",YEAR:"YEAR",YR:"YEAR"};
   const FUNCSET=new Set(Object.keys(FUNCMAP).concat(["UCITS","QUANT","QNT","MC","VAR","VOL","DIST","BETA","FACT","FACTOR","FACTORS","EF","SEAS","HELP","TILE","SPLIT","CLOSE","UNDO","MENU","FN","FUNCTIONS","TOUR","FXM","WS","HIDE","PRIVACY","FA","FIN","CN","HOLD","HOLDINGS"]));
@@ -4895,6 +4997,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
     const RP=window.AZ_REPLAY||null;
     if(RP){}else if(isMobile()){openWindow('WL',{});openWindow('MKT',{});PH_HIST.length=0;phoneSync();}else{openWindow('GP',{ticker:WATCH[0]||'NVDA',tf:'6M'});openWindow('WL',{});openWindow('MKT',{});openWindow('YLD',{});}
     if(!isMobile()&&!RP)tileAll();
+    if(!isMobile()&&!RP){viewsLoad();const leave=()=>vtSaveActive(true);document.addEventListener('visibilitychange',()=>{if(document.hidden)leave();});window.addEventListener('pagehide',leave);}
     setTape(tapeOn());renderTape();tickClock();setInterval(tickClock,1000);
     $('#tsLabel').onclick=()=>openOrFocus('SYS',defaultState('SYS'));$('#mktsOpen').onclick=()=>openOrFocus('EXCH',defaultState('EXCH'));$('#nextEv').onclick=()=>openOrFocus('CAL',defaultState('CAL'));setTimeout(()=>loadExt('calendar'),1500);setInterval(updateNextEvent,30000);
     // interface language: EN / IT (remembered in this browser); data and AI briefings follow their own language

@@ -1200,7 +1200,9 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   await cmd(page, "OMON AAPL"); await page.waitForTimeout(1500);
   let om = await winOf(page, "OPTIONS · AAPL");
   ok("[J] OMON: expected move from the ATM straddle and max pain from open interest (DERIVED)", /EXPECTED MOVE\s*DRV\s+±\$17\.25\s+±6\.9% · ATM straddle/.test(om.text) && /MAX PAIN\s*DRV\s+250/.test(om.text), om.text.slice(0, 600));
-  await page.click('[data-ov="TERM"]'); await page.waitForTimeout(800); om = await winOf(page, "OPTIONS · AAPL");
+  // (a click that lands while the window redraws with arriving data is clicked again)
+  for (let k = 0; k < 4; k++) { await page.click('[data-ov="TERM"]'); if (await page.waitForFunction(() => /EXPIRY\s+DAYS\s+ATM/.test([...document.querySelectorAll(".win")].find((w) => w.querySelector(".w-title").textContent.startsWith("OPTIONS · AAPL"))?.querySelector(".win-body").innerText || ""), null, { timeout: 1500 }).then(() => true).catch(() => false)) break; }
+  await page.waitForTimeout(300); om = await winOf(page, "OPTIONS · AAPL");
   // expiry dates follow the fixture (today + 9 / + 37 days); 1σ uses the time left to the close, so it moves with the hour
   const fmtExp = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
   ok("[J] OMON TERM: ATM IV, straddle and expected move per expiry", new RegExp(fmtExp(dShift(today, 9)) + "\\s+9\\s+250\\s+28\\.0%\\s+17\\.25\\s+±6\\.9%\\s+±4\\.[3-6]%").test(om.text) && new RegExp(fmtExp(dShift(today, 37)) + "\\s+37\\s+250\\s+28\\.0%").test(om.text), om.text.slice(om.text.indexOf("EXPIRY"), om.text.indexOf("EXPIRY") + 300));
@@ -2027,6 +2029,56 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   ok("[T] DES / FA / ERN / CN link to each other for the same company", des === "FA,ERN,CN", String(des));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[T] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
+  await page.close();
+}
+
+// =============== U. as on Nico's terminal: colour-linked windows, saved views as tabs, refresh times in the titles ===============
+{
+  PV.kv.delete("ud/views"); // the views saved by earlier scenarios (K) are not this one's
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1800);
+  const rf = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".win")].map((w) => [w.dataset.type, w.querySelector(".w-rf").textContent])));
+  ok("[U] a window's title: when its data was read and when it is read next (chart and watchlist: the next quote pull)", /^↻ \d{2}:\d{2} → \d{2}:\d{2}$/.test(rf.GP || "") && /^↻ \d{2}:\d{2} → \d{2}:\d{2}$/.test(rf.WL || ""), JSON.stringify(rf));
+  // colour links
+  await cmd(page, "CLOSE"); await cmd(page, "WL"); await cmd(page, "NVDA"); await cmd(page, "AAPL DES"); await cmd(page, "TILE"); await page.waitForTimeout(800);
+  const dot = (t) => page.evaluate((t) => document.querySelector(`.win[data-type="${t}"] .w-link`).click(), t);
+  const titles = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".win")].map((w) => [w.dataset.type, w.querySelector(".w-title").textContent])));
+  await dot("WL"); await dot("GP"); await dot("DES"); await page.waitForTimeout(500);
+  let t = await titles();
+  const lk = await page.evaluate(() => [...document.querySelectorAll(".win.linked")].length + "|" + [...document.querySelectorAll(".lnk-box input")].map((i) => i.value).join());
+  ok("[U] the dot gives windows a colour; a security window joining the colour takes its security (DES → NVDA); the colour's box shows it", t.DES === "DES · NVDA" && /^NVDA/.test(t.GP) && lk === "3|NVDA", JSON.stringify([t, lk]));
+  const n0 = await page.$$eval(".win", (w) => w.length);
+  await page.click('.win[data-type="WL"] .wl-row[data-sym="AAPL"]'); await page.waitForTimeout(700); t = await titles();
+  ok("[U] a row clicked in the amber watchlist goes to the amber chart and DES (no new window)", /^AAPL/.test(t.GP) && t.DES === "DES · AAPL" && (await page.$$eval(".win", (w) => w.length)) === n0, JSON.stringify(t));
+  await page.fill(".lnk-box input", "MSFT"); await page.press(".lnk-box input", "Enter"); await page.waitForTimeout(700); t = await titles();
+  ok("[U] a ticker typed in the colour's box: every window of that colour follows", /^MSFT/.test(t.GP) && t.DES === "DES · MSFT", JSON.stringify(t));
+  await page.fill('.win[data-type="DES"] [data-k="dsym"]', "NVDA"); await page.press('.win[data-type="DES"] [data-k="dsym"]', "Enter"); await page.waitForTimeout(700); t = await titles();
+  await page.evaluate(() => document.querySelector('.win[data-type="DES"] [data-shf="FA"]').click()); await page.waitForTimeout(800);
+  const fa = await page.evaluate(() => { const w = document.querySelector('.win[data-type="FA"]'); return w ? [w.classList.contains("linked"), w.querySelector(".w-title").textContent] : null; });
+  ok("[U] a security changed in one window (DES) moves the others; a window opened from it (FA) takes the colour", /^NVDA/.test(t.GP) && fa && fa[0] === true && fa[1] === "FINANCIALS · NVDA", JSON.stringify([t, fa]));
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/linked.png" });
+  // views as tabs
+  await page.click(".vt-add"); await page.fill(".vt-in", "Linked desk"); await page.press(".vt-in", "Enter"); await page.waitForTimeout(900);
+  const tab1 = await page.evaluate(() => [...document.querySelectorAll(".vt[data-id]")].map((b) => (b.classList.contains("on") ? "*" : "") + b.textContent).join("|"));
+  await cmd(page, "CLOSE"); await cmd(page, "CB"); await page.waitForTimeout(600);
+  await page.click(".vt-add"); await page.fill(".vt-in", "Rates"); await page.press(".vt-in", "Enter"); await page.waitForTimeout(900);
+  await page.click('.vt[data-id]:not(.on)'); await page.waitForTimeout(1500);
+  const back = await page.evaluate(() => ({ types: [...document.querySelectorAll(".win")].map((w) => w.dataset.type).sort().join(), linked: document.querySelectorAll(".win.linked").length, on: document.querySelector(".vt.on")?.textContent }));
+  ok("[U] + saves the desk as a view (a tab, active); clicking another tab opens its windows, colours included", tab1 === "*Linked desk" && back.types === "DES,FA,GP,WL" && back.linked === 4 && back.on === "Linked desk", JSON.stringify([tab1, back]));
+  await cmd(page, "CAL"); await page.waitForTimeout(500);
+  await page.click('.vt[data-id]:not(.on)'); await page.waitForTimeout(1500);
+  const saved = await page.evaluate(async () => { const j = await (await fetch("/api/user/views")).json(); const v = j.views.find((x) => x.name === "Linked desk"); return v ? v.layout.map((x) => x.type).sort().join() : null; });
+  ok("[U] the view you leave is saved with its windows (CAL opened there is kept); the other tab opens", saved === "CAL,DES,FA,GP,WL" && (await page.$$eval(".win", (w) => w.map((x) => x.dataset.type).join())) === "CB", String(saved));
+  await page.dblclick('.vt.on'); await page.fill(".vt-in", "Rates desk"); await page.press(".vt-in", "Enter"); await page.waitForTimeout(800);
+  const ren = await page.evaluate(() => [...document.querySelectorAll(".vt[data-id]")].map((b) => (b.classList.contains("on") ? "*" : "") + b.textContent).join("|"));
+  await page.click('.vt[data-id]:not(.on)', { button: "right" }); await page.waitForTimeout(200); await page.click(".vt-del"); await page.waitForTimeout(800);
+  const del = await page.evaluate(() => [...document.querySelectorAll(".vt[data-id]")].map((b) => b.textContent).join("|"));
+  ok("[U] double-click renames a tab; right-click asks, then deletes", ren === "Linked desk|*Rates desk" && del === "Rates desk", JSON.stringify([ren, del]));
+  await page.reload(); await page.waitForTimeout(2500);
+  const rl = await page.evaluate(() => ({ on: document.querySelector(".vt.on")?.textContent, types: [...document.querySelectorAll(".win")].map((w) => w.dataset.type).join() }));
+  ok("[U] reopening the page brings back the view you were in", rl.on === "Rates desk" && rl.types === "CB", JSON.stringify(rl));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[U] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 

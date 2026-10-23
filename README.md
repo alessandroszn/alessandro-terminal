@@ -291,6 +291,20 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## As on Nico's terminal: colour-linked windows, views as tabs, refresh times (23 Oct 2026)
+- The dot left of a window's title gives it a colour (click: amber, blue, green, pink, none). Windows of one colour follow
+  one security: changing it in one of them (GP, DES, OMON, FA, ERN, CN), or typing it in the colour's box in the top
+  bar, changes it in all; a row clicked in a list of that colour (watchlist, movers, members, holdings…) goes to them
+  instead of opening another chart; a window opened from a coloured one takes its colour. Kept in saved views (`link`
+  1–4 in each window of a view).
+- Saved views are tabs under the top bar: click opens, + saves the desk as a new view, double-click renames (PUT
+  `/api/user/views?id=` {name}), right-click asks then deletes. The view you leave — another tab, a view opened from
+  VIEW or Alt+1…9, or the page hidden — is saved again if its windows changed (PUT {layout, desk}: one KV write each
+  time, only on a change). Reopening the page brings back the view you were in (remembered in the browser, `at-view`).
+- Each window's title shows when its data was read and when it is read next (↻ 14:05 → 14:10): the latest answer it
+  used and the shortest cache time of those answers, or the next quote pull for windows on live quotes. The 30-second
+  sweep redraws a window whose time has come, which reads its data again.
+
 ## A company and an ETF, as on Nico's terminal: FA, CN, ERN of one company, HOLD (23 Oct 2026, no new provider)
 - `AAPL FA` (`FA AAPL`): financial statements from the company's own filings — SEC EDGAR XBRL company concepts
   (`/api/fa?symbol=&c=<line>`, src/security.mjs; one line per request, two at a time from the page: SEC refuses bursts

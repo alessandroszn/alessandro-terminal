@@ -306,6 +306,17 @@ r = await call("/api/user/views", J("POST", { name: "morning", layout: [{ type: 
 ok("views: the same name (any case) replaces that view", r.status === 200 && r.j.replaced === true && r.j.views.length === 1 && r.j.views[0].id === vid && r.j.views[0].layout[0].type === "CB");
 r = await call("/api/user/views", J("POST", { name: "x", layout: [{ type: "bad type", state: {}, x: 0, y: 0, w: 1, h: 1 }] }), envU);
 ok("views: bad window type / missing name / huge state refused", r.status === 400 && (await call("/api/user/views", J("POST", { layout: [{ type: "CB", x: 0, y: 0, w: 1, h: 1 }] }), envU)).status === 400 && (await call("/api/user/views", J("POST", { name: "big", layout: [{ type: "CB", state: { s: "x".repeat(5000) }, x: 0, y: 0, w: 1, h: 1 }] }), envU)).status === 400);
+r = await call("/api/user/views", J("POST", { name: "Linked", layout: [{ type: "GP", state: { ticker: "AAPL" }, x: 0, y: 0, w: 500, h: 400, link: 2 }, { type: "DES", state: {}, x: 0, y: 0, w: 500, h: 400, link: 9 }] }), envU);
+const lid = r.j.saved;
+ok("views: a window's colour link (1–4) is kept; anything else dropped", r.status === 201 && r.j.views.find((v) => v.id === lid).layout[0].link === 2 && !("link" in r.j.views.find((v) => v.id === lid).layout[1]));
+r = await call(`/api/user/views?id=${lid}`, J("PUT", { name: "Linked desk" }), envU);
+ok("views: renamed in place (same id, same windows)", r.status === 200 && r.j.views.find((v) => v.id === lid).name === "Linked desk" && r.j.views.find((v) => v.id === lid).layout.length === 2);
+r = await call(`/api/user/views?id=${lid}`, J("PUT", { layout: [{ type: "CB", state: {}, x: 10, y: 10, w: 600, h: 400 }], desk: { w: 1600, h: 900 } }), envU);
+ok("views: its windows saved again (the tab you leave), name kept", r.status === 200 && r.j.views.find((v) => v.id === lid).layout[0].type === "CB" && r.j.views.find((v) => v.id === lid).name === "Linked desk");
+r = await call(`/api/user/views?id=${lid}`, J("PUT", { name: "MORNING" }), envU);
+const vr2 = await call("/api/user/views?id=nope", J("PUT", { name: "x" }), envU), vr3 = await call(`/api/user/views?id=${lid}`, J("PUT", { layout: [] }), envU);
+ok("views: a name another view has, an unknown view or an empty layout refused", r.status === 400 && vr2.status === 404 && vr3.status === 400);
+await call(`/api/user/views?id=${lid}`, { method: "DELETE" }, envU);
 r = await call(`/api/user/views?id=${vid}`, { method: "DELETE" }, envU);
 ok("views: delete", r.status === 200 && r.j.views.length === 0);
 r = await call("/api/user/alerts", undefined, { ...env, BRIEFS: undefined });
