@@ -4,7 +4,7 @@
 // (Xetra CSV, Twelve Data JSON, justETF profile HTML, CNBC restQuote / bars) — nothing here is shown.
 //   node test/etf.test.mjs
 import { app as worker } from "../src/worker.mjs";
-import { parseXetra, parseTdEtfs, buildEtfUniverse, refreshEtfRef, etfDetail, parseJustEtfFull, weightPairs, seriesStats, exposure, XETRA_URL, TD_ETFS_URL } from "../src/etf.mjs";
+import { parseXetra, parseTdEtfs, buildEtfUniverse, refreshEtfRef, etfDetail, parseJustEtfFull, weightPairs, seriesStats, exposure, XETRA_URL, TD_ETFS_URL, jeDetails, jeMoreUrls, vrowOf } from "../src/etf.mjs";
 import { tableLine, patchTable, tableMap, refFromLine, TABLE_COLS } from "../src/etfref.mjs";
 import { UCITS_ETFS, justEtfUrl } from "../src/ucits.mjs";
 
@@ -155,6 +155,38 @@ ok("/api/etf/resolve: the Milan ticker (UCITS list), the Xetra mnemonic and C:<c
 c = await call("/api/etf/exposure?w=IE00B4L5Y983:70,IE00B4WXJJ64:30");
 ok("/api/etf/exposure: the funds' composition weighted, coverage said, DERIVED", c.status === 200 && c.j.countries[0][0] === "United States" && c.j.coverage.countries === 100 && c.j.status === "DERIVED" && c.j.funds.length === 2, JSON.stringify(c.j).slice(0, 300));
 ok("no response carries anything but reference data and CNBC's own quotes (no justETF price)", !/"nav"|justetf.*price/i.test(c.text));
+
+// ---------- the page's other tables and the "Show more" lists (markup of the live page, 23 Oct 2026) ----------
+const MORE_PAGE = `<html><head><title>Vanguard FTSE All-World UCITS ETF (USD) Accumulating | VWRA | IE00BK5BQT80</title></head><body>
+<table><tr><td class="vallabel">Total expense ratio</td><td class="val2" data-testid="tl_etf-basics_value_ter">0.19% p.a.</td></tr>
+<tr><td class="vallabel"> Fund size </td><td class="val2">EUR 55,100 m</td></tr><tr><td class="vallabel">Distribution policy</td><td>Accumulating</td></tr></table>
+<tr><td class="vallabel"> Fund Structure </td><td class="val2">Open-ended Investment Company (OEIC)</td></tr><tr><td class="vallabel"> UCITS compliance </td><td class="val2">Yes</td></tr>
+<tr><td class="vallabel"> Administrator </td><td class="val2">Brown Brothers Harriman Fund Administration Services (Ireland) Limited</td></tr><tr><td class="vallabel"> Custodian Bank </td><td class="val2">Brown Brothers Harriman Trustee Services (Ireland) Limited</td></tr>
+<tr><td class="vallabel"> Revision Company </td><td class="val2">KPMG</td></tr><tr><td class="vallabel"> Fiscal Year End </td><td class="val2">30 June</td></tr>
+<tr><td class="vallabel"> Germany </td><td class="val2"><span class="uielem">30% tax rebate</span><span class="caption-info uielem"></span></td></tr><tr><td class="vallabel"> Italy </td><td class="val2"><span class="uielem">26.0%</span><span class="caption-info uielem"></span></td></tr>
+<tr><td class="vallabel"> Indextype </td><td class="val2"><span>Total return index</span></td></tr><tr><td class="vallabel"> Swap counterparty </td><td class="val2"><span>-</span></td></tr>
+<tr><td class="vallabel"> Securities lending </td><td class="val2"><span>Yes</span></td></tr><tr><td class="vallabel"> Securities lending counterparty </td><td class="val2"><span>Barclays Bank Plc|BNP Paribas SA|UBS AG</span></td></tr>
+<div data-testid="tl_etf-holdings_reference-date">As of 31/08/2026</div>
+<tr><td data-testid="tl_etf-holdings_countries_value_name">United States</td><td data-testid="tl_etf-holdings_countries_value_percentage">59.77%</td></tr><tr><td data-testid="tl_etf-holdings_countries_value_name">Other</td><td data-testid="tl_etf-holdings_countries_value_percentage">40.23%</td></tr>
+<script>Wicket.Ajax.ajax({"u":"/en/etf-profile.html?1-1.0-holdingsSection-countries-loadMoreCountries&isin=IE00BK5BQT80&_wicket=1","c":"loadMoreCountries6","e":"click","pd":true});;
+Wicket.Ajax.ajax({"u":"/en/etf-profile.html?1-1.0-holdingsSection-sectors-loadMoreSectors&isin=IE00BK5BQT80&_wicket=1","c":"loadMoreSectors7","e":"click","pd":true});;</script>
+${"<p>filler</p>".repeat(100)}</body></html>`;
+const dt = jeDetails(MORE_PAGE);
+ok("justETF: structure, service providers, tax status (Italy too), index type, securities lending and its counterparties, the date of the holdings", dt.fundStructure === "Open-ended Investment Company (OEIC)" && dt.ucitsCompliant === true && /^Brown Brothers/.test(dt.custodian) && dt.auditor === "KPMG" && dt.fiscalYearEnd === "30 June"
+  && dt.tax.IT === "26.0%" && dt.tax.DE === "30% tax rebate" && !("CH" in dt.tax) && dt.indexType === "Total return index" && dt.swapCounterparty === null && dt.securitiesLending === true && dt.lendingCounterparties.length === 3 && dt.holdingsAsOf === "2026-08-31", JSON.stringify(dt));
+ok("justETF: a label is read only as a table label (a country named in a list is not a tax row)", vrowOf('<td data-testid="x">Italy</td><td>3.1%</td>', "Italy") === null);
+const mu = jeMoreUrls(MORE_PAGE);
+ok("justETF: the page's own \"Show more\" requests for countries and sectors", /\?1-1\.0-holdingsSection-countries-loadMoreCountries&isin=IE00BK5BQT80&_wicket=1$/.test(mu.countries) && /loadMoreSectors/.test(mu.sectors));
+const XML = (k, rows) => `<?xml version="1.0" encoding="UTF-8"?><ajax-response><component id="x"><![CDATA[${rows.map(([n, v]) => `<tr><td data-testid="tl_etf-holdings_${k}_value_name">${n}</td><td data-testid="tl_etf-holdings_${k}_value_percentage">${v}%</td></tr>`).join("")}]]></component></ajax-response>`;
+const moreAsked = [];
+const fetchMore = async (u, o = {}) => { moreAsked.push({ u, h: o.headers || {} });
+  if (u === justEtfUrl("IE00BK5BQT80")) return { text: MORE_PAGE, http: 200, cookie: "JSESSIONID=abc; AWSALB=x" };
+  if (/loadMoreCountries/.test(u)) return { text: XML("countries", [["United States", 59.77], ["Japan", 5.97], ["Taiwan", 3.29], ["United Kingdom", 3.25], ["China", 2.49], ["India", 1.58], ["Other", 23.65]]), http: 200 };
+  if (/loadMoreSectors/.test(u)) return { text: XML("sectors", [["Technology", 30], ["Finance", 20]]), http: 200 }; // a list that does not add up: not taken
+  return { err: "no_data" }; };
+const dm = await etfDetail(env, "IE00BK5BQT80", now0 + 30 * 86400_000, fetchMore);
+const mc = moreAsked.find((a) => /loadMoreCountries/.test(a.u));
+ok("justETF \"Show more\": asked in the page's session (its cookies, Wicket's headers); the whole country list kept, a partial sector list not", dm.data && dm.data.countries.length === 7 && dm.data.countriesFull === true && dm.data.countries[2][0] === "Taiwan" && !dm.data.sectorsFull && mc && mc.h.cookie === "JSESSIONID=abc; AWSALB=x" && mc.h["wicket-ajax"] === "true" && mc.u.startsWith("https://www.justetf.com/en/etf-profile.html?1-1.0-"), JSON.stringify(dm.data && dm.data.countries));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

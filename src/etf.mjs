@@ -20,7 +20,8 @@ export const XETRA_URL = "https://www.cashmarket.deutsche-boerse.com/resource/bl
 export const XETRA_PAGE = "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/Tradable-Instruments-Xetra/";
 export const TD_ETFS_URL = "https://api.twelvedata.com/etfs?country=United%20States";
 // the parser's version: records read by an earlier one are read again (prio2: every priority fund re-read once)
-const PARSER_V = 3; // 3 (23 Oct 2026): index, approach, sustainability, payout frequency, the top 10 with their ISINs
+const PARSER_V = 4; // 3 (23 Oct 2026): index, approach, sustainability, payout frequency, the top 10 with their ISINs;
+// 4 (23 Oct 2026): the full country and sector lists ("Show more"), legal structure, tax status, securities lending, index type
 const K = { uni: "etf/universe", isins: "etf/isins", us: "etf/us", table: "ref/je/table", prio: "ref/je/prio2", detail: (i) => `ref/je/${i}` };
 const DAY = 86400_000, YEAR = 31_557_600_000, SLOT = 900_000, REFRESH = 7 * DAY, BACKOFF = 6 * 3600_000, KEEP = 45 * 86400;
 const put = (env, k, v) => env.BRIEFS.put(k, typeof v === "string" ? v : JSON.stringify(v), { expirationTtl: KEEP });
@@ -127,6 +128,26 @@ export function rowsOf(html, nameId, pctId, max = 12) {
   }
   return out;
 }
+// the page's label / value tables without data-testid (legal structure, tax status, replication details), checked 23 Oct
+// 2026: <td class="vallabel"> Label </td><td class="val2">value</td>; a list (counterparties) separated by "|" or <br>
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function vrowOf(html, label, list = false) {
+  const m = new RegExp(`<td[^>]*class="vallabel"[^>]*>\\s*${reEsc(label)}\\s*</td>\\s*<td[^>]*>([\\s\\S]{0,4000}?)</td>`).exec(String(html || ""));
+  if (!m) return null;
+  if (list) { const parts = m[1].replace(/<br\s*\/?>/gi, "|").split("|").map((x) => clean(x)).filter((x) => x && x !== "-"); return parts.length ? parts.slice(0, 40) : null; }
+  const t = clean(m[1]); return t && t !== "-" && t.length <= 160 ? t : null;
+}
+const TAX_COUNTRIES = [["IT", "Italy"], ["DE", "Germany"], ["CH", "Switzerland"], ["AT", "Austria"], ["UK", "UK"]];
+// the extra tables of the page: structure, service providers, tax status by country, replication details
+export function jeDetails(html) {
+  const tax = {}; for (const [k, l] of TAX_COUNTRIES) { const v = vrowOf(html, l); if (v) tax[k] = v; }
+  const yn = (v) => (v === "Yes" ? true : v === "No" ? false : null);
+  const asOf = /data-testid="tl_etf-holdings_reference-date"[^>]*>\s*As of (\d{2})\/(\d{2})\/(\d{4})/.exec(String(html || ""));
+  return { fundStructure: vrowOf(html, "Fund Structure"), ucitsCompliant: yn(vrowOf(html, "UCITS compliance")), administrator: vrowOf(html, "Administrator"), custodian: vrowOf(html, "Custodian Bank"),
+    auditor: vrowOf(html, "Revision Company"), fiscalYearEnd: vrowOf(html, "Fiscal Year End"), indexType: vrowOf(html, "Indextype"), swapCounterparty: vrowOf(html, "Swap counterparty"),
+    collateralManagers: vrowOf(html, "Collateral manager", true), securitiesLending: yn(vrowOf(html, "Securities lending")), lendingCounterparties: vrowOf(html, "Securities lending counterparty", true),
+    tax: Object.keys(tax).length ? tax : null, holdingsAsOf: asOf ? `${asOf[3]}-${asOf[2]}-${asOf[1]}` : null };
+}
 export function parseJustEtfFull(html) {
   const base = parseJustEtf(html); if (!base) return null;
   const title = (/<title>([^<]*)<\/title>/.exec(html) || [])[1], name = title ? clean(title).split(" | ")[0].trim() : null;
@@ -146,7 +167,26 @@ export function parseJustEtfFull(html) {
   return { ...base, name: name || null, provider: prov ? prov[1] : null, focus: focus ? focus[1] : null,
     index: index && index.length <= 120 ? index : null, approach: approach && approach.length <= 40 ? approach : null, sustainable: sust === "Yes" ? true : sust === "No" ? false : null, payouts: every && every.length <= 30 ? every : null,
     top10: holdings.length ? holdings : null, top10Weight: topW ? Number(topW[2]) : null, holdingsTotal: topW ? Number(topW[1].replace(/,/g, "")) : base.holdings,
-    countries: countries.length ? countries : null, sectors: sectors.length ? sectors : null };
+    countries: countries.length ? countries : null, sectors: sectors.length ? sectors : null, ...jeDetails(html) };
+}
+// "Show more" under the countries and the sectors: the page's own request (Wicket AJAX, its URL in the page's script) in
+// the session the page set (its cookies) returns the longer list — e.g. 10–13 countries and "Other" instead of 4
+export function jeMoreUrls(html) {
+  const out = {}, re = /"u":"(\/en\/etf-profile\.html\?\d+-\d+\.\d+-holdingsSection-(countries|sectors)-loadMore(?:Countries|Sectors)&(?:amp;)?isin=[A-Z0-9]{12}&(?:amp;)?_wicket=1)"/g;
+  let m; while ((m = re.exec(String(html || "")))) out[m[2]] = m[1].replace(/&amp;/g, "&");
+  return out;
+}
+async function jeMore(page, fetchImpl) {
+  const urls = jeMoreUrls(page.text), out = {};
+  if (!page.cookie) return out;
+  for (const k of ["countries", "sectors"]) {
+    if (!urls[k]) continue;
+    const f = await fetchImpl("https://www.justetf.com" + urls[k], { timeoutMs: 12000, headers: { cookie: page.cookie, "wicket-ajax": "true", "wicket-ajax-baseurl": "en/etf-profile.html", accept: "text/xml, */*", "accept-language": "en" } });
+    if (f.err) continue;
+    const rows = rowsOf(f.text, `tl_etf-holdings_${k}_value_name`, `tl_etf-holdings_${k}_value_percentage`, 40), sum = rows.reduce((a, r) => a + r[1], 0);
+    if (rows.length && Math.abs(sum - 100) <= 2) out[k] = rows; // a whole list (with its "Other"), else the page's own stays
+  }
+  return out;
 }
 
 // the funds read first and weekly: the UCITS list, the portfolio's and every profile opened (ref/je/prio: isin → time)
@@ -155,6 +195,7 @@ async function readJe(env, isin, now, fetchImpl) {
   const f = await fetchImpl(justEtfUrl(isin), { timeoutMs: 15000, headers: { accept: "text/html", "accept-language": "en" } });
   if (f.err && f.err !== "no_data") return { fail: f.err };
   const m = f.err ? null : parseJustEtfFull(f.text);
+  if (m) { const more = await jeMore(f, fetchImpl); for (const k of ["countries", "sectors"]) if (more[k] && more[k].length > (m[k] || []).length) { m[k] = more[k]; m[k + "Full"] = true; } }
   return m ? { m: { ...m, v: PARSER_V, fetchedAt: now } } : { none: f.err || "no_reference_data" };
 }
 // the */5 cron: one fund a run — a priority fund not read for a week, else the next fund of the universe by time

@@ -18,6 +18,13 @@ export async function mapLimit(items, n, fn) {
   return out;
 }
 
+// the cookies a response sets, as a Cookie header to send back (a site's session, e.g. justETF's "Show more" lists)
+export function cookieOf(h) {
+  if (!h) return null;
+  const list = typeof h.getSetCookie === "function" ? h.getSetCookie() : typeof h.getAll === "function" ? h.getAll("set-cookie") : String(h.get("set-cookie") || "").split(/,(?=\s*[A-Za-z0-9_.-]+=)/);
+  const pairs = list.map((c) => String(c || "").split(";")[0].trim()).filter((c) => /^[A-Za-z0-9_.-]+=/.test(c));
+  return pairs.length ? pairs.join("; ") : null;
+}
 export async function fetchText(url, { timeoutMs = 8000, headers = {}, method, body } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
@@ -30,7 +37,7 @@ export async function fetchText(url, { timeoutMs = 8000, headers = {}, method, b
     if (r.status === 404) return { err: "no_data", http: r.status };
     if (!r.ok) return { err: "provider_error", http: r.status };
     if (!text || !text.trim()) return { err: "provider_error", http: r.status };
-    return { text, http: r.status };
+    return { text, http: r.status, cookie: cookieOf(r.headers) };
   } catch {
     return { err: ac.signal.aborted ? "provider_timeout" : "provider_unreachable" };
   } finally {

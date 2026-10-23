@@ -291,6 +291,19 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
 - `SEAS NVDA` — returns by month × year from 10 years of monthly closes (a month without the previous close stays
   empty), averages, medians, % positive; by weekday from the daily closes.
 
+## ETFs: regions, developed / emerging, structure, lending, tax (23 Oct 2026, justETF only)
+- justETF's "Show more" under the countries and the sectors is read too: the page's own request (Wicket AJAX, its URL in
+  the page's script) in the session the page set (its cookies, `cookieOf` in lib.mjs) returns the longer lists — e.g.
+  10–13 countries and "Other" instead of 4. Kept only when the list adds up to 100 % (else the page's own list stays).
+- The rest of a fund's page, read by its label cells: fund structure, UCITS, custodian, administrator, auditor, fiscal
+  year end, index type (total / price return), swap counterparty, collateral managers, securities lending and its
+  counterparties, tax status (Italy, Germany, Switzerland, Austria, UK), the date of the holdings. Parser version 4: the
+  funds read before are read again (a profile when opened, the others with the weekly round).
+- Regions (North America, Europe, Japan, Pacific ex Japan, Israel, Emerging Asia, Latin America, emerging Europe /
+  Middle East / Africa) and developed / emerging (MSCI's market classification), DERIVED in the page from the countries
+  listed; justETF's "Other" stays not classified. In EFP, EFC (new REGIONS view; PROFILE: index type, lending, tax in
+  Italy, developed / emerging), HOLD and EXPO (the portfolio looked through).
+
 ## Boards: editable, returns in another currency (23 Oct 2026, as on Nico's terminal)
 - ✎ in the title of a built-in board (FUT, CMDTY, FX, IDX, CRYPTO, ETF, UCITS, MKT): click rows to hide or show them,
   DONE to finish; a group whose rows are all hidden goes too. Kept on the server (`PUT /api/user/bcfg`, KV `ud/bcfg`,

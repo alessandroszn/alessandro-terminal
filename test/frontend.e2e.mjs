@@ -1504,12 +1504,12 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     [HD[1], "0.19", "55100", "EUR", "A", "P", "Sampling", "Ireland", "USD", "0", "Vanguard", "Equity, World", "ETF", "23 July 2019", "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", day0].join("\t")].join("\n"));
   PV.kv.set("ref/je/" + HD[0], JSON.stringify({ ter: 0.2, fundSize: { value: 131754e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Optimized sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "25 September 2009", holdings: 1252, legalStructure: "ETF",
     name: "iShares Core MSCI World UCITS ETF USD (Acc)", provider: "iShares", focus: "Equity, World", index: "MSCI World", approach: "Long-only", sustainable: false, payouts: null,
-    top10: [["NVIDIA Corp.", 5.53, "US67066G1040"], ["Apple", 5.07, "US0378331005"], ["Microsoft Corp", 3.9, "US5949181045"]], top10Weight: 26.64, holdingsTotal: 1252, countries: [["United States", 71.53], ["Japan", 5.28], ["Other", 23.19]], sectors: [["Technology", 29.12], ["Other", 70.88]], v: 3, fetchedAt: Date.now() - 86400_000 }));
+    top10: [["NVIDIA Corp.", 5.53, "US67066G1040"], ["Apple", 5.07, "US0378331005"], ["Microsoft Corp", 3.9, "US5949181045"]], top10Weight: 26.64, holdingsTotal: 1252, countries: [["United States", 71.53], ["Japan", 5.28], ["Other", 23.19]], sectors: [["Technology", 29.12], ["Other", 70.88]], v: 4, fetchedAt: Date.now() - 86400_000 }));
   // the Vanguard fund's justETF record (test input in the page's format), for the deeper compare
   PV.kv.set("ref/je/" + HD[1], JSON.stringify({ ter: 0.19, fundSize: { value: 55100e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "23 July 2019", holdings: 3759, legalStructure: "ETF",
     name: "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", provider: "Vanguard", focus: "Equity, World", index: "FTSE All-World", approach: "Long-only", sustainable: false, payouts: null,
     top10: [["NVIDIA Corp.", 4.9, "US67066G1040"], ["Apple", 4.4, "US0378331005"], ["Taiwan Semiconductor Manufacturing", 1.4, "TW0002330008"]], top10Weight: 22.1, holdingsTotal: 3759,
-    countries: [["United States", 62.5], ["Japan", 5.9], ["China", 3.1], ["Other", 28.5]], sectors: [["Technology", 27.4], ["Financials", 16.2], ["Other", 56.4]], v: 3, fetchedAt: Date.now() - 86400_000 }));
+    countries: [["United States", 62.5], ["Japan", 5.9], ["China", 3.1], ["Other", 28.5]], sectors: [["Technology", 27.4], ["Financials", 16.2], ["Other", 56.4]], v: 4, fetchedAt: Date.now() - 86400_000 }));
   const pfQ = { tx: [{ id: "t0", date: "2026-01-05", side: "BUY", sym: "C:EUNL-DE", qty: 10, price: 110, ccy: "EUR", fees: 0, note: "", created: 1 }], posts: [], deletes: [] };
   const api = { ...OK_API, portfolio: (u) => pfApi(u, "GET", null, pfQ) };
   const { page, errors } = await openTerminal(api);
@@ -1988,7 +1988,7 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   PV.kv.set("etf/us", JSON.stringify({ fetchedAt: Date.now() - 3600_000, source: "Twelve Data — ETF list (reference data)", rows: [["SPY", "SPDR S&P 500 ETF Trust", "ARCX"]] }));
   PV.kv.set("ref/je/IE00BK5BQT80", JSON.stringify({ ter: 0.19, fundSize: { value: 55100e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "23 July 2019", holdings: 3759,
     name: "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", provider: "Vanguard", focus: "Equity, World", index: "FTSE All-World", top10: [["NVIDIA Corp.", 4.9, "US67066G1040"], ["Apple", 4.4, "US0378331005"]], top10Weight: 22.1, holdingsTotal: 3759,
-    countries: [["United States", 62.5], ["Japan", 5.9], ["Other", 31.6]], sectors: [["Technology", 27.4], ["Other", 72.6]], v: 3, fetchedAt: Date.now() - 86400_000 }));
+    countries: [["United States", 62.5], ["Japan", 5.9], ["Other", 31.6]], sectors: [["Technology", 27.4], ["Other", 72.6]], v: 4, fetchedAt: Date.now() - 86400_000 }));
   const { page, errors } = await openTerminal(OK_API);
   await page.waitForTimeout(1200);
   await cmd(page, "CLOSE"); await cmd(page, "AAPL FA"); await page.waitForTimeout(2500);
@@ -2141,6 +2141,39 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[W] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   PV.kv.delete("ud/bcfg");
+  await page.close();
+}
+
+// =============== X. ETFs: regions and developed / emerging (DERIVED from justETF's countries), structure, lending, tax ===============
+{
+  const VW = "IE00BK5BQT80", SW = "IE00B4L5Y983";
+  PV.kv.set("etf/universe", JSON.stringify({ asOf: "2026-10-21", fetchedAt: Date.now() - 3600_000, source: "Deutsche Börse — T7 (Xetra) All tradable instruments", sourceUrl: "https://www.cashmarket.deutsche-boerse.com/", rows: [[VW, "VANGUARD FTSE ALL-WLD U.ETF", "ETF", "Passive ETF", "A2PKXG", "VWCE:EUR"], [SW, "ISHSIII-CORE MSCI WLD DLA", "ETF", "Passive ETF", "A0RPWH", "EUNL:EUR IWDA:USD"]] }));
+  PV.kv.set("etf/us", JSON.stringify({ fetchedAt: Date.now() - 3600_000, source: "Twelve Data — ETF list (reference data)", rows: [["SPY", "SPDR S&P 500 ETF Trust", "ARCX"]] }));
+  const base = { ter: 0.19, fundSize: { value: 55100e6, currency: "EUR" }, distribution: "Accumulating", replication: "Physical (Sampling)", domicile: "Ireland", fundCurrency: "USD", hedged: false, inception: "23 July 2019", top10: [["NVIDIA Corp.", 4.9, "US67066G1040"]], top10Weight: 22.1, holdingsTotal: 3759, sectors: [["Technology", 30], ["Other", 70]], v: 4, fetchedAt: Date.now() - 86400_000 };
+  PV.kv.set("ref/je/" + VW, JSON.stringify({ ...base, name: "Vanguard FTSE All-World UCITS ETF (USD) Accumulating", provider: "Vanguard", focus: "Equity, World", index: "FTSE All-World", countriesFull: true, holdingsAsOf: "2026-08-31",
+    countries: [["United States", 59.77], ["Japan", 5.97], ["Taiwan", 3.29], ["United Kingdom", 3.25], ["Canada", 2.95], ["China", 2.49], ["South Korea", 2.48], ["Switzerland", 2.29], ["Germany", 1.85], ["France", 1.84], ["India", 1.58], ["Australia", 1.56], ["Netherlands", 1.38], ["Other", 9.3]],
+    fundStructure: "Open-ended Investment Company (OEIC)", ucitsCompliant: true, custodian: "Brown Brothers Harriman Trustee Services (Ireland) Limited", administrator: "Brown Brothers Harriman Fund Administration Services (Ireland) Limited", auditor: "KPMG", fiscalYearEnd: "30 June",
+    indexType: "Total return index", securitiesLending: true, lendingCounterparties: ["Barclays Bank Plc", "BNP Paribas SA", "UBS AG"], tax: { IT: "26.0%", DE: "30% tax rebate", CH: "ESTV Reporting", AT: "Tax Reporting Fund", UK: "UK Reporting" } }));
+  PV.kv.set("ref/je/" + SW, JSON.stringify({ ...base, ter: 0.2, name: "iShares Core MSCI World UCITS ETF USD (Acc)", provider: "iShares", focus: "Equity, World", index: "MSCI World", holdingsTotal: 1252,
+    countries: [["United States", 70.32], ["Japan", 5.79], ["United Kingdom", 3.68], ["Canada", 3.39], ["Switzerland", 2.58], ["Germany", 2.14], ["France", 2.13], ["Netherlands", 1.64], ["Australia", 1.59], ["Ireland", 1.05], ["Other", 5.69]],
+    indexType: "Total return index", securitiesLending: true, lendingCounterparties: ["Barclays Bank Plc"], tax: { IT: "26.0%" } }));
+  const { page, errors } = await openTerminal(OK_API);
+  await page.waitForTimeout(1200);
+  await cmd(page, "CLOSE"); await cmd(page, "EFP " + VW); await page.waitForTimeout(2500);
+  const ep = await page.evaluate(() => { const w = document.querySelector('.win[data-type="EFP"]'); return w ? w.querySelector(".win-body").innerText : ""; });
+  if (SHOTS) await page.screenshot({ path: SHOTS + "/efp-regions.png" });
+  ok("[X] EFP: regions DERIVED from the countries (North America 62.72%, Europe 10.61%, Emerging Asia 9.84%, Japan, Pacific; justETF's Other not classified), developed 80.9% / emerging 9.8%",
+    /REGIONS\s*DRV/.test(ep) && /North America\s+62\.72%/.test(ep) && /Europe\s+10\.61%/.test(ep) && /Emerging Asia\s+9\.84%/.test(ep) && /Japan\s+5\.97%/.test(ep) && /Pacific ex Japan\s+1\.56%/.test(ep) && /Not classified\s+\(justETF.s “Other”\)\s+9\.30%/.test(ep) && /DEVELOPED 80\.9%/.test(ep) && /EMERGING 9\.8%/.test(ep), ep.slice(ep.indexOf("REGIONS"), ep.indexOf("REGIONS") + 400));
+  ok("[X] EFP: structure, securities lending (with its counterparties), the tax status in Italy and elsewhere, the date of the holdings", /SECURITIES LENDING\s+Yes · 3 counterparties/.test(ep) && /TAX · ITALY\s+26\.0%/.test(ep) && /TAX · GERMANY\s+30% tax rebate/.test(ep) && /INDEX TYPE\s+Total return index/.test(ep) && /AUDITOR\s+KPMG/.test(ep) && /HOLDINGS AS OF\s+31 Aug 2026/.test(ep), ep.slice(ep.indexOf("STRUCTURE, LENDING"), ep.indexOf("STRUCTURE, LENDING") + 600));
+  await cmd(page, `EFC ${VW} ${SW}`); await page.waitForTimeout(2500);
+  await page.evaluate(() => document.querySelector('.win[data-type="EFC"] [data-efcv="REG"]').click()); await page.waitForTimeout(800);
+  const rg = await page.evaluate(() => [...document.querySelectorAll('.win[data-type="EFC"] tbody tr')].map((r) => r.innerText.replace(/\s+/g, " ").trim()));
+  ok("[X] EFC → REGIONS: the funds side by side by region, developed and emerging", rg.includes("North America 62.72% 73.71%") && rg.includes("Emerging Asia 9.84% 0.00%") && rg.includes("Europe 10.61% 13.22%") && rg.includes("DEVELOPED 80.86% 94.31%") && rg.includes("EMERGING 9.84% 0.00%") && rg.includes("Not classified 9.30% 5.69%"), JSON.stringify(rg));
+  await page.evaluate(() => document.querySelector('.win[data-type="EFC"] [data-efcv="PROF"]').click()); await page.waitForTimeout(600);
+  const pr = await page.evaluate(() => [...document.querySelectorAll('.win[data-type="EFC"] tbody tr')].map((r) => r.innerText.replace(/\s+/g, " ").trim()));
+  ok("[X] EFC → PROFILE: index type, securities lending, tax in Italy, developed / emerging", pr.includes("INDEX TYPE Total return index Total return index") && pr.some((x) => /^SECURITIES LENDING Yes · 3 counterparties Yes · 1 counterparties$/.test(x)) && pr.includes("TAX · ITALY 26.0% 26.0%") && pr.some((x) => /^DEVELOPED \/ EMERGING 80\.9% \/ 9\.8% · 9\.3% not classified 94\.3% \/ 0\.0% · 5\.7% not classified$/.test(x)), JSON.stringify(pr.slice(-6)));
+  const txt = await page.evaluate(() => document.body.innerText);
+  ok("[X] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   await page.close();
 }
 
