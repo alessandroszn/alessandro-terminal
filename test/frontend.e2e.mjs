@@ -1412,20 +1412,20 @@ const idxJ = (u) => u.pathname === "/api/indices/history" ? { body: { id: u.sear
     return { x: Math.round(r.left - d.left), y: Math.round(r.top - d.top), w: Math.round(r.width), h: Math.round(r.height), dw: Math.round(d.width), dh: Math.round(d.height), tb, pad: getComputedStyle(b.querySelector(".pf td") || b).paddingLeft }; }, t);
   let q = await fitOf("CENTRAL BANKS");
   ok("[M] a window dropped in the top-left corner: the top-left quarter", q.x === 0 && q.y === 0 && Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && Math.abs(q.h - Math.floor((q.dh - 6) / 2)) <= 1, JSON.stringify(q));
-  ok("[M] …its content adapts: denser rows, every table within the quarter (every column kept)", q.pad === "6px" && q.tb.length && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q.tb) + " pad " + q.pad);
+  ok("[M] …its content adapts: denser rows, every table within the quarter (every column kept)", q.pad === "6px" && q.tb.length && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.8"), JSON.stringify(q.tb) + " pad " + q.pad);
   await cmd(page, "IDX"); await page.waitForTimeout(2500);
   await dragTo("WORLD INDICES", dbox.x + dbox.w - 4, dbox.y + dbox.h - 4);
   q = await fitOf("WORLD INDICES");
-  ok("[M] …bottom-right corner: the bottom-right quarter; its wide table drawn smaller to fit", q.x === q.dw - q.w && q.y === q.dh - q.h && Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && q.tb.some((t) => t.z && +t.z < 1) && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q));
+  ok("[M] …bottom-right corner: the bottom-right quarter; its wide table drawn smaller to fit", q.x === q.dw - q.w && q.y === q.dh - q.h && Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && q.tb.some((t) => t.z && +t.z < 1) && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.8"), JSON.stringify(q));
   // four windows, one a corner
   await cmd(page, "COT"); await page.waitForTimeout(1200); await dragTo("FUTURES POSITIONING", dbox.x + dbox.w - 4, dbox.y + 4);
   await cmd(page, "YLD"); await page.waitForTimeout(1500); await dragTo("GOVERNMENT YIELDS", dbox.x + 4, dbox.y + dbox.h - 4);
   const four = await Promise.all(["CENTRAL BANKS", "FUTURES POSITIONING", "GOVERNMENT YIELDS", "WORLD INDICES"].map(fitOf));
   if (SHOTS) await page.screenshot({ path: SHOTS + "/quarters.png" });
-  ok("[M] four windows in the four corners: one a quarter each, none overlapping, every table within its window", four.every((q) => Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && Math.abs(q.h - Math.floor((q.dh - 6) / 2)) <= 1 && q.tb.every((x) => x.w <= x.host + 2 || x.z === "0.72")) && new Set(four.map((q) => q.x + "," + q.y)).size === 4, JSON.stringify(four.map((q) => [q.x, q.y, q.w, q.h, q.tb.map((x) => x.z + ":" + x.w + "/" + x.host).join(" ")])));
+  ok("[M] four windows in the four corners: one a quarter each, none overlapping, every table within its window", four.every((q) => Math.abs(q.w - Math.floor((q.dw - 6) / 2)) <= 1 && Math.abs(q.h - Math.floor((q.dh - 6) / 2)) <= 1 && q.tb.every((x) => x.w <= x.host + 2 || x.z === "0.8")) && new Set(four.map((q) => q.x + "," + q.y)).size === 4, JSON.stringify(four.map((q) => [q.x, q.y, q.w, q.h, q.tb.map((x) => x.z + ":" + x.w + "/" + x.host).join(" ")])));
   await page.click(".tb-tile").catch(() => null); await cmd(page, "TILE"); await page.waitForTimeout(800);
   q = await fitOf("WORLD INDICES");
-  ok("[M] …TILE: the four tiled 2 × 2, the tables still within their windows (at the smallest size they scroll)", Math.abs(q.h - (Math.floor(q.dh / 2) - 6)) <= 2 && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.72"), JSON.stringify(q));
+  ok("[M] …TILE: the four tiled 2 × 2, the tables still within their windows (at the smallest size they scroll)", Math.abs(q.h - (Math.floor(q.dh / 2) - 6)) <= 2 && q.tb.every((t) => t.w <= t.host + 2 || t.z === "0.8"), JSON.stringify(q));
   const txt = await page.evaluate(() => document.body.innerText);
   ok("[M] no forbidden wording, NaN or undefined; no JavaScript errors", !FORBIDDEN.test(txt) && !/\bNaN\b|undefined/.test(txt) && errors.length === 0, errors.join(" | "));
   if (SHOTS) { await cmd(page, "SPLIT NVDA MKT"); await page.waitForTimeout(1500); await page.screenshot({ path: SHOTS + "/split.png" }); }

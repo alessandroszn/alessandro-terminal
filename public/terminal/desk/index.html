@@ -4559,8 +4559,8 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   /* ---------- windows that adapt to their size (desktop, 23 Oct 2026) ----------
      A window in a quarter of the desk, or made small, keeps its content whole and readable: denser tables and two-column
      layouts stacked (container queries on .win-body, in the styles), and a table still wider than the window drawn smaller
-     to fit (CSS zoom, down to 72 %; below that it scrolls). Every column stays; nothing is hidden. */
-  const FIT_MIN=0.72;
+     to fit (CSS zoom, down to 80 % so the text stays readable; below that it scrolls). Every column stays; nothing is hidden. */
+  const FIT_MIN=0.8;
   function fitTables(w){if(!w||!w.bodyEl||w.min||phoneOn())return;const ts=[...w.bodyEl.querySelectorAll('table.pf')];if(!ts.length)return;
     ts.forEach(t=>{if(t.style.zoom)t.style.zoom='';});
     const z=ts.map(t=>{const h=t.parentElement;if(!h)return'';const cs=getComputedStyle(h),avail=h.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0),need=t.scrollWidth;

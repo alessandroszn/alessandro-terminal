@@ -372,7 +372,7 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   is maximised, at the left / right edge it takes that half (as before).
 - A window's content follows its own width (CSS container queries on `.win-body`, desktop only — the phone layout keeps
   its own rules): ≤ 820 px denser tables and two-column layouts stacked; ≤ 620 px denser still. A table still wider than
-  its window is drawn smaller to fit (CSS zoom, down to 72 %, on every repaint and size change — ResizeObserver); below
+  its window is drawn smaller to fit (CSS zoom, down to 80 %, on every repaint and size change — ResizeObserver); below
   that it scrolls. Every column stays.
 
 ## Split screen (desktop)
