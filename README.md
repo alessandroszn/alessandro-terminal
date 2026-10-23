@@ -301,8 +301,9 @@ CNBC for listings outside the plan). Results are cached per input; too little hi
   funds read before are read again (a profile when opened, the others with the weekly round).
 - Regions (North America, Europe, Japan, Pacific ex Japan, Israel, Emerging Asia, Latin America, emerging Europe /
   Middle East / Africa) and developed / emerging (MSCI's market classification), DERIVED in the page from the countries
-  listed; justETF's "Other" stays not classified. In EFP, EFC (new REGIONS view; PROFILE: index type, lending, tax in
-  Italy, developed / emerging), HOLD and EXPO (the portfolio looked through).
+  listed; justETF's "Other" stays not classified. In EFP, EFC (new REGIONS view; PROFILE: index type, lending and its
+  counterparties, collateral managers, swap counterparty, custodian, administrator, auditor, fiscal year end, tax status
+  in each country, holdings date, developed / emerging), HOLD and EXPO (the portfolio looked through).
 
 ## Boards: editable, returns in another currency (23 Oct 2026, as on Nico's terminal)
 - ✎ in the title of a built-in board (FUT, CMDTY, FX, IDX, CRYPTO, ETF, UCITS, MKT): click rows to hide or show them,

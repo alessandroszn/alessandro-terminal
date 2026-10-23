@@ -678,6 +678,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   .ef-dm b{color:var(--fg)}
   .ef-more{margin-top:4px}
   tr.efc-sum td{border-top:1px solid var(--line-2)}
+  .efc-p tr.grp td{color:var(--amber);letter-spacing:.1em;font-size:10px;padding-top:12px}
 </style>
 
 <div id="topband" aria-hidden="true"></div>
@@ -4298,11 +4299,25 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
         ${row(tl('INCEPTION','LANCIO'),r=>esc(r.inception||'—'))}
         ${row(tl('APPROACH','STRATEGIA'),r=>esc(r.approach||'—'))}
         ${row(tl('SUSTAINABLE','SOSTENIBILE'),r=>r.sustainable==null?'—':r.sustainable?tl('Yes','Sì'):tl('No','No'))}
-        ${row(tl('STRUCTURE','STRUTTURA'),r=>esc(r.legalStructure||'—')+(r.fundStructure?` <span class="k">· ${esc(r.fundStructure)}</span>`:''))}
+        ${row(tl('STRUCTURE','STRUTTURA'),r=>r.legalStructure?esc(r.legalStructure)+(r.fundStructure?` <span class="k">· ${esc(r.fundStructure)}</span>`:''):esc(r.fundStructure||'—'))}
         ${row(tl('INDEX TYPE','TIPO DI INDICE'),r=>esc(r.indexType||'—'))}
-        ${row(tl('SECURITIES LENDING','PRESTITO TITOLI'),r=>r.securitiesLending==null?'—':r.securitiesLending?tl('Yes','Sì')+(r.lendingCounterparties?` <span class="k">· ${r.lendingCounterparties.length} ${tl('counterparties','controparti')}</span>`:''):'No',tl('the fund lends its securities to these banks for a fee (collateral held against it)','il fondo presta i suoi titoli a queste banche dietro compenso (con collaterale a garanzia)'))}
+        ${row(tl('SECURITIES LENDING','PRESTITO TITOLI'),r=>r.securitiesLending==null?'—':r.securitiesLending?tl('Yes','Sì')+(r.lendingCounterparties?` <span class="k">· ${r.lendingCounterparties.length} ${r.lendingCounterparties.length===1?tl('counterparty','controparte'):tl('counterparties','controparti')}</span>`:''):'No',tl('the fund lends its securities to these banks for a fee (collateral held against it)','il fondo presta i suoi titoli a queste banche dietro compenso (con collaterale a garanzia)'))}
         ${row(tl('TAX · ITALY','FISCO · ITALIA'),r=>esc((r.tax&&r.tax.IT)||'—'))}
         ${row(tl('DEVELOPED / EMERGING','SVILUPPATI / EMERGENTI'),r=>{const g=efRegions(r.countries);return g?`${g.dm.toFixed(1)}% / ${g.em.toFixed(1)}%${g.nc>=0.05?` <span class="k">· ${g.nc.toFixed(1)}% ${tl('not classified','non classificati')}</span>`:''}`:'—';},efRegNote())}
+        <tr class="grp"><td colspan="${F.length+1}">${tl('STRUCTURE, LENDING AND TAX','STRUTTURA, PRESTITO TITOLI E FISCO')}</td></tr>
+        ${row('UCITS',r=>r.ucitsCompliant==null?'—':r.ucitsCompliant?tl('Yes','Sì'):'No')}
+        ${row(tl('LENDING COUNTERPARTIES','CONTROPARTI DEL PRESTITO'),r=>r.lendingCounterparties&&r.lendingCounterparties.length?`<span title="${esc(r.lendingCounterparties.join(' · '))}">${r.lendingCounterparties.length} · ${esc(r.lendingCounterparties.slice(0,3).join(', '))}${r.lendingCounterparties.length>3?' …':''}</span>`:'—',tl('the banks the fund lends its securities to (hover for all of them)','le banche a cui il fondo presta i titoli (passa sopra per vederle tutte)'))}
+        ${row(tl('COLLATERAL MANAGERS','GESTORI DEL COLLATERALE'),r=>r.collateralManagers&&r.collateralManagers.length?`<span title="${esc(r.collateralManagers.join(' · '))}">${esc(r.collateralManagers.join(', '))}</span>`:'—')}
+        ${row(tl('SWAP COUNTERPARTY','CONTROPARTE SWAP'),r=>esc(r.swapCounterparty||'—'),tl('synthetic funds only: the bank that pays the index return','solo fondi sintetici: la banca che paga il rendimento dell\'indice'))}
+        ${row(tl('CUSTODIAN','BANCA DEPOSITARIA'),r=>esc(r.custodian||'—'))}
+        ${row(tl('ADMINISTRATOR','AMMINISTRATORE'),r=>esc(r.administrator||'—'))}
+        ${row(tl('AUDITOR','REVISORE'),r=>esc(r.auditor||'—'))}
+        ${row(tl('FISCAL YEAR END','FINE ESERCIZIO'),r=>esc(r.fiscalYearEnd||'—'))}
+        ${row(tl('TAX · GERMANY','FISCO · GERMANIA'),r=>esc((r.tax&&r.tax.DE)||'—'))}
+        ${row(tl('TAX · SWITZERLAND','FISCO · SVIZZERA'),r=>esc((r.tax&&r.tax.CH)||'—'))}
+        ${row(tl('TAX · AUSTRIA','FISCO · AUSTRIA'),r=>esc((r.tax&&r.tax.AT)||'—'))}
+        ${row(tl('TAX · UK','FISCO · REGNO UNITO'),r=>esc((r.tax&&r.tax.UK)||'—'))}
+        ${row(tl('HOLDINGS AS OF','POSIZIONI AL'),r=>r.holdingsAsOf?esc(fmtDay(r.holdingsAsOf)):'—',tl('the date of the countries, sectors and top 10 on justETF','la data di paesi, settori e prime 10 su justETF'))}
       </tbody></table></div><div class="src-line">${chip(jeStat)}<span style="flex:1 1 320px;min-width:0">${src} ${read} · ${tl("as each fund's page states it; reference data, never prices. ◆ compares these funds only.","come lo dichiara la pagina di ogni fondo; dati anagrafici, mai prezzi. ◆ confronta solo questi fondi.")}</span></div>`;}
     else if(st.v==='HOLD'){
       const lists=F.map(f=>`<div><div class="yc-h" style="border-top:2px solid ${f.col};padding-top:4px">${esc(f.name)}${f.ref&&fin(f.ref.top10Weight)?` <span class="k">${f.ref.top10Weight.toFixed(2)}% ${tl('of','di')} ${fin(f.ref.holdingsTotal)?f.ref.holdingsTotal.toLocaleString('en-US'):'—'}</span>`:''}</div>${f.ref?efBars(f.ref.top10):`<div class="k">${naCell(f)}</div>`}</div>`).join('');
@@ -5049,7 +5064,7 @@ table.pf.ern tr.grp.today td{color:var(--amber)}
   // the rest of a fund's page: structure, service providers, securities lending, tax status
   function efDetails(ref){const kv=(k,v,t)=>`<div class="kv-r"${t?` title="${esc(t)}"`:''}><span class="k">${k}</span><b>${v}</b></div>`,yn=v=>v==null?'—':v?tl('Yes','Sì'):'No';
     const tax=ref.tax||{},cps=ref.lendingCounterparties||[],cms=ref.collateralManagers||[];
-    return`<div class="ef-kv ef-more">${kv(tl('INDEX TYPE','TIPO DI INDICE'),esc(ref.indexType||'—'))}${kv(tl('STRUCTURE','STRUTTURA'),esc(ref.fundStructure||'—'))}${kv('UCITS',yn(ref.ucitsCompliant))}${kv(tl('SECURITIES LENDING','PRESTITO TITOLI'),yn(ref.securitiesLending)+(cps.length?` <span class="k">· ${cps.length} ${tl('counterparties','controparti')}</span>`:''),cps.join(' · '))}
+    return`<div class="ef-kv ef-more">${kv(tl('INDEX TYPE','TIPO DI INDICE'),esc(ref.indexType||'—'))}${kv(tl('STRUCTURE','STRUTTURA'),esc(ref.fundStructure||'—'))}${kv('UCITS',yn(ref.ucitsCompliant))}${kv(tl('SECURITIES LENDING','PRESTITO TITOLI'),yn(ref.securitiesLending)+(cps.length?` <span class="k">· ${cps.length} ${cps.length===1?tl('counterparty','controparte'):tl('counterparties','controparti')}</span>`:''),cps.join(' · '))}
       ${ref.swapCounterparty?kv(tl('SWAP COUNTERPARTY','CONTROPARTE SWAP'),esc(ref.swapCounterparty)):''}${cms.length?kv(tl('COLLATERAL MANAGERS','GESTORI DEL COLLATERALE'),String(cms.length),cms.join(' · ')):''}${kv(tl('CUSTODIAN','BANCA DEPOSITARIA'),esc(ref.custodian||'—'))}${kv(tl('ADMINISTRATOR','AMMINISTRATORE'),esc(ref.administrator||'—'))}${kv(tl('AUDITOR','REVISORE'),esc(ref.auditor||'—'))}${kv(tl('FISCAL YEAR END','FINE ESERCIZIO'),esc(ref.fiscalYearEnd||'—'))}
       ${kv(tl('TAX · ITALY','FISCO · ITALIA'),esc(tax.IT||'—'),tl('as justETF states it for an Italian resident','come lo indica justETF per un residente in Italia'))}${kv(tl('TAX · GERMANY','FISCO · GERMANIA'),esc(tax.DE||'—'))}${kv(tl('TAX · SWITZERLAND','FISCO · SVIZZERA'),esc(tax.CH||'—'))}${kv(tl('TAX · AUSTRIA','FISCO · AUSTRIA'),esc(tax.AT||'—'))}${kv(tl('TAX · UK','FISCO · REGNO UNITO'),esc(tax.UK||'—'))}
       ${kv(tl('HOLDINGS AS OF','POSIZIONI AL'),ref.holdingsAsOf?esc(fmtDay(ref.holdingsAsOf)):'—')}</div>`;}
